@@ -1,3 +1,4 @@
+import type { Creature } from "../sim/creature.ts";
 import { GENE_RANGES, type Genome, geneticDistance } from "../sim/genome.ts";
 import { clamp, clamp01, lerp } from "../sim/util.ts";
 
@@ -100,3 +101,34 @@ export function okLchToCssRgb(L: number, C: number, hueRad: number): string {
 
 export const FOOD_R_COLOR = "#d9503d";
 export const FOOD_B_COLOR = "#3d7dd9";
+
+// A creature's genome never changes after birth (mutation only produces a new genome for its
+// children), and foundingCentroid is fixed for a SimState's lifetime — so its color is fixed
+// too, aside from ColorOptions changing. Recomputing the full OkLCh matrix chain for every
+// creature on every render frame is pure waste; cache by creature id and only recompute when
+// the options that actually affect the output change.
+const colorCache = new Map<number, { optionsKey: string; color: string }>();
+// Creature ids only ever go up, and a cache entry outlives its creature's death — so over a
+// long run this would otherwise grow without bound. Bounded, self-healing: once it's full we
+// drop the whole thing rather than track per-entry recency for what's a cosmetic cache.
+const MAX_CACHE_ENTRIES = 50_000;
+
+function colorOptionsKey(options: ColorOptions): string {
+  return `${options.deuteranopiaSafe ? 1 : 0}:${options.divergenceScale}`;
+}
+
+export function cachedGenotypeColor(creature: Creature, foundingCentroid: Genome, options: ColorOptions): string {
+  const optionsKey = colorOptionsKey(options);
+  const cached = colorCache.get(creature.id);
+  if (cached && cached.optionsKey === optionsKey) return cached.color;
+
+  const color = genotypeColor(creature.genome, foundingCentroid, options);
+  if (colorCache.size >= MAX_CACHE_ENTRIES) colorCache.clear();
+  colorCache.set(creature.id, { optionsKey, color });
+  return color;
+}
+
+/** Must be called on restart — creature ids are reused across runs, so a stale cache entry would show the wrong color. */
+export function resetGenotypeColorCache(): void {
+  colorCache.clear();
+}

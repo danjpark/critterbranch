@@ -1,4 +1,4 @@
-import type { Params } from "../ui/params.ts";
+import type { Params } from "../params.ts";
 import type { RNG } from "./rng.ts";
 import { clamp01, torDelta } from "./util.ts";
 

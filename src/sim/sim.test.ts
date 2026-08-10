@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createSimState, tick, type SimState } from "./sim.ts";
-import { DEFAULT_PARAMS } from "../ui/params.ts";
+import { DEFAULT_PARAMS } from "../params.ts";
 
 function hashState(state: SimState): string {
   const creatureSnapshot = state.creatures.map((c) => [

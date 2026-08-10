@@ -1,9 +1,9 @@
-import type { Genome } from "./genome.ts";
-import type { Params } from "../ui/params.ts";
+import { mutate, type Genome } from "./genome.ts";
+import type { Params } from "../params.ts";
 import type { RNG } from "./rng.ts";
 import type { TerrainGrid } from "./terrain.ts";
+import { torDelta, torDist, wrap, lerp } from "./util.ts";
 import type { World } from "./world.ts";
-import { torDelta, torDist, wrap } from "./util.ts";
 
 export interface Creature {
   id: number;
@@ -18,28 +18,30 @@ export interface Creature {
   birthTick: number;
 }
 
-export function createCreature(
-  id: number,
-  parentId: number | null,
-  lineageId: number,
-  genome: Genome,
-  x: number,
-  y: number,
-  energy: number,
-  birthTick: number,
-  rng: RNG,
-): Creature {
+export interface NewCreatureOptions {
+  id: number;
+  parentId: number | null;
+  lineageId: number;
+  genome: Genome;
+  x: number;
+  y: number;
+  energy: number;
+  birthTick: number;
+  rng: RNG;
+}
+
+export function createCreature(options: NewCreatureOptions): Creature {
   return {
-    id,
-    parentId,
-    lineageId,
-    genome,
-    x,
-    y,
-    heading: rng.nextRange(0, Math.PI * 2),
-    energy,
+    id: options.id,
+    parentId: options.parentId,
+    lineageId: options.lineageId,
+    genome: options.genome,
+    x: options.x,
+    y: options.y,
+    heading: options.rng.nextRange(0, Math.PI * 2),
+    energy: options.energy,
     age: 0,
-    birthTick,
+    birthTick: options.birthTick,
   };
 }
 
@@ -66,13 +68,20 @@ interface SenseResult {
   score: number;
 }
 
-function senseFood(creature: Creature, world: World, params: Params, worldWidth: number, worldHeight: number): SenseResult | null {
+/** rGain/bGain are passed in rather than recomputed here — they only depend on dietPref, not position. */
+function senseFood(
+  creature: Creature,
+  world: World,
+  params: Params,
+  worldWidth: number,
+  worldHeight: number,
+  rGain: number,
+  bGain: number,
+): SenseResult | null {
   const cellSize = params.gridCellSize;
   const cx = Math.floor(creature.x / cellSize);
   const cy = Math.floor(creature.y / cellSize);
   const radiusCells = Math.ceil(creature.genome.senseRadius / cellSize);
-  const rGain = gainPerUnit(creature.genome.dietPref, 0, params);
-  const bGain = gainPerUnit(creature.genome.dietPref, 1, params);
 
   let best: SenseResult | null = null;
   for (let dy = -radiusCells; dy <= radiusCells; dy++) {
@@ -104,8 +113,10 @@ function senseFood(creature: Creature, world: World, params: Params, worldWidth:
 export function stepCreature(creature: Creature, world: World, terrain: TerrainGrid, rng: RNG, params: Params): void {
   const worldWidth = world.cols * params.gridCellSize;
   const worldHeight = world.rows * params.gridCellSize;
+  const rGain = gainPerUnit(creature.genome.dietPref, 0, params);
+  const bGain = gainPerUnit(creature.genome.dietPref, 1, params);
 
-  const target = senseFood(creature, world, params, worldWidth, worldHeight);
+  const target = senseFood(creature, world, params, worldWidth, worldHeight, rGain, bGain);
   if (target) {
     const dx = torDelta(target.x, creature.x, worldWidth);
     const dy = torDelta(target.y, creature.y, worldHeight);
@@ -131,8 +142,6 @@ export function stepCreature(creature: Creature, world: World, terrain: TerrainG
   const idx =
     wrap(Math.floor(creature.y / params.gridCellSize), world.rows) * world.cols +
     wrap(Math.floor(creature.x / params.gridCellSize), world.cols);
-  const rGain = gainPerUnit(creature.genome.dietPref, 0, params);
-  const bGain = gainPerUnit(creature.genome.dietPref, 1, params);
   const rTake = Math.min(world.r[idx], params.intakeRate);
   const bTake = Math.min(world.b[idx], params.intakeRate);
 
@@ -145,4 +154,51 @@ export function stepCreature(creature: Creature, world: World, terrain: TerrainG
   }
 
   creature.age += 1;
+}
+
+export function isReadyToReproduce(creature: Creature, params: Params): boolean {
+  return creature.energy >= creature.genome.reproThreshold * energyCapacity(creature.genome, params);
+}
+
+/**
+ * Splits a parent's reproductive spend across its offspring and returns them.
+ * Mutates the parent's energy in place; does not check isReadyToReproduce itself
+ * (callers decide when to invoke this) and does not touch the parent's age/position
+ * beyond scattering children with a small jitter around it.
+ *
+ * Each child's birth energy is a fraction of ITS OWN capacity (see params.ts docs on
+ * offspringEnergyFraction{Min,Max}) — never the parent's, and never enough to itself clear
+ * the lowest possible reproThreshold. That constraint is what stops a single energy windfall
+ * from cascading into runaway fission (see Phase 1 commit history for the bug this replaced).
+ */
+export function reproduce(creature: Creature, rng: RNG, params: Params, tick: number, allocateId: () => number): Creature[] {
+  const numOffspring = Math.max(1, Math.round(lerp(params.maxOffspringCount, 1, creature.genome.offspringInvestment)));
+  const investmentFraction = lerp(
+    params.offspringEnergyFractionMin,
+    params.offspringEnergyFractionMax,
+    creature.genome.offspringInvestment,
+  );
+
+  const childGenomes = Array.from({ length: numOffspring }, () => mutate(creature.genome, rng));
+  const childEnergies = childGenomes.map((g) => investmentFraction * energyCapacity(g, params));
+  const totalCost = childEnergies.reduce((sum, e) => sum + e, 0);
+
+  // Never let reproduction push the parent below zero, even if a lucky mutation briefly
+  // inflated a child's capacity beyond what the parent can actually fund.
+  const affordableFraction = totalCost > 0 ? Math.min(1, creature.energy / totalCost) : 1;
+  creature.energy -= totalCost * affordableFraction;
+
+  return childGenomes.map((genome, i) =>
+    createCreature({
+      id: allocateId(),
+      parentId: creature.id,
+      lineageId: creature.lineageId,
+      genome,
+      x: wrap(creature.x + rng.nextRange(-1, 1), params.worldWidth),
+      y: wrap(creature.y + rng.nextRange(-1, 1), params.worldHeight),
+      energy: childEnergies[i] * affordableFraction,
+      birthTick: tick,
+      rng,
+    }),
+  );
 }

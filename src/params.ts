@@ -1,4 +1,9 @@
-/** All tunable simulation constants live here. The UI (later phases) exposes every one of these. */
+/**
+ * All tunable simulation constants live here. Every one of these is exposed in the UI
+ * (Phase 7). Lives at the src root, not under ui/ or sim/ — both the pure sim core and the
+ * render/ui layers depend on it, so it can't live inside either without inverting that
+ * dependency.
+ */
 
 export type FoodMode = "patchy" | "gradient";
 

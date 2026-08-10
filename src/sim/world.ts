@@ -1,4 +1,4 @@
-import type { Params } from "../ui/params.ts";
+import type { Params } from "../params.ts";
 import type { RNG } from "./rng.ts";
 import type { TerrainGrid } from "./terrain.ts";
 import { clamp, lerp, torDelta } from "./util.ts";

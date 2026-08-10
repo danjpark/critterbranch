@@ -1,10 +1,9 @@
-import { type Creature, createCreature, energyCapacity, stepCreature } from "./creature.ts";
-import { type Genome, genomeCentroid, mutate, randomGenome } from "./genome.ts";
+import { type Creature, createCreature, energyCapacity, isReadyToReproduce, reproduce, stepCreature } from "./creature.ts";
+import { type Genome, genomeCentroid, randomGenome } from "./genome.ts";
 import { RNG } from "./rng.ts";
 import { generateTerrain, type TerrainGrid } from "./terrain.ts";
-import { lerp, wrap } from "./util.ts";
 import { generateWorld, regrowFood, type World } from "./world.ts";
-import type { Params } from "../ui/params.ts";
+import type { Params } from "../params.ts";
 
 export interface SimState {
   tick: number;
@@ -33,12 +32,22 @@ export function createSimState(seed: number, params: Params): SimInstance {
   let nextId = 0;
   for (let i = 0; i < params.foundingPopulationSize; i++) {
     const genome = randomGenome(rng);
-    const x = rng.nextRange(0, params.worldWidth);
-    const y = rng.nextRange(0, params.worldHeight);
     // Deliberately below the lowest possible reproThreshold (0.4) so founders must forage
     // before reproducing, rather than instantly cascading off their starting endowment.
     const startEnergy = energyCapacity(genome, params) * 0.35;
-    creatures.push(createCreature(nextId++, null, 0, genome, x, y, startEnergy, 0, rng));
+    creatures.push(
+      createCreature({
+        id: nextId++,
+        parentId: null,
+        lineageId: 0,
+        genome,
+        x: rng.nextRange(0, params.worldWidth),
+        y: rng.nextRange(0, params.worldHeight),
+        energy: startEnergy,
+        birthTick: 0,
+        rng,
+      }),
+    );
   }
 
   const foundingCentroid = genomeCentroid(creatures.map((c) => c.genome));
@@ -50,54 +59,21 @@ export function createSimState(seed: number, params: Params): SimInstance {
 export function tick(state: SimState, rng: RNG, params: Params): void {
   regrowFood(state.world, state.tick, params);
 
-  const survivors: Creature[] = [];
-  const newborns: Creature[] = [];
+  const nextGeneration: Creature[] = [];
+  const allocateId = () => state.nextId++;
 
   for (const creature of state.creatures) {
     stepCreature(creature, state.world, state.terrain, rng, params);
 
-    const capacity = energyCapacity(creature.genome, params);
-    if (creature.energy >= creature.genome.reproThreshold * capacity) {
-      const numOffspring = Math.max(1, Math.round(lerp(params.maxOffspringCount, 1, creature.genome.offspringInvestment)));
-      const investmentFraction = lerp(
-        params.offspringEnergyFractionMin,
-        params.offspringEnergyFractionMax,
-        creature.genome.offspringInvestment,
-      );
-
-      const childGenomes = Array.from({ length: numOffspring }, () => mutate(creature.genome, rng));
-      const childEnergies = childGenomes.map((g) => investmentFraction * energyCapacity(g, params));
-      const totalCost = childEnergies.reduce((sum, e) => sum + e, 0);
-
-      // Never let reproduction push the parent below zero, even if a lucky mutation
-      // briefly inflated a child's capacity beyond what the parent can actually fund.
-      const affordableFraction = totalCost > 0 ? Math.min(1, creature.energy / totalCost) : 1;
-      creature.energy -= totalCost * affordableFraction;
-
-      for (let i = 0; i < numOffspring; i++) {
-        const cx = wrap(creature.x + rng.nextRange(-1, 1), params.worldWidth);
-        const cy = wrap(creature.y + rng.nextRange(-1, 1), params.worldHeight);
-        newborns.push(
-          createCreature(
-            state.nextId++,
-            creature.id,
-            creature.lineageId,
-            childGenomes[i],
-            cx,
-            cy,
-            childEnergies[i] * affordableFraction,
-            state.tick,
-            rng,
-          ),
-        );
-      }
+    if (isReadyToReproduce(creature, params)) {
+      nextGeneration.push(...reproduce(creature, rng, params, state.tick, allocateId));
     }
 
     if (creature.energy > 0 && creature.age < params.maxAge) {
-      survivors.push(creature);
+      nextGeneration.push(creature);
     }
   }
 
-  state.creatures = survivors.concat(newborns);
+  state.creatures = nextGeneration;
   state.tick += 1;
 }

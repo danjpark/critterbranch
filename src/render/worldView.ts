@@ -1,8 +1,9 @@
 import type { Creature } from "../sim/creature.ts";
 import type { SimState } from "../sim/sim.ts";
+import type { TerrainGrid } from "../sim/terrain.ts";
 import { clamp01, lerp, torDelta } from "../sim/util.ts";
-import type { Params } from "../ui/params.ts";
-import { type ColorOptions, FOOD_B_COLOR, FOOD_R_COLOR, genotypeColor } from "./color.ts";
+import type { Params } from "../params.ts";
+import { cachedGenotypeColor, type ColorOptions, FOOD_B_COLOR, FOOD_R_COLOR } from "./color.ts";
 
 export interface RenderOptions {
   colorOptions: ColorOptions;
@@ -16,14 +17,45 @@ export function renderWorld(ctx: CanvasRenderingContext2D, state: SimState, para
   const scaleY = canvasHeight / params.worldHeight;
 
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-  drawTerrain(ctx, state, params, scaleX, scaleY);
+  ctx.drawImage(getTerrainLayer(state.terrain, params, scaleX, scaleY, canvasWidth, canvasHeight), 0, 0);
   drawFood(ctx, state, params, scaleX, scaleY);
   drawCreatures(ctx, state, options, scaleX, scaleY);
 }
 
+// Terrain is static for a SimState's whole lifetime (until Phase 3 adds terrain-editing god-mode
+// brushes), so redrawing all ~2,500 cells every frame is pure waste. Render it once per terrain
+// grid + canvas size and blit the cached layer. Keyed by object identity via WeakMap, so a
+// restart (which builds a new TerrainGrid) naturally misses the cache — no manual reset needed.
+// If Phase 3 mutates a TerrainGrid in place, it must call invalidateTerrainCache(terrain) itself.
+const terrainLayerCache = new WeakMap<TerrainGrid, { canvas: HTMLCanvasElement; width: number; height: number }>();
+
+function getTerrainLayer(
+  terrain: TerrainGrid,
+  params: Params,
+  scaleX: number,
+  scaleY: number,
+  canvasWidth: number,
+  canvasHeight: number,
+): HTMLCanvasElement {
+  const cached = terrainLayerCache.get(terrain);
+  if (cached && cached.width === canvasWidth && cached.height === canvasHeight) {
+    return cached.canvas;
+  }
+
+  const layer = document.createElement("canvas");
+  layer.width = canvasWidth;
+  layer.height = canvasHeight;
+  paintTerrain(layer.getContext("2d")!, terrain, params, scaleX, scaleY);
+  terrainLayerCache.set(terrain, { canvas: layer, width: canvasWidth, height: canvasHeight });
+  return layer;
+}
+
+export function invalidateTerrainCache(terrain: TerrainGrid): void {
+  terrainLayerCache.delete(terrain);
+}
+
 /** Grayscale shaded relief with at most a faint fertility tint — terrain is background, never competes with creature hue. */
-function drawTerrain(ctx: CanvasRenderingContext2D, state: SimState, params: Params, scaleX: number, scaleY: number): void {
-  const { terrain } = state;
+function paintTerrain(ctx: CanvasRenderingContext2D, terrain: TerrainGrid, params: Params, scaleX: number, scaleY: number): void {
   const cellW = params.gridCellSize * scaleX;
   const cellH = params.gridCellSize * scaleY;
   const roughness = Math.max(params.terrainRoughness, 1e-6);
@@ -81,7 +113,7 @@ function drawCreatures(ctx: CanvasRenderingContext2D, state: SimState, options: 
   for (const creature of state.creatures) {
     const cx = creature.x * scaleX;
     const cy = creature.y * scaleY;
-    const fill = genotypeColor(creature.genome, state.foundingCentroid, options.colorOptions);
+    const fill = cachedGenotypeColor(creature, state.foundingCentroid, options.colorOptions);
 
     // Thin dark outline underneath so light-lightness individuals don't vanish over pale ground.
     ctx.beginPath();
