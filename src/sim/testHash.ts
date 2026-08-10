@@ -6,12 +6,16 @@ export function hashState(state: SimState): string {
   const creatureSnapshot = state.creatures.map((c) => [
     c.id,
     c.parentId,
+    c.lineageId,
     c.x.toFixed(6),
     c.y.toFixed(6),
     c.energy.toFixed(6),
     c.age,
     JSON.stringify(c.genome),
   ]);
+  const speciesSnapshot = Array.from(state.taxonomy.species.values())
+    .sort((a, b) => a.id - b.id)
+    .map((s) => [s.id, s.parentId, s.originTick, s.extinctTick, s.mechanism, s.memberCount, JSON.stringify(s.centroid)]);
   const payload = JSON.stringify({
     tick: state.tick,
     creatures: creatureSnapshot,
@@ -20,6 +24,8 @@ export function hashState(state: SimState): string {
     elevation: Array.from(state.terrain.elevation),
     passability: Array.from(state.terrain.passability),
     fertility: Array.from(state.terrain.fertility),
+    species: speciesSnapshot,
+    taxonomyEventCount: state.taxonomyEvents.length,
   });
 
   let hash = 0;

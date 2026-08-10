@@ -1,4 +1,5 @@
 import { type Creature, createCreature, energyCapacity, isReadyToReproduce, reproduce, stepCreature } from "./creature.ts";
+import { cloneGeneFlow, type GeneFlowState, initGeneFlow, updateGeneFlow } from "./geneFlow.ts";
 import { type Genome, genomeCentroid, randomGenome } from "./genome.ts";
 import {
   applyIntervention,
@@ -9,6 +10,7 @@ import {
   type RegrowthOverride,
 } from "./intervention.ts";
 import { RNG } from "./rng.ts";
+import { cloneTaxonomy, initTaxonomy, type TaxonomyEvent, type TaxonomyState, updateTaxonomy } from "./taxonomy.ts";
 import { generateTerrain, type TerrainGrid } from "./terrain.ts";
 import { generateWorld, regrowFood, type World } from "./world.ts";
 import type { Params } from "../params.ts";
@@ -24,6 +26,10 @@ export interface SimState {
   /** In-progress god-mode effects (barrier formation, crater recovery), processed once per tick. */
   activeTransitions: FieldTransition[];
   activeRegrowthOverrides: RegrowthOverride[];
+  taxonomy: TaxonomyState;
+  /** Every speciation/extinction event ever detected, in tick order — the event feed's data source. */
+  taxonomyEvents: TaxonomyEvent[];
+  geneFlow: GeneFlowState;
 }
 
 export interface SimInstance {
@@ -69,6 +75,7 @@ export function createSimState(seed: number, params: Params): SimInstance {
   }
 
   const foundingCentroid = genomeCentroid(creatures.map((c) => c.genome));
+  const taxonomy = initTaxonomy(creatures, 0);
 
   return {
     state: {
@@ -80,6 +87,9 @@ export function createSimState(seed: number, params: Params): SimInstance {
       foundingCentroid,
       activeTransitions: [],
       activeRegrowthOverrides: [],
+      taxonomy,
+      taxonomyEvents: [],
+      geneFlow: initGeneFlow(),
     },
     rng,
     seed,
@@ -112,6 +122,16 @@ export function tick(state: SimState, rng: RNG, params: Params): void {
   }
 
   state.creatures = nextGeneration;
+
+  // Gene flow needs to see every tick to catch every region crossing; taxonomy is expensive
+  // enough (a near-linear pass over the whole population per species) that it only runs
+  // periodically — a species doesn't meaningfully drift apart within a handful of ticks anyway.
+  updateGeneFlow(state.geneFlow, state.creatures, params, state.tick);
+  if (state.tick % params.taxonomyIntervalTicks === 0) {
+    const events = updateTaxonomy(state.taxonomy, state.creatures, state.terrain, params, state.tick);
+    if (events.length > 0) state.taxonomyEvents.push(...events);
+  }
+
   state.tick += 1;
 }
 
@@ -156,6 +176,11 @@ export function cloneSimState(state: SimState): SimState {
       toValues: [...t.toValues],
     })),
     activeRegrowthOverrides: state.activeRegrowthOverrides.map((o) => ({ ...o, cellIndices: [...o.cellIndices] })),
+    taxonomy: cloneTaxonomy(state.taxonomy),
+    // Event objects are never mutated after being pushed (see updateTaxonomy), so a shallow
+    // array copy sharing references is safe — no need to deep-clone each event.
+    taxonomyEvents: [...state.taxonomyEvents],
+    geneFlow: cloneGeneFlow(state.geneFlow),
   };
 }
 

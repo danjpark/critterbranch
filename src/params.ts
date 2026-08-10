@@ -59,6 +59,26 @@ export interface Params {
 
   // Rendering — genotype-color chroma (see render/color.ts)
   genotypeColorDivergenceScale: number;
+
+  // Taxonomy (see sim/taxonomy.ts) — species is a threshold you chose, not a fact; these are
+  // meant to be live-adjustable, not tuned once and forgotten.
+  /** How often (in ticks) each species is checked for a split or extinction. */
+  taxonomyIntervalTicks: number;
+  /** Weighted genetic distance (see genome.ts geneticDistance, range ~[0,1]) beyond which two
+   * sub-clusters within a species count as diverged enough to split. */
+  speciationThreshold: number;
+  /** Minimum members a candidate sub-cluster needs on each side of a split for it to count —
+   * below this, it's noise, not a real founding population. */
+  minFounders: number;
+  /** A split with fewer than this many founders on the smaller side, no single dominant gene,
+   * and no spatial barrier is tagged as a founder-effect (drift) split rather than sympatric. */
+  founderCountThreshold: number;
+  /** Terrain passability below this, sampled along the line between two diverging clusters'
+   * centroids, counts as "a barrier was between them" — i.e. allopatric. */
+  allopatricPassabilityThreshold: number;
+  /** World is split into two regions (x < worldWidth/2 vs x >= worldWidth/2) for the gene-flow
+   * meter; migration events are bucketed into windows this many ticks wide. */
+  geneFlowWindowTicks: number;
 }
 
 export const DEFAULT_PARAMS: Params = {
@@ -102,4 +122,11 @@ export const DEFAULT_PARAMS: Params = {
   foundingPopulationSize: 100,
 
   genotypeColorDivergenceScale: 0.35,
+
+  taxonomyIntervalTicks: 100,
+  speciationThreshold: 0.28,
+  minFounders: 5,
+  founderCountThreshold: 12,
+  allopatricPassabilityThreshold: 0.15,
+  geneFlowWindowTicks: 200,
 };
