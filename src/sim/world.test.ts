@@ -5,12 +5,12 @@ import { RNG } from "./rng.ts";
 import { DEFAULT_PARAMS } from "../params.ts";
 
 describe("generateWorld", () => {
-  it("starts every cell full (r/b equal to their capacity)", () => {
+  it("starts every cell full at the fertility-adjusted ceiling", () => {
     const terrain = generateTerrain(new RNG(1), DEFAULT_PARAMS, 20, 20);
     const world = generateWorld(new RNG(1), DEFAULT_PARAMS, terrain);
     for (let i = 0; i < world.r.length; i++) {
-      expect(world.r[i]).toBeCloseTo(world.capacityR[i]);
-      expect(world.b[i]).toBeCloseTo(world.capacityB[i]);
+      expect(world.r[i]).toBeCloseTo(world.capacityR[i] * terrain.fertility[i]);
+      expect(world.b[i]).toBeCloseTo(world.capacityB[i] * terrain.fertility[i]);
     }
   });
 
@@ -24,8 +24,7 @@ describe("generateWorld", () => {
   });
 
   it("gradient mode biases R toward x=0 and B toward x=cols", () => {
-    // terrainRoughness: 0 keeps fertility uniform so terrain noise can't confound the comparison.
-    const params = { ...DEFAULT_PARAMS, foodMode: "gradient" as const, terrainRoughness: 0 };
+    const params = { ...DEFAULT_PARAMS, foodMode: "gradient" as const };
     const terrain = generateTerrain(new RNG(1), params, 20, 20);
     const world = generateWorld(new RNG(1), params, terrain);
     // Compare a left-edge column to a right-edge column, summed over R capacity.
@@ -40,16 +39,16 @@ describe("generateWorld", () => {
 });
 
 describe("regrowFood", () => {
-  it("never regrows past capacity", () => {
+  it("never regrows past the fertility-adjusted ceiling", () => {
     const terrain = generateTerrain(new RNG(1), DEFAULT_PARAMS, 20, 20);
     const world = generateWorld(new RNG(1), DEFAULT_PARAMS, terrain);
     // Deplete everything, then regrow for a long time.
     world.r.fill(0);
     world.b.fill(0);
-    for (let t = 0; t < 10_000; t++) regrowFood(world, t, DEFAULT_PARAMS);
+    for (let t = 0; t < 10_000; t++) regrowFood(world, terrain, t, DEFAULT_PARAMS);
     for (let i = 0; i < world.r.length; i++) {
-      expect(world.r[i]).toBeLessThanOrEqual(world.capacityR[i] + 1e-9);
-      expect(world.b[i]).toBeLessThanOrEqual(world.capacityB[i] + 1e-9);
+      expect(world.r[i]).toBeLessThanOrEqual(world.capacityR[i] * terrain.fertility[i] + 1e-9);
+      expect(world.b[i]).toBeLessThanOrEqual(world.capacityB[i] * terrain.fertility[i] + 1e-9);
     }
   });
 
@@ -58,7 +57,7 @@ describe("regrowFood", () => {
     const world = generateWorld(new RNG(1), DEFAULT_PARAMS, terrain);
     world.r.fill(0);
     world.b.fill(0);
-    regrowFood(world, 0, DEFAULT_PARAMS);
+    regrowFood(world, terrain, 0, DEFAULT_PARAMS);
     const anyGrowth = Array.from(world.r).some((v) => v > 0) || Array.from(world.b).some((v) => v > 0);
     expect(anyGrowth).toBe(true);
   });
@@ -73,7 +72,18 @@ describe("regrowFood", () => {
     world.b.fill(0);
     // sin(2*pi*tick/period) = -1 at tick = period * 3/4, where the cyclical term clamps to 0.
     const troughTick = 75;
-    regrowFood(world, troughTick, params);
+    regrowFood(world, terrain, troughTick, params);
     expect(Array.from(world.r).every((v) => v === 0)).toBe(true);
+  });
+
+  it("respects a regrowthModifier override (drought halts regrowth)", () => {
+    const terrain = generateTerrain(new RNG(1), DEFAULT_PARAMS, 20, 20);
+    const world = generateWorld(new RNG(1), DEFAULT_PARAMS, terrain);
+    world.r.fill(0);
+    world.b.fill(0);
+    world.regrowthModifier.fill(0);
+    regrowFood(world, terrain, 0, DEFAULT_PARAMS);
+    expect(Array.from(world.r).every((v) => v === 0)).toBe(true);
+    expect(Array.from(world.b).every((v) => v === 0)).toBe(true);
   });
 });

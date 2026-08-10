@@ -1,30 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { createSimState, tick, type SimState } from "./sim.ts";
+import { createSimState, tick } from "./sim.ts";
+import { hashState } from "./testHash.ts";
 import { DEFAULT_PARAMS } from "../params.ts";
-
-function hashState(state: SimState): string {
-  const creatureSnapshot = state.creatures.map((c) => [
-    c.id,
-    c.parentId,
-    c.x.toFixed(6),
-    c.y.toFixed(6),
-    c.energy.toFixed(6),
-    c.age,
-    JSON.stringify(c.genome),
-  ]);
-  const payload = JSON.stringify({
-    tick: state.tick,
-    creatures: creatureSnapshot,
-    r: Array.from(state.world.r),
-    b: Array.from(state.world.b),
-  });
-
-  let hash = 0;
-  for (let i = 0; i < payload.length; i++) {
-    hash = (Math.imul(31, hash) + payload.charCodeAt(i)) | 0;
-  }
-  return `${hash.toString(16)}:${payload.length}`;
-}
 
 function runToTick(seed: number, ticks: number): string {
   const { state, rng } = createSimState(seed, DEFAULT_PARAMS);

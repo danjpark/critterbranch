@@ -1,5 +1,13 @@
 import { type Creature, createCreature, energyCapacity, isReadyToReproduce, reproduce, stepCreature } from "./creature.ts";
 import { type Genome, genomeCentroid, randomGenome } from "./genome.ts";
+import {
+  applyIntervention,
+  type FieldTransition,
+  type Intervention,
+  processActiveTransitions,
+  processRegrowthOverrides,
+  type RegrowthOverride,
+} from "./intervention.ts";
 import { RNG } from "./rng.ts";
 import { generateTerrain, type TerrainGrid } from "./terrain.ts";
 import { generateWorld, regrowFood, type World } from "./world.ts";
@@ -13,11 +21,18 @@ export interface SimState {
   terrain: TerrainGrid;
   /** Mean genome of the founding population — fixed reference point for genotype-color chroma. */
   foundingCentroid: Genome;
+  /** In-progress god-mode effects (barrier formation, crater recovery), processed once per tick. */
+  activeTransitions: FieldTransition[];
+  activeRegrowthOverrides: RegrowthOverride[];
 }
 
 export interface SimInstance {
   state: SimState;
   rng: RNG;
+  /** Every god-mode action applied to this run, in application order. The whole point of this
+   * log is that `runSimulation(seed, params, interventionLog)` can reproduce the run exactly,
+   * headlessly, with nobody present — see runSimulation below. */
+  interventionLog: Intervention[];
 }
 
 export function createSimState(seed: number, params: Params): SimInstance {
@@ -52,12 +67,30 @@ export function createSimState(seed: number, params: Params): SimInstance {
 
   const foundingCentroid = genomeCentroid(creatures.map((c) => c.genome));
 
-  return { state: { tick: 0, nextId, creatures, world, terrain, foundingCentroid }, rng };
+  return {
+    state: {
+      tick: 0,
+      nextId,
+      creatures,
+      world,
+      terrain,
+      foundingCentroid,
+      activeTransitions: [],
+      activeRegrowthOverrides: [],
+    },
+    rng,
+    interventionLog: [],
+  };
 }
 
 /** Advances the sim by exactly one tick, mutating `state` in place. */
 export function tick(state: SimState, rng: RNG, params: Params): void {
-  regrowFood(state.world, state.tick, params);
+  // Ongoing god-mode effects (a barrier still forming, a crater still recovering) must update
+  // before food regrows and creatures act this tick, so both see this tick's values, not last
+  // tick's.
+  processActiveTransitions(state, state.tick);
+  processRegrowthOverrides(state, state.tick);
+  regrowFood(state.world, state.terrain, state.tick, params);
 
   const nextGeneration: Creature[] = [];
   const allocateId = () => state.nextId++;
@@ -76,4 +109,37 @@ export function tick(state: SimState, rng: RNG, params: Params): void {
 
   state.creatures = nextGeneration;
   state.tick += 1;
+}
+
+/**
+ * Applies a god-mode intervention right now (at the sim's current tick) and records it in the
+ * log. This is what live play calls when the user uses a brush; runSimulation below is the
+ * headless counterpart that replays a previously-recorded log instead.
+ */
+export function applyInterventionNow(instance: SimInstance, params: Params, tool: Intervention["tool"], toolParams: Intervention["params"]): void {
+  const intervention = { tick: instance.state.tick, tool, params: toolParams } as Intervention;
+  applyIntervention(instance.state, instance.rng, params, intervention);
+  instance.interventionLog.push(intervention);
+}
+
+/**
+ * Headless replay: same seed + params + interventionLog must always reproduce the same run,
+ * with each intervention taking effect at the exact tick it was recorded at. This is what makes
+ * a run reproducible/exportable as a scenario — see SPEC.md's "interventions must be logged as
+ * replayable events."
+ */
+export function runSimulation(seed: number, params: Params, interventionLog: Intervention[], totalTicks: number): SimState {
+  const { state, rng } = createSimState(seed, params);
+  const sortedLog = [...interventionLog].sort((a, b) => a.tick - b.tick);
+
+  let logIndex = 0;
+  while (state.tick < totalTicks) {
+    while (logIndex < sortedLog.length && sortedLog[logIndex].tick === state.tick) {
+      applyIntervention(state, rng, params, sortedLog[logIndex]);
+      logIndex++;
+    }
+    tick(state, rng, params);
+  }
+
+  return state;
 }

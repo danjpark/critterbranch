@@ -11,6 +11,8 @@ export interface World {
   b: Float64Array;
   capacityR: Float64Array;
   capacityB: Float64Array;
+  /** Per-cell regrowth multiplier, default 1. God-mode drought/bloom brushes scale this temporarily. */
+  regrowthModifier: Float64Array;
 }
 
 interface FoodPatch {
@@ -84,30 +86,39 @@ export function generateWorld(rng: RNG, params: Params, terrain: TerrainGrid): W
     }
   }
 
+  // capacityR/B intentionally does NOT bake in fertility here — fertility is read live in
+  // regrowFood instead, so that terrain changes (a god-mode meteor crater, a raised mountain)
+  // actually affect food regrowth going forward. Baking it in once at generation time would make
+  // any later fertility change (e.g. a crater "recovering over craterRecoveryTicks") a no-op.
   const ambient = params.baseCapacity * params.ambientFoodFraction;
   for (let i = 0; i < capacityR.length; i++) {
-    capacityR[i] = (capacityR[i] + ambient) * terrain.fertility[i];
-    capacityB[i] = (capacityB[i] + ambient) * terrain.fertility[i];
+    capacityR[i] += ambient;
+    capacityB[i] += ambient;
   }
 
   return {
     cols,
     rows,
-    r: capacityR.slice(),
-    b: capacityB.slice(),
+    // Start full at the fertility-adjusted ceiling, same as regrowFood would converge to.
+    r: capacityR.map((c, i) => c * terrain.fertility[i]),
+    b: capacityB.map((c, i) => c * terrain.fertility[i]),
     capacityR,
     capacityB,
+    regrowthModifier: new Float64Array(capacityR.length).fill(1),
   };
 }
 
-export function regrowFood(world: World, tick: number, params: Params): void {
+export function regrowFood(world: World, terrain: TerrainGrid, tick: number, params: Params): void {
   const cyclical = clamp(
     1 + params.regrowthCycleAmplitude * Math.sin((2 * Math.PI * tick) / params.regrowthCyclePeriod),
     0,
     2,
   );
   for (let i = 0; i < world.r.length; i++) {
-    world.r[i] = Math.min(world.capacityR[i], world.r[i] + params.regrowthRate * world.capacityR[i] * cyclical);
-    world.b[i] = Math.min(world.capacityB[i], world.b[i] + params.regrowthRate * world.capacityB[i] * cyclical);
+    const rate = params.regrowthRate * cyclical * world.regrowthModifier[i];
+    const ceilingR = world.capacityR[i] * terrain.fertility[i];
+    const ceilingB = world.capacityB[i] * terrain.fertility[i];
+    world.r[i] = Math.min(ceilingR, world.r[i] + rate * ceilingR);
+    world.b[i] = Math.min(ceilingB, world.b[i] + rate * ceilingB);
   }
 }
