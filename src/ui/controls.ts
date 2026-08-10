@@ -1,6 +1,8 @@
 import { FOOD_B_COLOR, FOOD_R_COLOR } from "../render/color.ts";
 import type { Creature } from "../sim/creature.ts";
+import type { GeneFlowSample } from "../sim/geneFlow.ts";
 import { GENE_KEYS } from "../sim/genome.ts";
+import type { TaxonomyEvent } from "../sim/taxonomy.ts";
 
 export type SpeedSetting = 1 | 10 | 100 | 1000 | "max";
 
@@ -125,7 +127,7 @@ export interface ControlsHandle {
   root: HTMLElement;
   inspectorRoot: HTMLElement;
   setPlaying: (playing: boolean) => void;
-  setStatus: (tick: number, population: number) => void;
+  setStatus: (tick: number, population: number, livingSpeciesCount: number) => void;
   setInspected: (creature: Creature | null) => void;
 }
 
@@ -209,8 +211,8 @@ export function createControls(callbacks: ControlsCallbacks): ControlsHandle {
     setPlaying(playing: boolean) {
       playPauseButton.textContent = playing ? "Pause" : "Play";
     },
-    setStatus(tickCount: number, population: number) {
-      status.textContent = `tick ${tickCount.toLocaleString()} — population ${population.toLocaleString()}`;
+    setStatus(tickCount: number, population: number, livingSpeciesCount: number) {
+      status.textContent = `tick ${tickCount.toLocaleString()} — population ${population.toLocaleString()} — ${livingSpeciesCount.toLocaleString()} species`;
     },
     setInspected(creature: Creature | null) {
       inspectorBody.replaceChildren(...renderInspector(creature));
@@ -393,6 +395,7 @@ function renderInspector(creature: Creature | null): HTMLElement[] {
   const table = document.createElement("table");
   const rows: [string, string][] = [
     ["id", String(creature.id)],
+    ["species", String(creature.lineageId)],
     ["parentId", creature.parentId === null ? "—" : String(creature.parentId)],
     ["birthTick", String(creature.birthTick)],
     ["age", String(creature.age)],
@@ -410,4 +413,95 @@ function renderInspector(creature: Creature | null): HTMLElement[] {
   }
 
   return [table];
+}
+
+export interface EventFeedHandle {
+  root: HTMLElement;
+  setEvents: (events: TaxonomyEvent[]) => void;
+}
+
+const MAX_FEED_ENTRIES = 100;
+
+export function createEventFeed(): EventFeedHandle {
+  const root = document.createElement("div");
+  root.className = "panel";
+  root.append(sectionTitle("Event feed"));
+
+  const list = document.createElement("div");
+  list.className = "event-feed-list";
+  list.textContent = "Nothing has happened yet.";
+  root.appendChild(list);
+
+  let lastRenderedCount = 0;
+
+  return {
+    root,
+    setEvents(events) {
+      if (events.length === lastRenderedCount) return;
+      lastRenderedCount = events.length;
+      if (events.length === 0) {
+        // A restart or freshly-loaded scenario resets the log to empty — without this the old
+        // entries from the previous run would linger on screen since replaceChildren below never runs.
+        list.textContent = "Nothing has happened yet.";
+        return;
+      }
+      // Newest first, capped so the DOM doesn't grow without bound over a very long run.
+      const recent = events.slice(-MAX_FEED_ENTRIES).reverse();
+      list.replaceChildren(...recent.map(describeTaxonomyEvent));
+    },
+  };
+}
+
+function describeTaxonomyEvent(taxonomyEvent: TaxonomyEvent): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "event-feed-entry";
+  if (taxonomyEvent.type === "speciation") {
+    const { tick: eventTick, mechanism, dominantDivergentGene, founderCount, speciesId, parentId } = taxonomyEvent.event;
+    el.textContent = `Tick ${eventTick.toLocaleString()} — ${mechanism} split: species ${speciesId} branched from species ${parentId} (${founderCount} founders; ${dominantDivergentGene} diverged most)`;
+  } else {
+    const { tick: eventTick, speciesId, lifespanTicks, peakMemberCount } = taxonomyEvent.event;
+    el.textContent = `Tick ${eventTick.toLocaleString()} — species ${speciesId} went extinct after ${lifespanTicks.toLocaleString()} ticks (peak population ${peakMemberCount.toLocaleString()})`;
+  }
+  return el;
+}
+
+export interface GeneFlowChartHandle {
+  root: HTMLElement;
+  render: (history: GeneFlowSample[]) => void;
+}
+
+export function createGeneFlowChart(): GeneFlowChartHandle {
+  const root = document.createElement("div");
+  root.className = "panel";
+  root.append(sectionTitle("Gene flow"));
+
+  const hint = document.createElement("div");
+  hint.className = "godmode-hint";
+  hint.textContent = "Migrations between the west and east halves of the map, per window. This dropping to zero is speciation happening in real time.";
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 272;
+  canvas.height = 60;
+  canvas.className = "gene-flow-canvas";
+
+  root.append(hint, canvas);
+  const ctx = canvas.getContext("2d")!;
+
+  return {
+    root,
+    render(history) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (history.length === 0) return;
+
+      const recent = history.slice(-60);
+      const maxValue = Math.max(1, ...recent.map((sample) => sample.migrations));
+      const barWidth = canvas.width / recent.length;
+
+      ctx.fillStyle = "#4a7dd9";
+      recent.forEach((sample, i) => {
+        const barHeight = (sample.migrations / maxValue) * (canvas.height - 4);
+        ctx.fillRect(i * barWidth, canvas.height - barHeight, Math.max(barWidth - 1, 1), barHeight);
+      });
+    },
+  };
 }

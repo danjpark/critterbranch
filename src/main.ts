@@ -2,7 +2,7 @@ import "./style.css";
 import { isScenario, SimRunner } from "./app/simRunner.ts";
 import { DEFAULT_PARAMS } from "./params.ts";
 import { findCreatureAt, invalidateTerrainCache, renderWorld } from "./render/worldView.ts";
-import { createControls, createGodModePanel, createLegend, createScenarioPanel } from "./ui/controls.ts";
+import { createControls, createEventFeed, createGeneFlowChart, createGodModePanel, createLegend, createScenarioPanel } from "./ui/controls.ts";
 
 const CANVAS_SIZE = 640;
 
@@ -94,7 +94,18 @@ const scenarioPanel = createScenarioPanel({
   },
 });
 
-sidebar.append(createLegend(), controls.root, godModePanel.root, scenarioPanel.root, controls.inspectorRoot);
+const eventFeed = createEventFeed();
+const geneFlowChart = createGeneFlowChart();
+
+sidebar.append(
+  createLegend(),
+  controls.root,
+  godModePanel.root,
+  scenarioPanel.root,
+  geneFlowChart.root,
+  eventFeed.root,
+  controls.inspectorRoot,
+);
 
 canvas.addEventListener("click", (event) => {
   const rect = canvas.getBoundingClientRect();
@@ -128,7 +139,14 @@ function render(): void {
     colorOptions: runner.colorOptions,
     selectedCreatureId: runner.selectedCreatureId,
   });
-  controls.setStatus(runner.sim.state.tick, runner.sim.state.creatures.length);
+
+  let livingSpeciesCount = 0;
+  for (const species of runner.sim.state.taxonomy.species.values()) {
+    if (species.extinctTick === null) livingSpeciesCount++;
+  }
+  controls.setStatus(runner.sim.state.tick, runner.sim.state.creatures.length, livingSpeciesCount);
+  eventFeed.setEvents(runner.sim.state.taxonomyEvents);
+  geneFlowChart.render(runner.sim.state.geneFlow.history);
 
   if (runner.selectedCreatureId !== null) {
     controls.setInspected(runner.selectedCreature());
