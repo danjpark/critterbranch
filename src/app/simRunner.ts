@@ -1,10 +1,14 @@
 import { DEFAULT_PARAMS } from "../params.ts";
 import { DEFAULT_COLOR_OPTIONS, resetGenotypeColorCache, type ColorOptions } from "../render/color.ts";
+import { collectDescendantIds } from "../render/treeLayout.ts";
 import { invalidateTerrainCache } from "../render/worldView.ts";
 import type { Creature } from "../sim/creature.ts";
 import { applyIntervention, type Intervention } from "../sim/intervention.ts";
 import { applyInterventionNow, cloneSimState, createSimState, tick, type SimInstance, type SimState } from "../sim/sim.ts";
+import type { SpeciationMechanism, Species } from "../sim/taxonomy.ts";
 import type { GodTool, SpeedSetting } from "../ui/controls.ts";
+
+const ALL_MECHANISMS: SpeciationMechanism[] = ["founder-population", "allopatric", "sympatric", "founder"];
 
 export interface Scenario {
   seed: number;
@@ -65,6 +69,10 @@ export class SimRunner {
 
   activeTool: GodTool | null = null;
   readonly brush: BrushSettings = { ...DEFAULT_BRUSH };
+
+  selectedSpeciesId: number | null = null;
+  lineageFilter: Set<number> | null = null;
+  mechanismFilter: Set<SpeciationMechanism> = new Set(ALL_MECHANISMS);
   /** First point of an in-progress barrier drag (barrierStamp needs two points, everything else needs one). */
   private barrierDragStart: { x: number; y: number } | null = null;
   private meteorCheckpoint: MeteorCheckpoint | null = null;
@@ -79,6 +87,8 @@ export class SimRunner {
   restart(seed: number): void {
     this.sim = createSimState(seed, DEFAULT_PARAMS);
     this.selectedCreatureId = null;
+    this.selectedSpeciesId = null;
+    this.lineageFilter = null;
     this.meteorCheckpoint = null;
     this.scenarioQueue = [];
     this.scenarioIndex = 0;
@@ -94,6 +104,8 @@ export class SimRunner {
     this.scenarioQueue = [...scenario.interventionLog].sort((a, b) => a.tick - b.tick);
     this.scenarioIndex = 0;
     this.selectedCreatureId = null;
+    this.selectedSpeciesId = null;
+    this.lineageFilter = null;
     this.meteorCheckpoint = null;
     resetGenotypeColorCache();
   }
@@ -158,6 +170,29 @@ export class SimRunner {
     const found = this.sim.state.creatures.find((c) => c.id === this.selectedCreatureId) ?? null;
     if (!found) this.selectedCreatureId = null;
     return found;
+  }
+
+  selectSpecies(speciesId: number | null): void {
+    this.selectedSpeciesId = speciesId;
+  }
+
+  selectedSpecies(): Species | null {
+    if (this.selectedSpeciesId === null) return null;
+    return this.sim.state.taxonomy.species.get(this.selectedSpeciesId) ?? null;
+  }
+
+  /** Filters the World view to only the currently-selected species and everything descended from it. */
+  filterToSelectedLineage(): void {
+    if (this.selectedSpeciesId === null) return;
+    this.lineageFilter = collectDescendantIds(this.sim.state.taxonomy, this.selectedSpeciesId);
+  }
+
+  clearLineageFilter(): void {
+    this.lineageFilter = null;
+  }
+
+  setMechanismFilter(mechanisms: Set<SpeciationMechanism>): void {
+    this.mechanismFilter = mechanisms;
   }
 
   setActiveTool(tool: GodTool | null): void {

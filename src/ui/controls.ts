@@ -1,8 +1,8 @@
-import { FOOD_B_COLOR, FOOD_R_COLOR } from "../render/color.ts";
+import { type ColorOptions, FOOD_B_COLOR, FOOD_R_COLOR, genotypeColor } from "../render/color.ts";
 import type { Creature } from "../sim/creature.ts";
 import type { GeneFlowSample } from "../sim/geneFlow.ts";
-import { GENE_KEYS } from "../sim/genome.ts";
-import type { TaxonomyEvent } from "../sim/taxonomy.ts";
+import { GENE_KEYS, type Genome } from "../sim/genome.ts";
+import type { Species, SpeciationMechanism, TaxonomyEvent } from "../sim/taxonomy.ts";
 
 export type SpeedSetting = 1 | 10 | 100 | 1000 | "max";
 
@@ -502,6 +502,123 @@ export function createGeneFlowChart(): GeneFlowChartHandle {
         const barHeight = (sample.migrations / maxValue) * (canvas.height - 4);
         ctx.fillRect(i * barWidth, canvas.height - barHeight, Math.max(barWidth - 1, 1), barHeight);
       });
+    },
+  };
+}
+
+const ALL_MECHANISMS: SpeciationMechanism[] = ["founder-population", "allopatric", "sympatric", "founder"];
+const MECHANISM_LABELS: Record<SpeciationMechanism, string> = {
+  "founder-population": "Founding population",
+  allopatric: "Allopatric (barrier)",
+  sympatric: "Sympatric (disruptive selection)",
+  founder: "Founder effect (drift)",
+};
+
+export interface TreePanelCallbacks {
+  onMechanismFilterChange: (filter: Set<SpeciationMechanism>) => void;
+  onFilterToLineage: () => void;
+  onClearLineageFilter: () => void;
+}
+
+export interface TreePanelHandle {
+  root: HTMLElement;
+  setSelectedSpecies: (species: Species | null, currentTick: number, colorOptions: ColorOptions, foundingCentroid: Genome) => void;
+  setLineageFilterActive: (active: boolean) => void;
+}
+
+export function createTreePanel(callbacks: TreePanelCallbacks): TreePanelHandle {
+  const root = document.createElement("div");
+  root.className = "panel";
+  root.append(sectionTitle("Tree filters"));
+
+  const activeMechanisms = new Set<SpeciationMechanism>(ALL_MECHANISMS);
+  const filterColumn = document.createElement("div");
+  for (const mechanism of ALL_MECHANISMS) {
+    const label = document.createElement("label");
+    label.className = "row";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = true;
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) activeMechanisms.add(mechanism);
+      else activeMechanisms.delete(mechanism);
+      callbacks.onMechanismFilterChange(new Set(activeMechanisms));
+    });
+    label.append(checkbox, document.createTextNode(MECHANISM_LABELS[mechanism]));
+    filterColumn.appendChild(label);
+  }
+  root.appendChild(filterColumn);
+
+  const cardRoot = document.createElement("div");
+  cardRoot.className = "panel species-card";
+  cardRoot.append(sectionTitle("Selected species"));
+  const cardBody = document.createElement("div");
+  cardBody.className = "inspector-body";
+  cardBody.textContent = "Click a branch in the tree to inspect it.";
+  cardRoot.appendChild(cardBody);
+
+  const filterButton = document.createElement("button");
+  filterButton.textContent = "Show only this lineage in World view";
+  filterButton.disabled = true;
+  filterButton.addEventListener("click", callbacks.onFilterToLineage);
+  const clearButton = document.createElement("button");
+  clearButton.textContent = "Clear filter";
+  clearButton.addEventListener("click", callbacks.onClearLineageFilter);
+  const filterRow = document.createElement("div");
+  filterRow.className = "row";
+  filterRow.append(filterButton, clearButton);
+  cardRoot.appendChild(filterRow);
+
+  root.appendChild(cardRoot);
+
+  return {
+    root,
+    setSelectedSpecies(species, currentTick, colorOptions, foundingCentroid) {
+      filterButton.disabled = species === null;
+      if (!species) {
+        cardBody.textContent = "Click a branch in the tree to inspect it.";
+        return;
+      }
+
+      const founderSwatch = squareSwatch(genotypeColor(species.foundingCentroid, foundingCentroid, colorOptions));
+      const currentSwatch = squareSwatch(genotypeColor(species.centroid, foundingCentroid, colorOptions));
+      const swatchRow = document.createElement("div");
+      swatchRow.className = "legend-row";
+      swatchRow.append(
+        document.createTextNode("founding "),
+        founderSwatch,
+        document.createTextNode(" → current "),
+        currentSwatch,
+      );
+
+      const table = document.createElement("table");
+      const status = species.extinctTick === null ? "alive" : `extinct at tick ${species.extinctTick.toLocaleString()}`;
+      const lifespan = (species.extinctTick ?? currentTick) - species.originTick;
+      const rows: [string, string][] = [
+        ["species", String(species.id)],
+        ["parent", species.parentId === null ? "— (founding population)" : String(species.parentId)],
+        ["origin tick", species.originTick.toLocaleString()],
+        ["status", status],
+        ["lifespan so far", `${lifespan.toLocaleString()} ticks`],
+        ["peak population", species.peakMemberCount.toLocaleString()],
+        ["current population", species.extinctTick === null ? species.memberCount.toLocaleString() : "0"],
+        ["mechanism", MECHANISM_LABELS[species.mechanism]],
+        ["dominant divergent gene", species.dominantDivergentGene ?? "—"],
+      ];
+      for (const [label, value] of rows) {
+        const tr = document.createElement("tr");
+        const th = document.createElement("th");
+        th.textContent = label;
+        const td = document.createElement("td");
+        td.textContent = value;
+        tr.append(th, td);
+        table.appendChild(tr);
+      }
+
+      cardBody.replaceChildren(swatchRow, table);
+    },
+    setLineageFilterActive(active) {
+      clearButton.disabled = !active;
     },
   };
 }

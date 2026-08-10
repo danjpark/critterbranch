@@ -8,6 +8,9 @@ import { cachedGenotypeColor, type ColorOptions, FOOD_B_COLOR, FOOD_R_COLOR } fr
 export interface RenderOptions {
   colorOptions: ColorOptions;
   selectedCreatureId: number | null;
+  /** null = show every creature; otherwise only creatures whose species (lineageId) is in the
+   * set are drawn — set by clicking a branch in the tree view ("show only this lineage"). */
+  lineageFilter: Set<number> | null;
 }
 
 export function renderWorld(ctx: CanvasRenderingContext2D, state: SimState, params: Params, options: RenderOptions): void {
@@ -124,6 +127,8 @@ function drawCreatures(ctx: CanvasRenderingContext2D, state: SimState, options: 
   const radius = Math.max(2, Math.min(scaleX, scaleY) * 1.1);
 
   for (const creature of state.creatures) {
+    if (options.lineageFilter && !options.lineageFilter.has(creature.lineageId)) continue;
+
     const cx = creature.x * scaleX;
     const cy = creature.y * scaleY;
     const fill = cachedGenotypeColor(creature, state.foundingCentroid, options.colorOptions);

@@ -1,25 +1,80 @@
 import "./style.css";
 import { isScenario, SimRunner } from "./app/simRunner.ts";
 import { DEFAULT_PARAMS } from "./params.ts";
+import { renderMuller } from "./render/mullerView.ts";
+import { findBranchAt, renderTree } from "./render/treeView.ts";
 import { findCreatureAt, invalidateTerrainCache, renderWorld } from "./render/worldView.ts";
-import { createControls, createEventFeed, createGeneFlowChart, createGodModePanel, createLegend, createScenarioPanel } from "./ui/controls.ts";
+import {
+  createControls,
+  createEventFeed,
+  createGeneFlowChart,
+  createGodModePanel,
+  createLegend,
+  createScenarioPanel,
+  createTreePanel,
+} from "./ui/controls.ts";
 
 const CANVAS_SIZE = 640;
+type ViewName = "world" | "tree" | "muller";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = "";
 
-const canvas = document.createElement("canvas");
-canvas.width = CANVAS_SIZE;
-canvas.height = CANVAS_SIZE;
+const canvasArea = document.createElement("div");
+canvasArea.className = "canvas-area";
+
+const tabRow = document.createElement("div");
+tabRow.className = "row view-tabs";
+const tabButtons = new Map<ViewName, HTMLButtonElement>();
+for (const view of ["world", "tree", "muller"] as ViewName[]) {
+  const btn = document.createElement("button");
+  btn.textContent = view === "world" ? "World" : view === "tree" ? "Tree" : "Muller";
+  btn.addEventListener("click", () => setActiveView(view));
+  tabButtons.set(view, btn);
+  tabRow.appendChild(btn);
+}
+
+function makeCanvas(): HTMLCanvasElement {
+  const c = document.createElement("canvas");
+  c.width = CANVAS_SIZE;
+  c.height = CANVAS_SIZE;
+  return c;
+}
+
+const worldCanvas = makeCanvas();
+const treeCanvas = makeCanvas();
+const mullerCanvas = makeCanvas();
+const canvases: Record<ViewName, HTMLCanvasElement> = { world: worldCanvas, tree: treeCanvas, muller: mullerCanvas };
+
+canvasArea.append(tabRow, worldCanvas, treeCanvas, mullerCanvas);
 
 const sidebar = document.createElement("div");
 sidebar.className = "sidebar";
 
-app.append(canvas, sidebar);
+app.append(canvasArea, sidebar);
 
-const ctx = canvas.getContext("2d")!;
+const worldCtx = worldCanvas.getContext("2d")!;
+const treeCtx = treeCanvas.getContext("2d")!;
+const mullerCtx = mullerCanvas.getContext("2d")!;
+
 const runner = new SimRunner(12345);
+let activeView: ViewName = "world";
+
+function setActiveView(view: ViewName): void {
+  activeView = view;
+  for (const [name, btn] of tabButtons) btn.classList.toggle("active", name === view);
+  for (const [name, c] of Object.entries(canvases) as [ViewName, HTMLCanvasElement][]) {
+    c.style.display = name === view ? "block" : "none";
+  }
+  render();
+}
+// Just the tab/visibility bookkeeping for now — render() isn't callable until every panel below
+// is constructed (it references controls/godModePanel/treePanel), so the first real render()
+// call happens at the bottom of this file instead.
+for (const [name, btn] of tabButtons) btn.classList.toggle("active", name === activeView);
+for (const [name, c] of Object.entries(canvases) as [ViewName, HTMLCanvasElement][]) {
+  c.style.display = name === activeView ? "block" : "none";
+}
 
 const controls = createControls({
   onPlayPause: () => controls.setPlaying(runner.togglePlaying()),
@@ -34,6 +89,8 @@ const controls = createControls({
     controls.setInspected(null);
     godModePanel.setActiveTool(null);
     godModePanel.setUndoEnabled(false);
+    treePanel.setSelectedSpecies(null, 0, runner.colorOptions, runner.sim.state.foundingCentroid);
+    treePanel.setLineageFilterActive(false);
     render();
   },
   onDeuteranopiaToggle: (enabled) => {
@@ -55,6 +112,23 @@ const godModePanel = createGodModePanel({
   },
 });
 
+const treePanel = createTreePanel({
+  onMechanismFilterChange: (filter) => {
+    runner.setMechanismFilter(filter);
+    render();
+  },
+  onFilterToLineage: () => {
+    runner.filterToSelectedLineage();
+    treePanel.setLineageFilterActive(true);
+    render();
+  },
+  onClearLineageFilter: () => {
+    runner.clearLineageFilter();
+    treePanel.setLineageFilterActive(false);
+    render();
+  },
+});
+
 function loadScenarioAndRefresh(parsed: unknown): void {
   if (!isScenario(parsed)) {
     window.alert("That file doesn't look like a Critterbranch scenario.");
@@ -64,6 +138,8 @@ function loadScenarioAndRefresh(parsed: unknown): void {
   controls.setInspected(null);
   godModePanel.setActiveTool(null);
   godModePanel.setUndoEnabled(false);
+  treePanel.setSelectedSpecies(null, 0, runner.colorOptions, runner.sim.state.foundingCentroid);
+  treePanel.setLineageFilterActive(false);
   render();
 }
 
@@ -101,29 +177,40 @@ sidebar.append(
   createLegend(),
   controls.root,
   godModePanel.root,
+  treePanel.root,
   scenarioPanel.root,
   geneFlowChart.root,
   eventFeed.root,
   controls.inspectorRoot,
 );
 
-canvas.addEventListener("click", (event) => {
-  const rect = canvas.getBoundingClientRect();
-  const canvasX = ((event.clientX - rect.left) / rect.width) * canvas.width;
-  const canvasY = ((event.clientY - rect.top) / rect.height) * canvas.height;
+worldCanvas.addEventListener("click", (event) => {
+  const rect = worldCanvas.getBoundingClientRect();
+  const canvasX = ((event.clientX - rect.left) / rect.width) * worldCanvas.width;
+  const canvasY = ((event.clientY - rect.top) / rect.height) * worldCanvas.height;
 
   if (runner.activeTool) {
-    const scaleX = canvas.width / DEFAULT_PARAMS.worldWidth;
-    const scaleY = canvas.height / DEFAULT_PARAMS.worldHeight;
+    const scaleX = worldCanvas.width / DEFAULT_PARAMS.worldWidth;
+    const scaleY = worldCanvas.height / DEFAULT_PARAMS.worldHeight;
     runner.useToolAt(canvasX / scaleX, canvasY / scaleY);
     godModePanel.setUndoEnabled(runner.canUndoMeteor());
     render();
     return;
   }
 
-  const creature = findCreatureAt(runner.sim.state, DEFAULT_PARAMS, canvasX, canvasY, canvas.width, canvas.height);
+  const creature = findCreatureAt(runner.sim.state, DEFAULT_PARAMS, canvasX, canvasY, worldCanvas.width, worldCanvas.height);
   runner.select(creature?.id ?? null);
   controls.setInspected(creature);
+  render();
+});
+
+treeCanvas.addEventListener("click", (event) => {
+  const rect = treeCanvas.getBoundingClientRect();
+  const canvasX = ((event.clientX - rect.left) / rect.width) * treeCanvas.width;
+  const canvasY = ((event.clientY - rect.top) / rect.height) * treeCanvas.height;
+
+  const speciesId = findBranchAt(runner.sim.state, treeCanvas.width, canvasX, canvasY);
+  runner.selectSpecies(speciesId);
   render();
 });
 
@@ -135,10 +222,24 @@ function render(): void {
     invalidateTerrainCache(runner.sim.state.terrain);
   }
 
-  renderWorld(ctx, runner.sim.state, DEFAULT_PARAMS, {
-    colorOptions: runner.colorOptions,
-    selectedCreatureId: runner.selectedCreatureId,
-  });
+  // Only the currently-visible canvas needs to actually redraw each frame — Tree/Muller cost
+  // scales with species count (small) rather than population (not small), but there's no reason
+  // to pay even that when the tab isn't showing.
+  if (activeView === "world") {
+    renderWorld(worldCtx, runner.sim.state, DEFAULT_PARAMS, {
+      colorOptions: runner.colorOptions,
+      selectedCreatureId: runner.selectedCreatureId,
+      lineageFilter: runner.lineageFilter,
+    });
+  } else if (activeView === "tree") {
+    renderTree(treeCtx, runner.sim.state, {
+      colorOptions: runner.colorOptions,
+      selectedSpeciesId: runner.selectedSpeciesId,
+      mechanismFilter: runner.mechanismFilter,
+    });
+  } else {
+    renderMuller(mullerCtx, runner.sim.state, runner.colorOptions);
+  }
 
   let livingSpeciesCount = 0;
   for (const species of runner.sim.state.taxonomy.species.values()) {
@@ -147,6 +248,7 @@ function render(): void {
   controls.setStatus(runner.sim.state.tick, runner.sim.state.creatures.length, livingSpeciesCount);
   eventFeed.setEvents(runner.sim.state.taxonomyEvents);
   geneFlowChart.render(runner.sim.state.geneFlow.history);
+  treePanel.setSelectedSpecies(runner.selectedSpecies(), runner.sim.state.tick, runner.colorOptions, runner.sim.state.foundingCentroid);
 
   if (runner.selectedCreatureId !== null) {
     controls.setInspected(runner.selectedCreature());

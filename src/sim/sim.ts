@@ -10,7 +10,15 @@ import {
   type RegrowthOverride,
 } from "./intervention.ts";
 import { RNG } from "./rng.ts";
-import { cloneTaxonomy, initTaxonomy, type TaxonomyEvent, type TaxonomyState, updateTaxonomy } from "./taxonomy.ts";
+import {
+  cloneTaxonomy,
+  initTaxonomy,
+  type PopulationSample,
+  samplePopulation,
+  type TaxonomyEvent,
+  type TaxonomyState,
+  updateTaxonomy,
+} from "./taxonomy.ts";
 import { generateTerrain, type TerrainGrid } from "./terrain.ts";
 import { generateWorld, regrowFood, type World } from "./world.ts";
 import type { Params } from "../params.ts";
@@ -30,6 +38,8 @@ export interface SimState {
   /** Every speciation/extinction event ever detected, in tick order — the event feed's data source. */
   taxonomyEvents: TaxonomyEvent[];
   geneFlow: GeneFlowState;
+  /** Per-species population counts over time, sampled alongside each taxonomy pass — the Muller plot's data source. */
+  populationHistory: PopulationSample[];
 }
 
 export interface SimInstance {
@@ -90,6 +100,7 @@ export function createSimState(seed: number, params: Params): SimInstance {
       taxonomy,
       taxonomyEvents: [],
       geneFlow: initGeneFlow(),
+      populationHistory: [samplePopulation(taxonomy, 0)],
     },
     rng,
     seed,
@@ -130,6 +141,7 @@ export function tick(state: SimState, rng: RNG, params: Params): void {
   if (state.tick % params.taxonomyIntervalTicks === 0) {
     const events = updateTaxonomy(state.taxonomy, state.creatures, state.terrain, params, state.tick);
     if (events.length > 0) state.taxonomyEvents.push(...events);
+    state.populationHistory.push(samplePopulation(state.taxonomy, state.tick));
   }
 
   state.tick += 1;
@@ -181,6 +193,9 @@ export function cloneSimState(state: SimState): SimState {
     // array copy sharing references is safe — no need to deep-clone each event.
     taxonomyEvents: [...state.taxonomyEvents],
     geneFlow: cloneGeneFlow(state.geneFlow),
+    // Samples are never mutated after being pushed (fresh objects each time, see
+    // samplePopulation), so a shallow array copy sharing references is safe here too.
+    populationHistory: [...state.populationHistory],
   };
 }
 

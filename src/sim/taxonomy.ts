@@ -43,6 +43,20 @@ export interface TaxonomyState {
   species: Map<number, Species>;
 }
 
+/** One point in time for the Muller plot: every living species' population count. */
+export interface PopulationSample {
+  tick: number;
+  counts: Record<number, number>;
+}
+
+export function samplePopulation(taxonomy: TaxonomyState, tick: number): PopulationSample {
+  const counts: Record<number, number> = {};
+  for (const species of taxonomy.species.values()) {
+    if (species.extinctTick === null) counts[species.id] = species.memberCount;
+  }
+  return { tick, counts };
+}
+
 /** Species 0 is the founding population. Mutates each founder's lineageId to 0. */
 export function initTaxonomy(founders: Creature[], tick: number): TaxonomyState {
   const centroid = genomeCentroid(founders.map((c) => c.genome));
