@@ -352,3 +352,43 @@ Each phase runs and is committed before the next.
 - **Zero-mutation control:** `mutationRate` forced to 0 ⇒ gene means must not drift.
 - **Neutral control:** `specializationExponent = 0`, `patchBimodality = 0`, `regrowthCycleAmplitude = 0` ⇒ assert no bimodality and no speciation events. If you detect species in a run with no disruptive pressure, the detector is finding noise and every result after that is meaningless.
 - **Single-axis isolation:** three runs, each with exactly one axis active, each asserting bimodality on that axis and only that axis.
+
+---
+
+## Addendum — post-Phase 2 direction check
+
+Feedback after Phase 1/2 landed confirmed the core interaction model (click a creature, see its
+species/stats — StarCraft-style unit inspection) is right, and surfaced two deliberate deviations
+from a strict reading of the phases above. Recorded here so the intent survives past the chat that
+produced it.
+
+### Visual style: parchment map, not a dashboard
+The long-term look is a fantasy map in the LOTR sense — black-and-white / sepia, ink-on-parchment
+terrain — with a StarCraft-minimap-style overlay for creatures and resources, rather than the flat
+dark-UI dashboard Phase 2 shipped with. This is a *reskin*, not a contradiction of the color-encoding
+rules above: terrain is already required to be desaturated so creatures own the saturation budget,
+and a parchment/ink treatment satisfies that constraint at least as well as flat gray cells do. The
+OkLCh genotype-color math and the species-ring/inspector model stay as designed; only the terrain
+rendering and UI chrome are in scope for the reskin. **Sequencing: after Phase 3**, once god-mode
+terrain tools give the map something worth re-styling around, rather than reskinning a screen that's
+about to gain new elements anyway.
+
+### New mechanic: ongoing parental care ("nursing")
+Currently reproduction is a single instant transaction: a lump of energy is handed to the child at
+birth (`offspringInvestment`, `offspringEnergyFraction{Min,Max}`), and the parent/child relationship
+ends there. The requested addition is real, sustained parental care: a parent continues spending its
+own energy on a specific, still-immature offspring for some evolvable duration before that offspring
+matures and becomes independent. This is genuine r/K selection theory — the tradeoff between many
+cheap, fast-maturing offspring (favored by scarcity, competition, instability) and few offspring with
+heavy sustained investment (favored by abundance and stability) — and the specific question driving
+it is whether resource abundance/competition level in a region evolves the local population toward
+one strategy or the other.
+
+This is a core-sim change, not a UI feature: it needs an evolvable duration gene, an ongoing
+parent→child energy transfer each tick (not just at birth), tracking of which offspring are still
+dependent, and a decision for what happens to a dependent offspring if its parent dies mid-nursing
+(likely: it dies too, or matures early and independent — needs a decision when this is designed).
+**Sequencing: fold into Phase 6**, which is already where the spec schedules deep tuning of the
+life-history axis (`reproThreshold`/`offspringInvestment`) — extending that axis to model ongoing
+care fits there naturally, after terrain barriers (Phase 3) and taxonomy/speciation detection
+(Phase 4) exist to actually observe the effect on divergence.
