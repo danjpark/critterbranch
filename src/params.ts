@@ -79,6 +79,17 @@ export interface Params {
   /** World is split into two regions (x < worldWidth/2 vs x >= worldWidth/2) for the gene-flow
    * meter; migration events are bucketed into windows this many ticks wide. */
   geneFlowWindowTicks: number;
+
+  /** Competition heatmap (see sim/consumption.ts, render/overlays.ts): fraction of each grid
+   * cell's per-species consumption total retained per tick. An exponential-decay approximation
+   * of "food consumed in the last N ticks" — half-life = ln(0.5) / ln(retention), ~46 ticks at
+   * the default 0.985. */
+  consumptionRetentionPerTick: number;
+  /** Decay is an O(cells) pass per tracked species — too expensive to run every tick against a
+   * population-sized simulation. Batched into one pass every this many ticks instead, using
+   * retention^interval so the effective half-life is unchanged; recording (the cheap O(1)
+   * per-feeding-event part) still happens every tick. */
+  consumptionDecayIntervalTicks: number;
 }
 
 export const DEFAULT_PARAMS: Params = {
@@ -129,4 +140,7 @@ export const DEFAULT_PARAMS: Params = {
   founderCountThreshold: 12,
   allopatricPassabilityThreshold: 0.15,
   geneFlowWindowTicks: 200,
+
+  consumptionRetentionPerTick: 0.985,
+  consumptionDecayIntervalTicks: 10,
 };

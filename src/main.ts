@@ -2,6 +2,7 @@ import "./style.css";
 import { isScenario, SimRunner } from "./app/simRunner.ts";
 import { DEFAULT_PARAMS } from "./params.ts";
 import { renderMuller } from "./render/mullerView.ts";
+import { renderCompetitionHeatmap } from "./render/overlays.ts";
 import { findPointAt, renderScatter } from "./render/scatterView.ts";
 import { findBranchAt, renderTree } from "./render/treeView.ts";
 import { findCreatureAt, invalidateTerrainCache, renderWorld } from "./render/worldView.ts";
@@ -72,6 +73,7 @@ const runner = new SimRunner(12345);
 let activeView: ViewName = "world";
 let scatterXGene: keyof Genome = "dietPref";
 let scatterYGene: keyof Genome = "senseRadius";
+let showCompetitionHeatmap = false;
 
 function setActiveView(view: ViewName): void {
   activeView = view;
@@ -108,6 +110,10 @@ const controls = createControls({
   },
   onDeuteranopiaToggle: (enabled) => {
     runner.setDeuteranopiaSafe(enabled);
+    render();
+  },
+  onCompetitionHeatmapToggle: (enabled) => {
+    showCompetitionHeatmap = enabled;
     render();
   },
 });
@@ -274,6 +280,9 @@ function render(): void {
       selectedCreatureId: runner.selectedCreatureId,
       lineageFilter: runner.lineageFilter,
     });
+    if (showCompetitionHeatmap) {
+      renderCompetitionHeatmap(worldCtx, runner.sim.state, DEFAULT_PARAMS, runner.colorOptions);
+    }
   } else if (activeView === "tree") {
     renderTree(treeCtx, runner.sim.state, {
       colorOptions: runner.colorOptions,

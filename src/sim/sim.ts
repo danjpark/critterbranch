@@ -1,4 +1,5 @@
 import { type Creature, createCreature, energyCapacity, isReadyToReproduce, reproduce, stepCreature } from "./creature.ts";
+import { cloneConsumptionGrid, type ConsumptionGrid, decayConsumption, initConsumptionGrid } from "./consumption.ts";
 import { cloneGeneFlow, type GeneFlowState, initGeneFlow, updateGeneFlow } from "./geneFlow.ts";
 import { type Genome, genomeCentroid, randomGenome } from "./genome.ts";
 import {
@@ -40,6 +41,8 @@ export interface SimState {
   geneFlow: GeneFlowState;
   /** Per-species population counts over time, sampled alongside each taxonomy pass — the Muller plot's data source. */
   populationHistory: PopulationSample[];
+  /** Per-cell, per-species decaying food-consumption totals — the competition heatmap's data source. */
+  consumptionGrid: ConsumptionGrid;
 }
 
 export interface SimInstance {
@@ -101,6 +104,7 @@ export function createSimState(seed: number, params: Params): SimInstance {
       taxonomyEvents: [],
       geneFlow: initGeneFlow(),
       populationHistory: [samplePopulation(taxonomy, 0)],
+      consumptionGrid: initConsumptionGrid(cols, rows),
     },
     rng,
     seed,
@@ -116,12 +120,15 @@ export function tick(state: SimState, rng: RNG, params: Params): void {
   processActiveTransitions(state, state.tick);
   processRegrowthOverrides(state, state.tick);
   regrowFood(state.world, state.terrain, state.tick, params);
+  if (state.tick % params.consumptionDecayIntervalTicks === 0) {
+    decayConsumption(state.consumptionGrid, params.consumptionRetentionPerTick ** params.consumptionDecayIntervalTicks);
+  }
 
   const nextGeneration: Creature[] = [];
   const allocateId = () => state.nextId++;
 
   for (const creature of state.creatures) {
-    stepCreature(creature, state.world, state.terrain, rng, params);
+    stepCreature(creature, state.world, state.terrain, rng, params, state.consumptionGrid);
 
     if (isReadyToReproduce(creature, params)) {
       nextGeneration.push(...reproduce(creature, rng, params, state.tick, allocateId));
@@ -196,6 +203,7 @@ export function cloneSimState(state: SimState): SimState {
     // Samples are never mutated after being pushed (fresh objects each time, see
     // samplePopulation), so a shallow array copy sharing references is safe here too.
     populationHistory: [...state.populationHistory],
+    consumptionGrid: cloneConsumptionGrid(state.consumptionGrid),
   };
 }
 

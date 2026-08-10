@@ -121,6 +121,7 @@ export interface ControlsCallbacks {
   onSpeedChange: (speed: SpeedSetting) => void;
   onRestart: (seed: number) => void;
   onDeuteranopiaToggle: (enabled: boolean) => void;
+  onCompetitionHeatmapToggle: (enabled: boolean) => void;
 }
 
 export interface ControlsHandle {
@@ -183,6 +184,13 @@ export function createControls(callbacks: ControlsCallbacks): ControlsHandle {
   deuteranopiaCheckbox.addEventListener("change", () => callbacks.onDeuteranopiaToggle(deuteranopiaCheckbox.checked));
   deuteranopiaLabel.append(deuteranopiaCheckbox, document.createTextNode("Deuteranopia-safe hues"));
 
+  const heatmapLabel = document.createElement("label");
+  heatmapLabel.className = "row";
+  const heatmapCheckbox = document.createElement("input");
+  heatmapCheckbox.type = "checkbox";
+  heatmapCheckbox.addEventListener("change", () => callbacks.onCompetitionHeatmapToggle(heatmapCheckbox.checked));
+  heatmapLabel.append(heatmapCheckbox, document.createTextNode("Competition heatmap (World view)"));
+
   const status = document.createElement("div");
   status.className = "status";
 
@@ -194,6 +202,7 @@ export function createControls(callbacks: ControlsCallbacks): ControlsHandle {
     seedRow,
     sectionTitle("Display"),
     deuteranopiaLabel,
+    heatmapLabel,
     status,
   );
 

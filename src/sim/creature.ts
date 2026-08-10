@@ -1,3 +1,5 @@
+import type { ConsumptionGrid } from "./consumption.ts";
+import { recordConsumption } from "./consumption.ts";
 import { mutate, type Genome } from "./genome.ts";
 import type { Params } from "../params.ts";
 import type { RNG } from "./rng.ts";
@@ -110,7 +112,14 @@ function senseFood(
 }
 
 /** Advances one creature by one tick in place: sense, steer, move, pay metabolism, eat. */
-export function stepCreature(creature: Creature, world: World, terrain: TerrainGrid, rng: RNG, params: Params): void {
+export function stepCreature(
+  creature: Creature,
+  world: World,
+  terrain: TerrainGrid,
+  rng: RNG,
+  params: Params,
+  consumptionGrid: ConsumptionGrid | null = null,
+): void {
   const worldWidth = world.cols * params.gridCellSize;
   const worldHeight = world.rows * params.gridCellSize;
   const rGain = gainPerUnit(creature.genome.dietPref, 0, params);
@@ -148,9 +157,11 @@ export function stepCreature(creature: Creature, world: World, terrain: TerrainG
   if (rTake * rGain >= bTake * bGain && rTake > 0) {
     world.r[idx] -= rTake;
     creature.energy += rTake * rGain;
+    if (consumptionGrid) recordConsumption(consumptionGrid, creature.lineageId, idx, rTake);
   } else if (bTake > 0) {
     world.b[idx] -= bTake;
     creature.energy += bTake * bGain;
+    if (consumptionGrid) recordConsumption(consumptionGrid, creature.lineageId, idx, bTake);
   }
 
   creature.age += 1;
