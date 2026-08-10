@@ -59,14 +59,24 @@ export function generateWorld(rng: RNG, params: Params, terrain: TerrainGrid): W
       });
     }
 
+    // Truncate the Gaussian at 1.5 sigma (keeps ~68% of its mass, close to the visually "solid"
+    // core of the bump) instead of letting it fade forever — otherwise dozens of overlapping
+    // infinite tails blanket the whole grid in a faint haze of nonzero food, which is what made
+    // "sparse, scattered patches" not actually look sparse: every cell had *some* food, just not
+    // much of it. A looser cutoff (e.g. 2.5 sigma) still leaves individual patches' footprints
+    // large enough to jointly cover most of the grid even at a handful of patches.
+    const CUTOFF_SIGMAS = 1.5;
     for (const patch of patches) {
       const target = patch.type === 0 ? capacityR : capacityB;
       const rad = Math.max(patch.radius, 0.5);
+      const cutoffDist = rad * CUTOFF_SIGMAS;
+      const cutoffDist2 = cutoffDist * cutoffDist;
       for (let y = 0; y < rows; y++) {
         const dy = torDelta(y, patch.y, rows);
         for (let x = 0; x < cols; x++) {
           const dx = torDelta(x, patch.x, cols);
           const d2 = dx * dx + dy * dy;
+          if (d2 > cutoffDist2) continue;
           const falloff = Math.exp(-d2 / (2 * rad * rad));
           target[y * cols + x] += patch.capacity * falloff;
         }

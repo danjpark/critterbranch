@@ -125,3 +125,24 @@ button.active {
   padding: 0.15rem 0.3rem;
   font-variant-numeric: tabular-nums;
 }
+
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.8rem;
+  color: #c4c8ce;
+}
+
+.legend-swatch {
+  flex: none;
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 2px;
+}
+
+.legend-swatch--dot {
+  border-radius: 50%;
+  background: linear-gradient(135deg, #d94f8a, #4a9dd9);
+}

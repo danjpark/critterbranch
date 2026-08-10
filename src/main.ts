@@ -2,7 +2,7 @@ import "./style.css";
 import { SimRunner } from "./app/simRunner.ts";
 import { DEFAULT_PARAMS } from "./params.ts";
 import { findCreatureAt, renderWorld } from "./render/worldView.ts";
-import { createControls } from "./ui/controls.ts";
+import { createControls, createLegend } from "./ui/controls.ts";
 
 const CANVAS_SIZE = 640;
 
@@ -40,7 +40,7 @@ const controls = createControls({
   },
 });
 
-sidebar.append(controls.root, controls.inspectorRoot);
+sidebar.append(createLegend(), controls.root, controls.inspectorRoot);
 
 canvas.addEventListener("click", (event) => {
   const rect = canvas.getBoundingClientRect();

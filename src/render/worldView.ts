@@ -78,25 +78,31 @@ function paintTerrain(ctx: CanvasRenderingContext2D, terrain: TerrainGrid, param
   }
 }
 
-/** Food keeps a fixed, distinct visual language: small squares in fixed R/B colors, sized by fill fraction. */
+/** Food keeps a fixed, distinct visual language: small squares in fixed R/B colors, sized by true abundance. */
 function drawFood(ctx: CanvasRenderingContext2D, state: SimState, params: Params, scaleX: number, scaleY: number): void {
   const { world } = state;
   const cellW = params.gridCellSize * scaleX;
   const cellH = params.gridCellSize * scaleY;
+
+  // Size against the richest a cell can ever be (a rich patch's peak), not against each cell's
+  // own capacity. Sizing locally made a nearly-empty ambient cell (tiny capacity, but "full"
+  // relative to itself) render identically to a brimming rich patch — food looked uniform
+  // everywhere because every square was answering "how full is this spot" instead of "how much
+  // food is actually here."
+  const referenceCapacity = Math.max(params.richPatchCapacity, 1e-6);
+  const minVisibleAmount = referenceCapacity * 0.02;
 
   for (let y = 0; y < world.rows; y++) {
     for (let x = 0; x < world.cols; x++) {
       const idx = y * world.cols + x;
       const rAmt = world.r[idx];
       const bAmt = world.b[idx];
-      if (rAmt < 1e-3 && bAmt < 1e-3) continue;
 
       const dominantIsR = rAmt >= bAmt;
       const amt = dominantIsR ? rAmt : bAmt;
-      const capacity = dominantIsR ? world.capacityR[idx] : world.capacityB[idx];
-      const frac = capacity > 0 ? clamp01(amt / capacity) : 0;
-      if (frac < 0.02) continue;
+      if (amt < minVisibleAmount) continue;
 
+      const frac = clamp01(amt / referenceCapacity);
       const size = lerp(cellW * 0.15, cellW * 0.7, frac);
       const cx = x * cellW + cellW / 2;
       const cy = y * cellH + cellH / 2;

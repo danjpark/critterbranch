@@ -1,3 +1,4 @@
+import { FOOD_B_COLOR, FOOD_R_COLOR } from "../render/color.ts";
 import type { Creature } from "../sim/creature.ts";
 import { GENE_KEYS } from "../sim/genome.ts";
 
@@ -108,6 +109,41 @@ export function createControls(callbacks: ControlsCallbacks): ControlsHandle {
       inspectorBody.replaceChildren(...renderInspector(creature));
     },
   };
+}
+
+export function createLegend(): HTMLElement {
+  const root = document.createElement("div");
+  root.className = "panel legend";
+  root.append(sectionTitle("Legend"));
+
+  const entries: [HTMLElement, string][] = [
+    [squareSwatch(FOOD_R_COLOR), "Food, type R — square size shows how much is left there"],
+    [squareSwatch(FOOD_B_COLOR), "Food, type B — same, other food type"],
+    [dotSwatch(), "A creature — dot color encodes its genome (diet, foraging style, life history). Click one to inspect it."],
+  ];
+  for (const [swatch, text] of entries) {
+    const row = document.createElement("div");
+    row.className = "legend-row";
+    const label = document.createElement("span");
+    label.textContent = text;
+    row.append(swatch, label);
+    root.appendChild(row);
+  }
+
+  return root;
+}
+
+function squareSwatch(color: string): HTMLElement {
+  const el = document.createElement("span");
+  el.className = "legend-swatch";
+  el.style.background = color;
+  return el;
+}
+
+function dotSwatch(): HTMLElement {
+  const el = document.createElement("span");
+  el.className = "legend-swatch legend-swatch--dot";
+  return el;
 }
 
 function sectionTitle(text: string): HTMLElement {
