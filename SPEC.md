@@ -392,3 +392,28 @@ dependent, and a decision for what happens to a dependent offspring if its paren
 life-history axis (`reproThreshold`/`offspringInvestment`) — extending that axis to model ongoing
 care fits there naturally, after terrain barriers (Phase 3) and taxonomy/speciation detection
 (Phase 4) exist to actually observe the effect on divergence.
+
+---
+
+## Addendum 2 — food density fix, and two more direction checks
+
+After the visual-style/nursing discussion above, the live app surfaced a real bug: food looked like
+it covered nearly every cell (fixed — see git history around "Make food genuinely sparse"; the short
+version is drawFood was sizing squares by *local* fill fraction instead of *true abundance*, and an
+ambient floor plus an untruncated Gaussian falloff meant almost every cell had some nonzero food).
+
+One useful side effect of that fix, worth recording: once patches had real gaps between them, the
+population visibly clustered into distinct, differently-colored groups around separate patches —
+using only the sensing/foraging behavior that already existed. No new mechanic was needed for
+*resource-driven* clustering.
+
+That prompted two more feature requests, both deliberately deferred:
+
+- **Predation ("hunting")** — this is Optional Axis 4, already in the spec above with an explicit
+  warning not to add it before Phase 5. Confirmed: stays deferred, no change to the plan.
+- **"Homing" gene (kin-based site fidelity)** — distinct from the resource-driven clustering above:
+  the idea is offspring staying near their birthplace/each other *independent* of current food
+  location, which is what would let "does site fidelity correlate with parenting strategy" (tying
+  into the nursing mechanic) be asked cleanly. **Decision: hold off for now** — see how far
+  resource-driven clustering alone goes once Phase 3/4 land before deciding whether this still adds
+  something new. Revisit then; don't design it preemptively.
