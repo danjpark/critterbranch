@@ -1,7 +1,7 @@
 import { type Creature, createCreature, energyCapacity, isReadyToReproduce, reproduce, stepCreature } from "./creature.ts";
 import { cloneConsumptionGrid, type ConsumptionGrid, decayConsumption, initConsumptionGrid } from "./consumption.ts";
 import { cloneGeneFlow, type GeneFlowState, initGeneFlow, updateGeneFlow } from "./geneFlow.ts";
-import { type Genome, genomeCentroid, randomGenome } from "./genome.ts";
+import { type Genome, genomeCentroid, randomGenome, sampleTraits, type TraitSample } from "./genome.ts";
 import {
   applyIntervention,
   type FieldTransition,
@@ -43,6 +43,8 @@ export interface SimState {
   populationHistory: PopulationSample[];
   /** Per-cell, per-species decaying food-consumption totals — the competition heatmap's data source. */
   consumptionGrid: ConsumptionGrid;
+  /** Population mean +/- std per gene over time — the trait time-series chart's data source. */
+  traitHistory: TraitSample[];
 }
 
 export interface SimInstance {
@@ -105,6 +107,7 @@ export function createSimState(seed: number, params: Params): SimInstance {
       geneFlow: initGeneFlow(),
       populationHistory: [samplePopulation(taxonomy, 0)],
       consumptionGrid: initConsumptionGrid(cols, rows),
+      traitHistory: creatures.length > 0 ? [sampleTraits(creatures.map((c) => c.genome), 0)] : [],
     },
     rng,
     seed,
@@ -149,6 +152,9 @@ export function tick(state: SimState, rng: RNG, params: Params): void {
     const events = updateTaxonomy(state.taxonomy, state.creatures, state.terrain, params, state.tick);
     if (events.length > 0) state.taxonomyEvents.push(...events);
     state.populationHistory.push(samplePopulation(state.taxonomy, state.tick));
+    if (state.creatures.length > 0) {
+      state.traitHistory.push(sampleTraits(state.creatures.map((c) => c.genome), state.tick));
+    }
   }
 
   state.tick += 1;
@@ -204,6 +210,9 @@ export function cloneSimState(state: SimState): SimState {
     // samplePopulation), so a shallow array copy sharing references is safe here too.
     populationHistory: [...state.populationHistory],
     consumptionGrid: cloneConsumptionGrid(state.consumptionGrid),
+    // Samples are never mutated after being pushed (fresh objects each time, see sampleTraits),
+    // so a shallow array copy sharing references is safe here too.
+    traitHistory: [...state.traitHistory],
   };
 }
 

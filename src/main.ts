@@ -15,6 +15,7 @@ import {
   createLegend,
   createScatterPanel,
   createScenarioPanel,
+  createTraitChart,
   createTreePanel,
 } from "./ui/controls.ts";
 
@@ -74,6 +75,7 @@ let activeView: ViewName = "world";
 let scatterXGene: keyof Genome = "dietPref";
 let scatterYGene: keyof Genome = "senseRadius";
 let showCompetitionHeatmap = false;
+let traitChartGene: keyof Genome = "dietPref";
 
 function setActiveView(view: ViewName): void {
   activeView = view;
@@ -202,6 +204,10 @@ const scatterPanel = createScatterPanel(scatterXGene, scatterYGene, {
 
 const eventFeed = createEventFeed();
 const geneFlowChart = createGeneFlowChart();
+const traitChart = createTraitChart(traitChartGene, (gene) => {
+  traitChartGene = gene;
+  render();
+});
 
 sidebar.append(
   createLegend(),
@@ -211,6 +217,7 @@ sidebar.append(
   scatterPanel.root,
   scenarioPanel.root,
   geneFlowChart.root,
+  traitChart.root,
   eventFeed.root,
   controls.inspectorRoot,
 );
@@ -308,6 +315,7 @@ function render(): void {
   controls.setStatus(runner.sim.state.tick, runner.sim.state.creatures.length, livingSpeciesCount);
   eventFeed.setEvents(runner.sim.state.taxonomyEvents);
   geneFlowChart.render(runner.sim.state.geneFlow.history);
+  traitChart.render(runner.sim.state.traitHistory, traitChartGene);
   treePanel.setSelectedSpecies(runner.selectedSpecies(), runner.sim.state.tick, runner.colorOptions, runner.sim.state.foundingCentroid);
 
   if (runner.selectedCreatureId !== null) {

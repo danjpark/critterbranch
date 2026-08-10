@@ -1,7 +1,7 @@
 import { type ColorOptions, FOOD_B_COLOR, FOOD_R_COLOR, genotypeColor } from "../render/color.ts";
 import type { Creature } from "../sim/creature.ts";
 import type { GeneFlowSample } from "../sim/geneFlow.ts";
-import { GENE_KEYS, type Genome } from "../sim/genome.ts";
+import { GENE_KEYS, type Genome, type TraitSample } from "../sim/genome.ts";
 import type { Species, SpeciationMechanism, TaxonomyEvent } from "../sim/taxonomy.ts";
 
 export type SpeedSetting = 1 | 10 | 100 | 1000 | "max";
@@ -558,6 +558,76 @@ export function createGeneFlowChart(): GeneFlowChartHandle {
         const barHeight = (sample.migrations / maxValue) * (canvas.height - 4);
         ctx.fillRect(i * barWidth, canvas.height - barHeight, Math.max(barWidth - 1, 1), barHeight);
       });
+    },
+  };
+}
+
+export interface TraitChartHandle {
+  root: HTMLElement;
+  render: (history: TraitSample[], gene: keyof Genome) => void;
+}
+
+/** Population mean (line) +/- std (shaded band) for one selectable gene over time. */
+export function createTraitChart(defaultGene: keyof Genome, onGeneChange: (gene: keyof Genome) => void): TraitChartHandle {
+  const root = document.createElement("div");
+  root.className = "panel";
+  root.append(sectionTitle("Trait over time"));
+  root.append(geneSelectRow("Gene", defaultGene, onGeneChange));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 272;
+  canvas.height = 80;
+  canvas.className = "gene-flow-canvas";
+  root.appendChild(canvas);
+  const ctx = canvas.getContext("2d")!;
+
+  return {
+    root,
+    render(history, gene) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (history.length === 0) return;
+
+      const recent = history.slice(-150);
+      let yMin = Infinity;
+      let yMax = -Infinity;
+      for (const sample of recent) {
+        yMin = Math.min(yMin, sample.mean[gene] - sample.std[gene]);
+        yMax = Math.max(yMax, sample.mean[gene] + sample.std[gene]);
+      }
+      if (yMax <= yMin) {
+        yMin -= 0.5;
+        yMax += 0.5;
+      }
+
+      const w = canvas.width;
+      const h = canvas.height;
+      const tickToX = (i: number) => (i / Math.max(1, recent.length - 1)) * w;
+      const valueToY = (v: number) => h - ((v - yMin) / (yMax - yMin)) * h;
+
+      ctx.fillStyle = "rgba(74, 125, 217, 0.25)";
+      ctx.beginPath();
+      recent.forEach((sample, i) => {
+        const x = tickToX(i);
+        const y = valueToY(sample.mean[gene] + sample.std[gene]);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      for (let i = recent.length - 1; i >= 0; i--) {
+        ctx.lineTo(tickToX(i), valueToY(recent[i].mean[gene] - recent[i].std[gene]));
+      }
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = "#4a7dd9";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      recent.forEach((sample, i) => {
+        const x = tickToX(i);
+        const y = valueToY(sample.mean[gene]);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
     },
   };
 }

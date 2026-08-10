@@ -91,3 +91,21 @@ export function genomeCentroid(genomes: Genome[]): Genome {
   }
   return centroid;
 }
+
+/** One point in time for the trait time-series chart: population mean and std per gene. */
+export interface TraitSample {
+  tick: number;
+  mean: Genome;
+  std: Genome;
+}
+
+/** Caller's responsibility to only call this with a non-empty population — mean/std are undefined for zero creatures. */
+export function sampleTraits(genomes: Genome[], tick: number): TraitSample {
+  const mean = genomeCentroid(genomes);
+  const std = {} as Genome;
+  for (const key of GENE_KEYS) {
+    const variance = genomes.reduce((sum, g) => sum + (g[key] - mean[key]) ** 2, 0) / genomes.length;
+    std[key] = Math.sqrt(variance);
+  }
+  return { tick, mean, std };
+}
