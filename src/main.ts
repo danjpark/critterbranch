@@ -2,20 +2,23 @@ import "./style.css";
 import { isScenario, SimRunner } from "./app/simRunner.ts";
 import { DEFAULT_PARAMS } from "./params.ts";
 import { renderMuller } from "./render/mullerView.ts";
+import { findPointAt, renderScatter } from "./render/scatterView.ts";
 import { findBranchAt, renderTree } from "./render/treeView.ts";
 import { findCreatureAt, invalidateTerrainCache, renderWorld } from "./render/worldView.ts";
+import type { Genome } from "./sim/genome.ts";
 import {
   createControls,
   createEventFeed,
   createGeneFlowChart,
   createGodModePanel,
   createLegend,
+  createScatterPanel,
   createScenarioPanel,
   createTreePanel,
 } from "./ui/controls.ts";
 
 const CANVAS_SIZE = 640;
-type ViewName = "world" | "tree" | "muller";
+type ViewName = "world" | "tree" | "muller" | "scatter";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = "";
@@ -26,9 +29,10 @@ canvasArea.className = "canvas-area";
 const tabRow = document.createElement("div");
 tabRow.className = "row view-tabs";
 const tabButtons = new Map<ViewName, HTMLButtonElement>();
-for (const view of ["world", "tree", "muller"] as ViewName[]) {
+const VIEW_LABELS: Record<ViewName, string> = { world: "World", tree: "Tree", muller: "Muller", scatter: "Scatter" };
+for (const view of ["world", "tree", "muller", "scatter"] as ViewName[]) {
   const btn = document.createElement("button");
-  btn.textContent = view === "world" ? "World" : view === "tree" ? "Tree" : "Muller";
+  btn.textContent = VIEW_LABELS[view];
   btn.addEventListener("click", () => setActiveView(view));
   tabButtons.set(view, btn);
   tabRow.appendChild(btn);
@@ -44,9 +48,15 @@ function makeCanvas(): HTMLCanvasElement {
 const worldCanvas = makeCanvas();
 const treeCanvas = makeCanvas();
 const mullerCanvas = makeCanvas();
-const canvases: Record<ViewName, HTMLCanvasElement> = { world: worldCanvas, tree: treeCanvas, muller: mullerCanvas };
+const scatterCanvas = makeCanvas();
+const canvases: Record<ViewName, HTMLCanvasElement> = {
+  world: worldCanvas,
+  tree: treeCanvas,
+  muller: mullerCanvas,
+  scatter: scatterCanvas,
+};
 
-canvasArea.append(tabRow, worldCanvas, treeCanvas, mullerCanvas);
+canvasArea.append(tabRow, worldCanvas, treeCanvas, mullerCanvas, scatterCanvas);
 
 const sidebar = document.createElement("div");
 sidebar.className = "sidebar";
@@ -56,9 +66,12 @@ app.append(canvasArea, sidebar);
 const worldCtx = worldCanvas.getContext("2d")!;
 const treeCtx = treeCanvas.getContext("2d")!;
 const mullerCtx = mullerCanvas.getContext("2d")!;
+const scatterCtx = scatterCanvas.getContext("2d")!;
 
 const runner = new SimRunner(12345);
 let activeView: ViewName = "world";
+let scatterXGene: keyof Genome = "dietPref";
+let scatterYGene: keyof Genome = "senseRadius";
 
 function setActiveView(view: ViewName): void {
   activeView = view;
@@ -170,6 +183,17 @@ const scenarioPanel = createScenarioPanel({
   },
 });
 
+const scatterPanel = createScatterPanel(scatterXGene, scatterYGene, {
+  onXGeneChange: (gene) => {
+    scatterXGene = gene;
+    render();
+  },
+  onYGeneChange: (gene) => {
+    scatterYGene = gene;
+    render();
+  },
+});
+
 const eventFeed = createEventFeed();
 const geneFlowChart = createGeneFlowChart();
 
@@ -178,6 +202,7 @@ sidebar.append(
   controls.root,
   godModePanel.root,
   treePanel.root,
+  scatterPanel.root,
   scenarioPanel.root,
   geneFlowChart.root,
   eventFeed.root,
@@ -214,6 +239,24 @@ treeCanvas.addEventListener("click", (event) => {
   render();
 });
 
+scatterCanvas.addEventListener("click", (event) => {
+  const rect = scatterCanvas.getBoundingClientRect();
+  const canvasX = ((event.clientX - rect.left) / rect.width) * scatterCanvas.width;
+  const canvasY = ((event.clientY - rect.top) / rect.height) * scatterCanvas.height;
+
+  const creature = findPointAt(
+    runner.sim.state,
+    { xGene: scatterXGene, yGene: scatterYGene, lineageFilter: runner.lineageFilter },
+    canvasX,
+    canvasY,
+    scatterCanvas.width,
+    scatterCanvas.height,
+  );
+  runner.select(creature?.id ?? null);
+  controls.setInspected(creature);
+  render();
+});
+
 function render(): void {
   // Terrain is normally cached (see worldView.ts) since it's static — but an in-progress god-mode
   // effect (barrier still forming, crater still recovering) changes it every tick, so the cache
@@ -237,8 +280,16 @@ function render(): void {
       selectedSpeciesId: runner.selectedSpeciesId,
       mechanismFilter: runner.mechanismFilter,
     });
-  } else {
+  } else if (activeView === "muller") {
     renderMuller(mullerCtx, runner.sim.state, runner.colorOptions);
+  } else {
+    renderScatter(scatterCtx, runner.sim.state, {
+      xGene: scatterXGene,
+      yGene: scatterYGene,
+      colorOptions: runner.colorOptions,
+      selectedCreatureId: runner.selectedCreatureId,
+      lineageFilter: runner.lineageFilter,
+    });
   }
 
   let livingSpeciesCount = 0;

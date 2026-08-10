@@ -309,6 +309,53 @@ export function createGodModePanel(callbacks: GodModeCallbacks): GodModeHandle {
   };
 }
 
+export interface ScatterPanelCallbacks {
+  onXGeneChange: (gene: keyof Genome) => void;
+  onYGeneChange: (gene: keyof Genome) => void;
+}
+
+export interface ScatterPanelHandle {
+  root: HTMLElement;
+}
+
+/**
+ * Axis pickers for the gene-space scatter. No color key here — per SPEC.md, the scatter plot
+ * itself *is* the legend, since every point already sits at its own genome position wearing its
+ * own color. This panel only needs to pick which two genes become x/y.
+ */
+export function createScatterPanel(defaultXGene: keyof Genome, defaultYGene: keyof Genome, callbacks: ScatterPanelCallbacks): ScatterPanelHandle {
+  const root = document.createElement("div");
+  root.className = "panel";
+  root.append(sectionTitle("Gene-space scatter"));
+
+  const xRow = geneSelectRow("X axis", defaultXGene, callbacks.onXGeneChange);
+  const yRow = geneSelectRow("Y axis", defaultYGene, callbacks.onYGeneChange);
+  root.append(xRow, yRow);
+
+  return { root };
+}
+
+function geneSelectRow(label: string, initial: keyof Genome, onChange: (gene: keyof Genome) => void): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "row";
+
+  const labelEl = document.createElement("span");
+  labelEl.textContent = label;
+
+  const select = document.createElement("select");
+  for (const key of GENE_KEYS) {
+    const option = document.createElement("option");
+    option.value = key;
+    option.textContent = key;
+    if (key === initial) option.selected = true;
+    select.appendChild(option);
+  }
+  select.addEventListener("change", () => onChange(select.value as keyof Genome));
+
+  row.append(labelEl, select);
+  return row;
+}
+
 function sliderRow(
   label: string,
   min: number,
