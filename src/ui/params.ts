@@ -51,6 +51,9 @@ export interface Params {
 
   // Founding population (single-founder default; multi-founder config arrives with the UI phase)
   foundingPopulationSize: number;
+
+  // Rendering — genotype-color chroma (see render/color.ts)
+  genotypeColorDivergenceScale: number;
 }
 
 export const DEFAULT_PARAMS: Params = {
@@ -92,4 +95,6 @@ export const DEFAULT_PARAMS: Params = {
   fertilitySteepness: 0.6,
 
   foundingPopulationSize: 100,
+
+  genotypeColorDivergenceScale: 0.35,
 };

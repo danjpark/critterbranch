@@ -1,5 +1,5 @@
 import { type Creature, createCreature, energyCapacity, stepCreature } from "./creature.ts";
-import { mutate, randomGenome } from "./genome.ts";
+import { type Genome, genomeCentroid, mutate, randomGenome } from "./genome.ts";
 import { RNG } from "./rng.ts";
 import { generateTerrain, type TerrainGrid } from "./terrain.ts";
 import { lerp, wrap } from "./util.ts";
@@ -12,6 +12,8 @@ export interface SimState {
   creatures: Creature[];
   world: World;
   terrain: TerrainGrid;
+  /** Mean genome of the founding population — fixed reference point for genotype-color chroma. */
+  foundingCentroid: Genome;
 }
 
 export interface SimInstance {
@@ -39,7 +41,9 @@ export function createSimState(seed: number, params: Params): SimInstance {
     creatures.push(createCreature(nextId++, null, 0, genome, x, y, startEnergy, 0, rng));
   }
 
-  return { state: { tick: 0, nextId, creatures, world, terrain }, rng };
+  const foundingCentroid = genomeCentroid(creatures.map((c) => c.genome));
+
+  return { state: { tick: 0, nextId, creatures, world, terrain, foundingCentroid }, rng };
 }
 
 /** Advances the sim by exactly one tick, mutating `state` in place. */

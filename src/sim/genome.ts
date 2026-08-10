@@ -55,3 +55,39 @@ export function mutate(genome: Genome, rng: RNG): Genome {
   }
   return child;
 }
+
+/** Weights used when combining per-gene distance into one scalar (genotype-color chroma, later taxonomy). */
+export const GENE_WEIGHTS: Record<keyof Genome, number> = {
+  dietPref: 1.0,
+  speed: 1.0,
+  senseRadius: 1.0,
+  wanderPersistence: 0.6,
+  size: 0.2,
+  reproThreshold: 0.8,
+  offspringInvestment: 1.0,
+  mutationRate: 0.1,
+};
+
+/** Weighted RMS distance between two genomes, each gene normalized by its own range. In [0, 1]. */
+export function geneticDistance(a: Genome, b: Genome): number {
+  let sumSq = 0;
+  let weightSum = 0;
+  for (const key of GENE_KEYS) {
+    const [min, max] = GENE_RANGES[key];
+    const range = max - min;
+    const normDiff = (a[key] - b[key]) / range;
+    const w = GENE_WEIGHTS[key];
+    sumSq += w * normDiff * normDiff;
+    weightSum += w;
+  }
+  return Math.sqrt(sumSq / weightSum);
+}
+
+/** Mean genome across a population — used as the founding-ancestor centroid for genotype chroma. */
+export function genomeCentroid(genomes: Genome[]): Genome {
+  const centroid = {} as Genome;
+  for (const key of GENE_KEYS) {
+    centroid[key] = genomes.reduce((sum, g) => sum + g[key], 0) / genomes.length;
+  }
+  return centroid;
+}
