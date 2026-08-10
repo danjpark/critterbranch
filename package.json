@@ -1,0 +1,19 @@
+{
+  "name": "evolution-simulator",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "sim": "tsx scripts/run-headless.ts",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.11",
+    "typescript": "~6.0.2",
+    "vite": "^8.2.0",
+    "vitest": "^4.1.10"
+  }
+}
