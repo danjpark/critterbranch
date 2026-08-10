@@ -6,6 +6,113 @@ export type SpeedSetting = 1 | 10 | 100 | 1000 | "max";
 
 const SPEED_OPTIONS: SpeedSetting[] = [1, 10, 100, 1000, "max"];
 
+export type GodTool =
+  | "raiseTerrain"
+  | "lowerTerrain"
+  | "barrierStamp"
+  | "dropFoodR"
+  | "dropFoodB"
+  | "drought"
+  | "bloom"
+  | "meteor"
+  | "seedFounders";
+
+const GOD_TOOL_LABELS: Record<GodTool, string> = {
+  raiseTerrain: "Raise terrain",
+  lowerTerrain: "Lower terrain",
+  barrierStamp: "Barrier (click twice)",
+  dropFoodR: "Drop food R",
+  dropFoodB: "Drop food B",
+  drought: "Drought",
+  bloom: "Bloom",
+  meteor: "Meteor",
+  seedFounders: "Seed founders",
+};
+
+const GOD_TOOL_HINTS: Record<GodTool, string> = {
+  raiseTerrain: "Click the map to raise terrain there.",
+  lowerTerrain: "Click the map to lower terrain there.",
+  barrierStamp: "Click one point, then another — draws a barrier between them.",
+  dropFoodR: "Click the map to add food (type R) there.",
+  dropFoodB: "Click the map to add food (type B) there.",
+  drought: "Click a region to suppress its regrowth for a while.",
+  bloom: "Click a region to boost its regrowth for a while.",
+  meteor: "Click to strike — kills everything in range and craters the ground. Undo below if you regret it.",
+  seedFounders: "Click to drop new creatures with random genomes there.",
+};
+
+const GOD_TOOLS: GodTool[] = [
+  "raiseTerrain",
+  "lowerTerrain",
+  "barrierStamp",
+  "dropFoodR",
+  "dropFoodB",
+  "drought",
+  "bloom",
+  "meteor",
+  "seedFounders",
+];
+
+export interface ScenarioCallbacks {
+  onExport: () => void;
+  onLoad: (file: File) => void;
+  onLoadExample: (name: "barrier-split" | "meteor-radiation") => void;
+}
+
+export interface ScenarioHandle {
+  root: HTMLElement;
+}
+
+export function createScenarioPanel(callbacks: ScenarioCallbacks): ScenarioHandle {
+  const root = document.createElement("div");
+  root.className = "panel";
+  root.append(sectionTitle("Scenario"));
+
+  const hint = document.createElement("div");
+  hint.className = "godmode-hint";
+  hint.textContent = "A scenario is a seed plus every god-mode action, replayed at the exact ticks they happened — export one to save or share a run, load one to watch it play out.";
+
+  const exportButton = document.createElement("button");
+  exportButton.textContent = "Export scenario (.json)";
+  exportButton.addEventListener("click", callbacks.onExport);
+  const exportRow = document.createElement("div");
+  exportRow.className = "row";
+  exportRow.appendChild(exportButton);
+
+  const loadInput = document.createElement("input");
+  loadInput.type = "file";
+  loadInput.accept = "application/json";
+  loadInput.id = "scenario-load-input";
+  loadInput.className = "scenario-file-input";
+  loadInput.addEventListener("change", () => {
+    const file = loadInput.files?.[0];
+    if (file) callbacks.onLoad(file);
+    loadInput.value = "";
+  });
+  const loadLabel = document.createElement("label");
+  loadLabel.setAttribute("for", "scenario-load-input");
+  loadLabel.className = "scenario-file-label";
+  loadLabel.textContent = "Load scenario…";
+  const loadRow = document.createElement("div");
+  loadRow.className = "row";
+  loadRow.append(loadInput, loadLabel);
+
+  const barrierExampleButton = document.createElement("button");
+  barrierExampleButton.textContent = "Example: barrier split";
+  barrierExampleButton.addEventListener("click", () => callbacks.onLoadExample("barrier-split"));
+
+  const meteorExampleButton = document.createElement("button");
+  meteorExampleButton.textContent = "Example: meteor radiation";
+  meteorExampleButton.addEventListener("click", () => callbacks.onLoadExample("meteor-radiation"));
+
+  const exampleRow = document.createElement("div");
+  exampleRow.className = "row";
+  exampleRow.append(barrierExampleButton, meteorExampleButton);
+
+  root.append(hint, exportRow, loadRow, exampleRow);
+  return { root };
+}
+
 export interface ControlsCallbacks {
   onPlayPause: () => void;
   onStep: () => void;
@@ -109,6 +216,130 @@ export function createControls(callbacks: ControlsCallbacks): ControlsHandle {
       inspectorBody.replaceChildren(...renderInspector(creature));
     },
   };
+}
+
+export interface GodModeCallbacks {
+  onToolSelect: (tool: GodTool | null) => void;
+  onRadiusChange: (radius: number) => void;
+  onStrengthChange: (strength: number) => void;
+  onDurationChange: (durationTicks: number) => void;
+  onSeedCountChange: (count: number) => void;
+  onUndoMeteor: () => void;
+}
+
+export interface GodModeHandle {
+  root: HTMLElement;
+  setActiveTool: (tool: GodTool | null) => void;
+  setUndoEnabled: (enabled: boolean) => void;
+}
+
+export function createGodModePanel(callbacks: GodModeCallbacks): GodModeHandle {
+  const root = document.createElement("div");
+  root.className = "panel godmode";
+  root.append(sectionTitle("God mode"));
+
+  const hint = document.createElement("div");
+  hint.className = "godmode-hint";
+  hint.textContent = "Select a tool, then click the map.";
+
+  const toolRow = document.createElement("div");
+  toolRow.className = "row";
+  const toolButtons = new Map<GodTool, HTMLButtonElement>();
+
+  const noneButton = document.createElement("button");
+  noneButton.textContent = "None (inspect)";
+  noneButton.classList.add("active");
+  noneButton.addEventListener("click", () => {
+    setActive(null);
+    callbacks.onToolSelect(null);
+  });
+  toolRow.appendChild(noneButton);
+
+  function setActive(tool: GodTool | null): void {
+    noneButton.classList.toggle("active", tool === null);
+    for (const [t, btn] of toolButtons) btn.classList.toggle("active", t === tool);
+    hint.textContent = tool ? GOD_TOOL_HINTS[tool] : "Select a tool, then click the map.";
+  }
+
+  for (const tool of GOD_TOOLS) {
+    const btn = document.createElement("button");
+    btn.textContent = GOD_TOOL_LABELS[tool];
+    btn.addEventListener("click", () => {
+      setActive(tool);
+      callbacks.onToolSelect(tool);
+    });
+    toolButtons.set(tool, btn);
+    toolRow.appendChild(btn);
+  }
+
+  const radiusRow = sliderRow("Radius / width", 2, 60, 15, 1, (v) => callbacks.onRadiusChange(v));
+  const strengthRow = sliderRow("Strength", 0, 1, 0.5, 0.05, (v) => callbacks.onStrengthChange(v));
+  const durationRow = sliderRow("Duration (ticks, 0 = instant)", 0, 2000, 0, 50, (v) => callbacks.onDurationChange(v));
+
+  const seedCountRow = document.createElement("div");
+  seedCountRow.className = "row";
+  const seedCountLabel = document.createElement("span");
+  seedCountLabel.textContent = "Seed count";
+  const seedCountInput = document.createElement("input");
+  seedCountInput.type = "number";
+  seedCountInput.value = "20";
+  seedCountInput.min = "1";
+  seedCountInput.className = "seed-input";
+  seedCountInput.addEventListener("change", () => callbacks.onSeedCountChange(Number(seedCountInput.value) || 1));
+  seedCountRow.append(seedCountLabel, seedCountInput);
+
+  const undoButton = document.createElement("button");
+  undoButton.textContent = "Undo last meteor";
+  undoButton.disabled = true;
+  undoButton.addEventListener("click", callbacks.onUndoMeteor);
+  const undoRow = document.createElement("div");
+  undoRow.className = "row";
+  undoRow.appendChild(undoButton);
+
+  root.append(hint, toolRow, radiusRow.row, strengthRow.row, durationRow.row, seedCountRow, undoRow);
+
+  return {
+    root,
+    setActiveTool: setActive,
+    setUndoEnabled(enabled: boolean) {
+      undoButton.disabled = !enabled;
+    },
+  };
+}
+
+function sliderRow(
+  label: string,
+  min: number,
+  max: number,
+  initial: number,
+  step: number,
+  onChange: (value: number) => void,
+): { row: HTMLElement; input: HTMLInputElement } {
+  const row = document.createElement("div");
+  row.className = "row slider-row";
+
+  const labelEl = document.createElement("span");
+  labelEl.className = "slider-label";
+  labelEl.textContent = label;
+
+  const input = document.createElement("input");
+  input.type = "range";
+  input.min = String(min);
+  input.max = String(max);
+  input.step = String(step);
+  input.value = String(initial);
+
+  const valueEl = document.createElement("span");
+  valueEl.className = "slider-value";
+  valueEl.textContent = String(initial);
+
+  input.addEventListener("input", () => {
+    valueEl.textContent = input.value;
+    onChange(Number(input.value));
+  });
+
+  row.append(labelEl, input, valueEl);
+  return { row, input };
 }
 
 export function createLegend(): HTMLElement {

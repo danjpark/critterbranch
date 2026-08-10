@@ -29,6 +29,9 @@ export interface SimState {
 export interface SimInstance {
   state: SimState;
   rng: RNG;
+  /** The seed this run was created with — combined with interventionLog, this is a run's entire
+   * exportable identity (see SPEC.md: "the intervention log is also a saved scenario"). */
+  seed: number;
   /** Every god-mode action applied to this run, in application order. The whole point of this
    * log is that `runSimulation(seed, params, interventionLog)` can reproduce the run exactly,
    * headlessly, with nobody present — see runSimulation below. */
@@ -79,6 +82,7 @@ export function createSimState(seed: number, params: Params): SimInstance {
       activeRegrowthOverrides: [],
     },
     rng,
+    seed,
     interventionLog: [],
   };
 }
@@ -120,6 +124,39 @@ export function applyInterventionNow(instance: SimInstance, params: Params, tool
   const intervention = { tick: instance.state.tick, tool, params: toolParams } as Intervention;
   applyIntervention(instance.state, instance.rng, params, intervention);
   instance.interventionLog.push(intervention);
+}
+
+/** Deep clone, safe to mutate independently of the original — used for the meteor undo checkpoint. */
+export function cloneSimState(state: SimState): SimState {
+  return {
+    tick: state.tick,
+    nextId: state.nextId,
+    creatures: state.creatures.map((c) => ({ ...c, genome: { ...c.genome } })),
+    world: {
+      cols: state.world.cols,
+      rows: state.world.rows,
+      r: state.world.r.slice(),
+      b: state.world.b.slice(),
+      capacityR: state.world.capacityR.slice(),
+      capacityB: state.world.capacityB.slice(),
+      regrowthModifier: state.world.regrowthModifier.slice(),
+    },
+    terrain: {
+      cols: state.terrain.cols,
+      rows: state.terrain.rows,
+      elevation: state.terrain.elevation.slice(),
+      passability: state.terrain.passability.slice(),
+      fertility: state.terrain.fertility.slice(),
+    },
+    foundingCentroid: { ...state.foundingCentroid },
+    activeTransitions: state.activeTransitions.map((t) => ({
+      ...t,
+      cellIndices: [...t.cellIndices],
+      fromValues: [...t.fromValues],
+      toValues: [...t.toValues],
+    })),
+    activeRegrowthOverrides: state.activeRegrowthOverrides.map((o) => ({ ...o, cellIndices: [...o.cellIndices] })),
+  };
 }
 
 /**

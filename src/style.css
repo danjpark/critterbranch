@@ -146,3 +146,62 @@ button.active {
   border-radius: 50%;
   background: linear-gradient(135deg, #d94f8a, #4a9dd9);
 }
+
+.godmode-hint {
+  font-size: 0.78rem;
+  color: #9aa0aa;
+  margin-bottom: 0.6rem;
+  min-height: 2.2em;
+}
+
+.slider-row {
+  flex-wrap: nowrap;
+}
+
+.slider-label {
+  font-size: 0.78rem;
+  color: #c4c8ce;
+  width: 8.5rem;
+  flex: none;
+}
+
+.slider-row input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 4rem;
+}
+
+.slider-value {
+  font-size: 0.78rem;
+  color: #9aa0aa;
+  width: 3rem;
+  flex: none;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.godmode button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.scenario-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+}
+
+.scenario-file-label {
+  background: #2a2e35;
+  color: #e6e6e6;
+  border: 1px solid #3a3f47;
+  border-radius: 4px;
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.scenario-file-label:hover {
+  background: #343941;
+}

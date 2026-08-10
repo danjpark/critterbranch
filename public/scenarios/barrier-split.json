@@ -1,0 +1,18 @@
+{
+  "seed": 42,
+  "interventionLog": [
+    {
+      "tick": 2000,
+      "tool": "barrierStamp",
+      "params": {
+        "x1": 100,
+        "y1": 0,
+        "x2": 100,
+        "y2": 200,
+        "width": 10,
+        "targetPassability": 0.02,
+        "formationTicks": 400
+      }
+    }
+  ]
+}

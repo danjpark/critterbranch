@@ -1,16 +1,60 @@
 import { DEFAULT_PARAMS } from "../params.ts";
 import { DEFAULT_COLOR_OPTIONS, resetGenotypeColorCache, type ColorOptions } from "../render/color.ts";
+import { invalidateTerrainCache } from "../render/worldView.ts";
 import type { Creature } from "../sim/creature.ts";
-import { createSimState, tick, type SimInstance } from "../sim/sim.ts";
-import type { SpeedSetting } from "../ui/controls.ts";
+import { applyIntervention, type Intervention } from "../sim/intervention.ts";
+import { applyInterventionNow, cloneSimState, createSimState, tick, type SimInstance, type SimState } from "../sim/sim.ts";
+import type { GodTool, SpeedSetting } from "../ui/controls.ts";
+
+export interface Scenario {
+  seed: number;
+  interventionLog: Intervention[];
+}
+
+/** Minimal shape validation for a scenario loaded from a user-supplied file — not a full schema
+ * check, just enough to fail loudly instead of crashing deep inside the sim on garbage input. */
+export function isScenario(value: unknown): value is Scenario {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate.seed !== "number") return false;
+  if (!Array.isArray(candidate.interventionLog)) return false;
+  return candidate.interventionLog.every(
+    (entry) =>
+      typeof entry === "object" &&
+      entry !== null &&
+      typeof (entry as Record<string, unknown>).tick === "number" &&
+      typeof (entry as Record<string, unknown>).tool === "string" &&
+      typeof (entry as Record<string, unknown>).params === "object",
+  );
+}
 
 const MAX_SPEED_BUDGET_MS = 40;
 
+/** Shared brush knobs; each tool reinterprets radius/strength/duration for its own purpose (see applyToolAtPoint). */
+export interface BrushSettings {
+  radius: number;
+  strength: number;
+  durationTicks: number;
+  seedCount: number;
+}
+
+const DEFAULT_BRUSH: BrushSettings = {
+  radius: 15,
+  strength: 0.5,
+  durationTicks: 0,
+  seedCount: 20,
+};
+
+interface MeteorCheckpoint {
+  state: SimState;
+  loggedInterventionCount: number;
+}
+
 /**
  * Owns all mutable runtime state for one browser session: the live sim instance, playback
- * state, and display options. main.ts should hold no state of its own beyond DOM references —
- * everything that needs to survive a restart or feed a future feature (Phase 3's intervention
- * log, Phase 4's taxonomy view, etc.) belongs here instead of as another module-level `let`.
+ * state, display options, and (Phase 3) the active god-mode tool and brush settings. main.ts
+ * should hold no state of its own beyond DOM references — everything that needs to survive a
+ * restart or feed a future feature belongs here instead of as another module-level `let`.
  */
 export class SimRunner {
   sim: SimInstance;
@@ -19,6 +63,15 @@ export class SimRunner {
   selectedCreatureId: number | null = null;
   readonly colorOptions: ColorOptions = { ...DEFAULT_COLOR_OPTIONS };
 
+  activeTool: GodTool | null = null;
+  readonly brush: BrushSettings = { ...DEFAULT_BRUSH };
+  /** First point of an in-progress barrier drag (barrierStamp needs two points, everything else needs one). */
+  private barrierDragStart: { x: number; y: number } | null = null;
+  private meteorCheckpoint: MeteorCheckpoint | null = null;
+  /** A loaded scenario's pre-scripted interventions, sorted by tick, still waiting to fire as play advances. */
+  private scenarioQueue: Intervention[] = [];
+  private scenarioIndex = 0;
+
   constructor(seed: number) {
     this.sim = createSimState(seed, DEFAULT_PARAMS);
   }
@@ -26,7 +79,27 @@ export class SimRunner {
   restart(seed: number): void {
     this.sim = createSimState(seed, DEFAULT_PARAMS);
     this.selectedCreatureId = null;
+    this.meteorCheckpoint = null;
+    this.scenarioQueue = [];
+    this.scenarioIndex = 0;
     resetGenotypeColorCache();
+  }
+
+  /** Loads a scenario (seed + a pre-scripted intervention log) and starts it fresh at tick 0 —
+   * interventions fire automatically as play reaches their recorded tick, exactly reproducing
+   * how they were originally applied. This is what makes an exported run a shareable "scenario"
+   * rather than just a save file: press play and watch it unfold. */
+  loadScenario(scenario: Scenario): void {
+    this.sim = createSimState(scenario.seed, DEFAULT_PARAMS);
+    this.scenarioQueue = [...scenario.interventionLog].sort((a, b) => a.tick - b.tick);
+    this.scenarioIndex = 0;
+    this.selectedCreatureId = null;
+    this.meteorCheckpoint = null;
+    resetGenotypeColorCache();
+  }
+
+  exportScenario(): Scenario {
+    return { seed: this.sim.seed, interventionLog: this.sim.interventionLog };
   }
 
   togglePlaying(): boolean {
@@ -41,7 +114,7 @@ export class SimRunner {
   /** Pauses and advances exactly one tick. */
   stepOnce(): void {
     this.playing = false;
-    tick(this.sim.state, this.sim.rng, DEFAULT_PARAMS);
+    this.stepOneTick();
   }
 
   select(creatureId: number | null): void {
@@ -59,13 +132,24 @@ export class SimRunner {
     if (this.speed === "max") {
       const start = performance.now();
       while (performance.now() - start < MAX_SPEED_BUDGET_MS) {
-        tick(this.sim.state, this.sim.rng, DEFAULT_PARAMS);
+        this.stepOneTick();
       }
     } else {
       for (let i = 0; i < this.speed; i++) {
-        tick(this.sim.state, this.sim.rng, DEFAULT_PARAMS);
+        this.stepOneTick();
       }
     }
+  }
+
+  /** Fires any scripted-scenario interventions due at the current tick, then advances one tick. */
+  private stepOneTick(): void {
+    while (this.scenarioIndex < this.scenarioQueue.length && this.scenarioQueue[this.scenarioIndex].tick === this.sim.state.tick) {
+      const intervention = this.scenarioQueue[this.scenarioIndex];
+      applyIntervention(this.sim.state, this.sim.rng, DEFAULT_PARAMS, intervention);
+      this.sim.interventionLog.push(intervention);
+      this.scenarioIndex++;
+    }
+    tick(this.sim.state, this.sim.rng, DEFAULT_PARAMS);
   }
 
   /** The selected creature, or null. Clears the selection if that creature has since died. */
@@ -74,5 +158,100 @@ export class SimRunner {
     const found = this.sim.state.creatures.find((c) => c.id === this.selectedCreatureId) ?? null;
     if (!found) this.selectedCreatureId = null;
     return found;
+  }
+
+  setActiveTool(tool: GodTool | null): void {
+    this.activeTool = tool;
+    this.barrierDragStart = null;
+  }
+
+  /** True while a barrier's start point has been placed and is waiting for its end point. */
+  isDraggingBarrier(): boolean {
+    return this.barrierDragStart !== null;
+  }
+
+  /**
+   * Applies the active tool at a world-space point. barrierStamp needs two points, so the first
+   * call records a start point and returns without applying anything; the second call draws the
+   * line and applies. Every other tool applies immediately on the first call. No-op if no tool
+   * is selected (i.e. the canvas is in plain inspect mode).
+   */
+  useToolAt(x: number, y: number): void {
+    const tool = this.activeTool;
+    if (!tool) return;
+
+    if (tool === "barrierStamp") {
+      if (!this.barrierDragStart) {
+        this.barrierDragStart = { x, y };
+        return;
+      }
+      const start = this.barrierDragStart;
+      this.barrierDragStart = null;
+      this.apply("barrierStamp", {
+        x1: start.x,
+        y1: start.y,
+        x2: x,
+        y2: y,
+        width: this.brush.radius,
+        targetPassability: 1 - this.brush.strength,
+        formationTicks: this.brush.durationTicks,
+      });
+      invalidateTerrainCache(this.sim.state.terrain);
+      return;
+    }
+
+    switch (tool) {
+      case "raiseTerrain":
+        this.apply("raiseTerrain", { x, y, radius: this.brush.radius, strength: this.brush.strength * 2 });
+        invalidateTerrainCache(this.sim.state.terrain);
+        return;
+      case "lowerTerrain":
+        this.apply("lowerTerrain", { x, y, radius: this.brush.radius, strength: this.brush.strength * 2 });
+        invalidateTerrainCache(this.sim.state.terrain);
+        return;
+      case "dropFoodR":
+        this.apply("dropFood", { x, y, radius: this.brush.radius, foodType: 0, density: this.brush.strength * 4 });
+        return;
+      case "dropFoodB":
+        this.apply("dropFood", { x, y, radius: this.brush.radius, foodType: 1, density: this.brush.strength * 4 });
+        return;
+      case "drought":
+        this.apply("drought", { x, y, radius: this.brush.radius, multiplier: 1 - this.brush.strength, durationTicks: Math.max(this.brush.durationTicks, 1) });
+        return;
+      case "bloom":
+        this.apply("bloom", { x, y, radius: this.brush.radius, multiplier: 1 + this.brush.strength * 4, durationTicks: Math.max(this.brush.durationTicks, 1) });
+        return;
+      case "meteor":
+        this.meteorCheckpoint = { state: cloneSimState(this.sim.state), loggedInterventionCount: this.sim.interventionLog.length };
+        this.apply("meteor", { x, y, radius: this.brush.radius, craterRecoveryTicks: this.brush.durationTicks });
+        invalidateTerrainCache(this.sim.state.terrain);
+        return;
+      case "seedFounders":
+        this.apply("seedFounders", { x, y, spreadRadius: Math.max(this.brush.radius / 4, 1), count: this.brush.seedCount, genome: "random" as const });
+        return;
+    }
+  }
+
+  canUndoMeteor(): boolean {
+    return this.meteorCheckpoint !== null;
+  }
+
+  /**
+   * Restores the state from right before the last meteor and drops that meteor from the log, so
+   * the log stays a truthful record of what actually happened (as if it never struck). Does NOT
+   * rewind the RNG — if ticks ran between the strike and the undo, replaying the (now
+   * meteor-free) log won't reproduce whatever those extra ticks drew. That's an acceptable gap
+   * for an "oops, undo that" safety net; it isn't meant to fabricate an alternate replay history.
+   */
+  undoLastMeteor(): void {
+    if (!this.meteorCheckpoint) return;
+    this.sim.state = this.meteorCheckpoint.state;
+    this.sim.interventionLog.length = this.meteorCheckpoint.loggedInterventionCount;
+    this.meteorCheckpoint = null;
+    invalidateTerrainCache(this.sim.state.terrain);
+  }
+
+  private apply<Tool extends Intervention["tool"]>(tool: Tool, params: Extract<Intervention, { tool: Tool }>["params"]): void {
+    applyInterventionNow(this.sim, DEFAULT_PARAMS, tool, params);
   }
 }

@@ -54,7 +54,12 @@ export function invalidateTerrainCache(terrain: TerrainGrid): void {
   terrainLayerCache.delete(terrain);
 }
 
-/** Grayscale shaded relief with at most a faint fertility tint — terrain is background, never competes with creature hue. */
+/**
+ * Grayscale shaded relief with at most a faint fertility tint — terrain is background, never
+ * competes with creature hue. Low-passability cells also darken toward a rocky brown,
+ * independent of elevation — a barrier stamp only ever touches passability (never elevation), so
+ * without this a hand-drawn barrier would be completely invisible on the map.
+ */
 function paintTerrain(ctx: CanvasRenderingContext2D, terrain: TerrainGrid, params: Params, scaleX: number, scaleY: number): void {
   const cellW = params.gridCellSize * scaleX;
   const cellH = params.gridCellSize * scaleY;
@@ -65,12 +70,14 @@ function paintTerrain(ctx: CanvasRenderingContext2D, terrain: TerrainGrid, param
       const idx = y * terrain.cols + x;
       const elevationNorm = clamp01(terrain.elevation[idx] / roughness);
       const fertility = terrain.fertility[idx];
+      const blockedness = 1 - terrain.passability[idx];
 
       const base = lerp(0.32, 0.82, elevationNorm);
       const tint = fertility * 0.05;
-      const r = clamp01(base - tint * 0.7);
-      const g = clamp01(base + tint);
-      const b = clamp01(base - tint * 0.4);
+      const darken = blockedness * 0.35;
+      const r = clamp01(base - tint * 0.7 - darken * 0.1);
+      const g = clamp01(base + tint - darken * 0.25);
+      const b = clamp01(base - tint * 0.4 - darken * 0.3);
 
       ctx.fillStyle = `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`;
       ctx.fillRect(x * cellW, y * cellH, cellW + 0.6, cellH + 0.6);
