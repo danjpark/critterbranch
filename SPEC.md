@@ -417,3 +417,30 @@ That prompted two more feature requests, both deliberately deferred:
   into the nursing mechanic) be asked cleanly. **Decision: hold off for now** — see how far
   resource-driven clustering alone goes once Phase 3/4 land before deciding whether this still adds
   something new. Revisit then; don't design it preemptively.
+
+---
+
+## Addendum 3 — Phase 6 axis-isolation findings
+
+Per-axis isolation runs (see `scripts/explore-axis.ts`, `src/sim/axisIsolation.test.ts`) confirmed
+the neutral control (all three axes flat) never false-positives, and diet/foraging both produce a
+genuine detected speciation event when run in isolation for long enough — diet needs ~18,000 ticks
+of drift under `specializationExponent: 3` before the split clears both the gap-detection and
+aggregate-distance thresholds (close to this doc's own worked-example estimate of "~15,000"),
+foraging is faster and more reliable under `patchBimodality: 1.0` (first split by ~19,000 ticks,
+second by ~20,000).
+
+Life history behaved differently, and it's a real finding rather than a tuning miss: run in
+isolation (spatially uniform population, no diet/foraging structure), `regrowthCycleAmplitude` at
+any tested amplitude/period never produced bimodal `reproThreshold`/`offspringInvestment` — instead
+it produced large, cycle-synchronized population swings (3-10x peak-to-trough) with the whole
+population's mean trait dragged back and forth each half-cycle. This makes sense mechanistically: a
+synchronized *global* cycle applies identical selective pressure to every individual at once, so
+there's no spatial refuge for a "losing" strategy to persist in — unlike diet/foraging, which are
+disruptive (frequency- or space-dependent) by construction. The doc's own worked example (the
+tick-~55,000 bust) has the life-history branch arrive as a *second*, asymmetric split inside an
+already-diverged lineage, not as a standalone founder-population split — i.e. it's meant to prune
+within existing spatial structure the other two axes provide, not create bimodal structure alone.
+`axisIsolation.test.ts` tests this axis accordingly: population-size-swing amplitude vs. a flat
+control, and confirms no spurious species split is reported for what is genuinely directional (not
+disruptive) selection.

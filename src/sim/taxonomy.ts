@@ -1,3 +1,4 @@
+import { isBimodal } from "./bimodality.ts";
 import type { Creature } from "./creature.ts";
 import { GENE_KEYS, GENE_RANGES, type Genome, geneticDistance, genomeCentroid } from "./genome.ts";
 import type { TerrainGrid } from "./terrain.ts";
@@ -145,12 +146,20 @@ function findSplit(members: Creature[], threshold: number, minFounders: number):
   const [seedA, seedB] = findExtremePair(members);
   if (geneticDistance(seedA.genome, seedB.genome) <= threshold) return null;
 
+  // Signed 1D projection onto the seedA<->seedB axis: negative = closer to A, positive = closer
+  // to B, magnitude = how decisively. This is what isBimodal actually checks for a valley in —
+  // just partitioning by nearest-seed (below) always succeeds for *any* population with enough
+  // spread, bimodal or not, since two arbitrary extreme points always have separated centroids.
+  // Without this gap check, a single wide, continuously-varying population (pure drift, no real
+  // structure) gets sliced in two and misreported as a split every time. That's exactly the
+  // false-positive SPEC.md's neutral-control test exists to catch.
+  const projections = members.map((m) => geneticDistance(m.genome, seedA.genome) - geneticDistance(m.genome, seedB.genome));
+  if (!isBimodal(projections)) return null;
+
   const clusterA: Creature[] = [];
   const clusterB: Creature[] = [];
-  for (const m of members) {
-    const dA = geneticDistance(m.genome, seedA.genome);
-    const dB = geneticDistance(m.genome, seedB.genome);
-    (dA <= dB ? clusterA : clusterB).push(m);
+  for (let i = 0; i < members.length; i++) {
+    (projections[i] <= 0 ? clusterA : clusterB).push(members[i]);
   }
   if (clusterA.length < minFounders || clusterB.length < minFounders) return null;
 
