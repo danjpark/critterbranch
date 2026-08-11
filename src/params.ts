@@ -81,6 +81,13 @@ export interface Params {
   /** Terrain passability below this, sampled along the line between two diverging clusters'
    * centroids, counts as "a barrier was between them" — i.e. allopatric. */
   allopatricPassabilityThreshold: number;
+  /** A candidate split (see sim/taxonomy.ts's CandidateSplit) must be re-detected on this many
+   * consecutive taxonomy passes before it becomes a real species — a single fluctuating pass
+   * can't create a permanent species on its own. 1 = old one-pass-and-promote behavior. */
+  speciationConfirmationPasses: number;
+  /** A pending candidate that goes this many taxonomy passes without being re-detected is
+   * dropped, rather than lingering forever waiting for a confirmation that may never come. */
+  speciationCandidateTimeoutPasses: number;
   /** World is split into two regions (x < worldWidth/2 vs x >= worldWidth/2) for the gene-flow
    * meter; migration events are bucketed into windows this many ticks wide. */
   geneFlowWindowTicks: number;
@@ -145,6 +152,8 @@ export const DEFAULT_PARAMS: Params = {
   minFounders: 5,
   founderCountThreshold: 12,
   allopatricPassabilityThreshold: 0.15,
+  speciationConfirmationPasses: 2,
+  speciationCandidateTimeoutPasses: 3,
   geneFlowWindowTicks: 200,
 
   consumptionRetentionPerTick: 0.985,
@@ -211,6 +220,8 @@ export interface TaxonomyParams {
   minFounders: number;
   founderCountThreshold: number;
   allopatricPassabilityThreshold: number;
+  speciationConfirmationPasses: number;
+  speciationCandidateTimeoutPasses: number;
 }
 
 export interface ObservationParams {
@@ -282,6 +293,8 @@ export function groupParams(p: Params): RunParams {
       minFounders: p.minFounders,
       founderCountThreshold: p.founderCountThreshold,
       allopatricPassabilityThreshold: p.allopatricPassabilityThreshold,
+      speciationConfirmationPasses: p.speciationConfirmationPasses,
+      speciationCandidateTimeoutPasses: p.speciationCandidateTimeoutPasses,
     },
     observation: {
       geneFlowWindowTicks: p.geneFlowWindowTicks,

@@ -58,7 +58,11 @@ describe("updateTaxonomy", () => {
     // Flat terrain: no barrier anywhere, so any split found here can't be allopatric.
     const terrain = generateTerrain(new RNG(1), { ...DEFAULT_PARAMS, terrainHillCount: 0 }, 50, 50);
 
-    const events = updateTaxonomy(taxonomy, members, terrain, DEFAULT_PARAMS, 100);
+    // Default speciationConfirmationPasses is 2: the same split must be re-detected on a second
+    // consecutive pass before it's promoted to a real species (see "persistence/hysteresis").
+    // The population here doesn't change between calls, so the same split is found both times.
+    expect(updateTaxonomy(taxonomy, members, terrain, DEFAULT_PARAMS, 100)).toHaveLength(0);
+    const events = updateTaxonomy(taxonomy, members, terrain, DEFAULT_PARAMS, 200);
     expect(events).toHaveLength(1);
     expect(events[0].type).toBe("speciation");
     if (events[0].type === "speciation") {
@@ -87,7 +91,8 @@ describe("updateTaxonomy", () => {
     state.evolution.creatures = [...left, ...right];
     const taxonomy = initTaxonomy(state.evolution.creatures, 0);
 
-    const events = updateTaxonomy(taxonomy, state.evolution.creatures, state.evolution.terrain, params, 100);
+    expect(updateTaxonomy(taxonomy, state.evolution.creatures, state.evolution.terrain, params, 100)).toHaveLength(0);
+    const events = updateTaxonomy(taxonomy, state.evolution.creatures, state.evolution.terrain, params, 200);
     expect(events).toHaveLength(1);
     if (events[0].type === "speciation") {
       expect(events[0].event.mechanism).toBe("allopatric");
@@ -117,11 +122,52 @@ describe("updateTaxonomy", () => {
     const taxonomy = initTaxonomy(members, 0);
     const terrain = generateTerrain(new RNG(1), { ...DEFAULT_PARAMS, terrainHillCount: 0 }, 50, 50);
 
-    const events = updateTaxonomy(taxonomy, members, terrain, DEFAULT_PARAMS, 100);
+    expect(updateTaxonomy(taxonomy, members, terrain, DEFAULT_PARAMS, 100)).toHaveLength(0);
+    const events = updateTaxonomy(taxonomy, members, terrain, DEFAULT_PARAMS, 200);
     expect(events).toHaveLength(1);
     if (events[0].type === "speciation") {
       expect(events[0].event.dominantDivergentGene).toBe("senseRadius");
     }
+  });
+});
+
+describe("speciation persistence/hysteresis", () => {
+  it("a split that appears for one pass and disappears never becomes a species", () => {
+    const dietA = Array.from({ length: 10 }, (_, i) => makeCreature(i, makeGenome({ dietPref: 0.02 }), 50, 50));
+    const dietB = Array.from({ length: 10 }, (_, i) => makeCreature(i + 100, makeGenome({ dietPref: 0.98 }), 52, 50));
+    const bimodal = [...dietA, ...dietB];
+    const tight = Array.from({ length: 20 }, (_, i) => makeCreature(i, makeGenome({}), 50, 50));
+    const terrain = generateTerrain(new RNG(1), { ...DEFAULT_PARAMS, terrainHillCount: 0 }, 50, 50);
+    const taxonomy = initTaxonomy(bimodal, 0);
+
+    // Pass 1: genuinely bimodal -- creates a pending candidate, but not enough passes yet to confirm.
+    expect(updateTaxonomy(taxonomy, bimodal, terrain, DEFAULT_PARAMS, 100)).toHaveLength(0);
+    expect(taxonomy.candidates.size).toBe(1);
+    expect(taxonomy.species.size).toBe(1);
+
+    // Pass 2: the population reverts to tight/unimodal (the fluctuation didn't hold) -- no split
+    // is found this pass, so the candidate can't be confirmed. It must not silently promote anyway.
+    expect(updateTaxonomy(taxonomy, tight, terrain, DEFAULT_PARAMS, 200)).toHaveLength(0);
+    expect(taxonomy.species.size).toBe(1);
+  });
+
+  it("a pending candidate that never gets re-confirmed times out and is dropped, not left pending forever", () => {
+    const dietA = Array.from({ length: 10 }, (_, i) => makeCreature(i, makeGenome({ dietPref: 0.02 }), 50, 50));
+    const dietB = Array.from({ length: 10 }, (_, i) => makeCreature(i + 100, makeGenome({ dietPref: 0.98 }), 52, 50));
+    const bimodal = [...dietA, ...dietB];
+    const tight = Array.from({ length: 20 }, (_, i) => makeCreature(i, makeGenome({}), 50, 50));
+    const terrain = generateTerrain(new RNG(1), { ...DEFAULT_PARAMS, terrainHillCount: 0 }, 50, 50);
+    const params = { ...DEFAULT_PARAMS, taxonomyIntervalTicks: 100, speciationCandidateTimeoutPasses: 2 };
+    const taxonomy = initTaxonomy(bimodal, 0);
+
+    updateTaxonomy(taxonomy, bimodal, terrain, params, 100);
+    expect(taxonomy.candidates.size).toBe(1);
+
+    // Three more passes with no re-detection -- past the 2-pass timeout, the candidate should age out.
+    updateTaxonomy(taxonomy, tight, terrain, params, 200);
+    updateTaxonomy(taxonomy, tight, terrain, params, 300);
+    updateTaxonomy(taxonomy, tight, terrain, params, 400);
+    expect(taxonomy.candidates.size).toBe(0);
   });
 });
 

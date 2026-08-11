@@ -24,7 +24,11 @@ function makeSpecies(overrides: Partial<Species> & { id: number }): Species {
 }
 
 function taxonomyOf(species: Species[]): TaxonomyState {
-  return { nextSpeciesId: Math.max(...species.map((s) => s.id)) + 1, species: new Map(species.map((s) => [s.id, s])) };
+  return {
+    nextSpeciesId: Math.max(...species.map((s) => s.id)) + 1,
+    species: new Map(species.map((s) => [s.id, s])),
+    candidates: new Map(),
+  };
 }
 
 describe("layoutTree", () => {

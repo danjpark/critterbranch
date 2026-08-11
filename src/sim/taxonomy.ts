@@ -39,9 +39,32 @@ export interface ExtinctionEvent {
 
 export type TaxonomyEvent = { type: "speciation"; event: SpeciationEvent } | { type: "extinction"; event: ExtinctionEvent };
 
+/**
+ * A split findSplit() has detected but not yet confirmed — tracked across passes so a single
+ * fluctuation can't create a permanent species (see params.speciationConfirmationPasses). Matched
+ * pass-to-pass by centroid proximity of the spinoff cluster: "Do not over-engineer cluster
+ * tracking initially. Centroid continuity plus persistence is acceptable."
+ */
+export interface CandidateSplit {
+  parentSpeciesId: number;
+  firstDetectedTick: number;
+  consecutiveDetections: number;
+  /** Ticks since this candidate's last confirming detection — reset to 0 each time findSplit
+   * re-detects a matching split, incremented by taxonomyIntervalTicks otherwise. Once this
+   * exceeds params.speciationCandidateTimeoutPasses worth of ticks, the candidate is dropped. */
+  ticksSinceLastDetection: number;
+  centroidKeep: Genome;
+  centroidSpinoff: Genome;
+  separation: number;
+}
+
 export interface TaxonomyState {
   nextSpeciesId: number;
   species: Map<number, Species>;
+  /** Pending splits awaiting confirmation, keyed by the species they'd split from. At most one
+   * candidate per species at a time — a second, different split direction replaces rather than
+   * stacks (see updateTaxonomy). */
+  candidates: Map<number, CandidateSplit>;
 }
 
 /** One point in time for the Muller plot: every living species' population count. */
@@ -99,7 +122,7 @@ export function initTaxonomy(founders: Creature[], tick: number): TaxonomyState 
     mechanism: "founder-population",
     dominantDivergentGene: null,
   };
-  return { nextSpeciesId: 1, species: new Map([[0, species]]) };
+  return { nextSpeciesId: 1, species: new Map([[0, species]]), candidates: new Map() };
 }
 
 export function cloneTaxonomy(taxonomy: TaxonomyState): TaxonomyState {
@@ -107,7 +130,11 @@ export function cloneTaxonomy(taxonomy: TaxonomyState): TaxonomyState {
   for (const [id, s] of taxonomy.species) {
     species.set(id, { ...s, foundingCentroid: { ...s.foundingCentroid }, centroid: { ...s.centroid } });
   }
-  return { nextSpeciesId: taxonomy.nextSpeciesId, species };
+  const candidates = new Map<number, CandidateSplit>();
+  for (const [id, c] of taxonomy.candidates) {
+    candidates.set(id, { ...c, centroidKeep: { ...c.centroidKeep }, centroidSpinoff: { ...c.centroidSpinoff } });
+  }
+  return { nextSpeciesId: taxonomy.nextSpeciesId, species, candidates };
 }
 
 function mostDivergentGene(a: Genome, b: Genome): keyof Genome {
@@ -280,13 +307,53 @@ export function updateTaxonomy(taxonomy: TaxonomyState, creatures: Creature[], t
     species.peakMemberCount = Math.max(species.peakMemberCount, members.length);
 
     const split = findSplit(members, params.speciationThreshold, params.minFounders);
+    const existingCandidate = taxonomy.candidates.get(species.id);
+
     if (!split) {
+      // No split detected this pass. An in-progress candidate isn't dropped immediately — a
+      // population can wobble in and out of clean bimodality pass to pass even while a real split
+      // is genuinely underway (see sim/axisIsolation.test.ts) — but it does age out eventually if
+      // it never gets re-confirmed, so a one-off fluctuation can't linger forever.
+      if (existingCandidate) {
+        existingCandidate.ticksSinceLastDetection += params.taxonomyIntervalTicks;
+        if (existingCandidate.ticksSinceLastDetection > params.speciationCandidateTimeoutPasses * params.taxonomyIntervalTicks) {
+          taxonomy.candidates.delete(species.id);
+        }
+      }
       species.centroid = genomeCentroid(members.map((m) => m.genome));
       continue;
     }
 
     const keepCentroid = genomeCentroid(split.keep.map((c) => c.genome));
     const newCentroid = genomeCentroid(split.spinoff.map((c) => c.genome));
+    const separation = geneticDistance(keepCentroid, newCentroid);
+
+    // Match against any in-progress candidate by spinoff-centroid proximity: within one
+    // speciationThreshold of the last-seen spinoff centroid counts as "the same split, still
+    // going," anything further is a different split direction that starts its own count.
+    const isSameCandidate = existingCandidate !== undefined && geneticDistance(existingCandidate.centroidSpinoff, newCentroid) <= params.speciationThreshold;
+
+    const consecutiveDetections = isSameCandidate ? existingCandidate.consecutiveDetections + 1 : 1;
+
+    if (consecutiveDetections < params.speciationConfirmationPasses) {
+      // Not confirmed yet — record/update the candidate, but the population stays one species
+      // (all members, not just "keep") until confirmation actually happens.
+      taxonomy.candidates.set(species.id, {
+        parentSpeciesId: species.id,
+        firstDetectedTick: isSameCandidate ? existingCandidate.firstDetectedTick : tick,
+        consecutiveDetections,
+        ticksSinceLastDetection: 0,
+        centroidKeep: keepCentroid,
+        centroidSpinoff: newCentroid,
+        separation,
+      });
+      species.centroid = genomeCentroid(members.map((m) => m.genome));
+      continue;
+    }
+
+    // Confirmed: the split has now been seen on speciationConfirmationPasses consecutive passes.
+    taxonomy.candidates.delete(species.id);
+
     const dominantGene = mostDivergentGene(newCentroid, keepCentroid);
     const mechanism = classifyMechanism(split.spinoff, split.keep, keepCentroid, newCentroid, terrain, params);
 
