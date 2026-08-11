@@ -1,4 +1,4 @@
-import { DEFAULT_PARAMS } from "../params.ts";
+import { DEFAULT_PARAMS, flattenParams } from "../params.ts";
 import { DEFAULT_COLOR_OPTIONS, resetGenotypeColorCache, type ColorOptions } from "../render/color.ts";
 import { collectDescendantIds } from "../render/treeLayout.ts";
 import { invalidateTerrainCache } from "../render/worldView.ts";
@@ -91,7 +91,7 @@ export class SimRunner {
    * runs with the CONFIG's own recorded params, not whatever DEFAULT_PARAMS happens to be in the
    * build that opens it — see sim/runConfig.ts. Does not mutate `config`. */
   loadScenario(config: RunConfig): void {
-    this.sim = createSimState(config.seed, { ...config.params });
+    this.sim = createSimState(config.seed, flattenParams(config.params));
     this.scenarioQueue = [...config.interventionLog].sort((a, b) => a.tick - b.tick);
     this.scenarioIndex = 0;
     this.selectedCreatureId = null;

@@ -4,7 +4,7 @@ import { applyIntervention } from "../sim/intervention.ts";
 import { createRunConfig, LEGACY_SCHEMA_VERSION, parseRunConfig, RUN_CONFIG_SCHEMA_VERSION } from "../sim/runConfig.ts";
 import { hashState } from "../sim/testHash.ts";
 import { createSimState, tick } from "../sim/sim.ts";
-import { DEFAULT_PARAMS } from "../params.ts";
+import { DEFAULT_PARAMS, DEFAULT_RUN_PARAMS } from "../params.ts";
 
 describe("parseRunConfig", () => {
   it("accepts a well-formed, fully-recorded RunConfig", () => {
@@ -15,7 +15,7 @@ describe("parseRunConfig", () => {
     expect(parsed).not.toBeNull();
     expect(parsed!.schemaVersion).toBe(RUN_CONFIG_SCHEMA_VERSION);
     expect(parsed!.seed).toBe(1);
-    expect(parsed!.params).toEqual(DEFAULT_PARAMS);
+    expect(parsed!.params).toEqual(DEFAULT_RUN_PARAMS);
     expect(parsed!.interventionLog).toHaveLength(1);
   });
 
@@ -23,16 +23,23 @@ describe("parseRunConfig", () => {
     const parsed = parseRunConfig({ seed: 1, interventionLog: [] });
     expect(parsed).not.toBeNull();
     expect(parsed!.schemaVersion).toBe(LEGACY_SCHEMA_VERSION);
-    expect(parsed!.params).toEqual(DEFAULT_PARAMS);
+    expect(parsed!.params).toEqual(DEFAULT_RUN_PARAMS);
+  });
+
+  it("migrates a schema-1 (flat params) config by grouping it", () => {
+    const flatConfig = { schemaVersion: 1, engineVersion: "0.6.0", seed: 1, params: DEFAULT_PARAMS, interventionLog: [] };
+    const parsed = parseRunConfig(flatConfig);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.params).toEqual(DEFAULT_RUN_PARAMS);
   });
 
   it("fills in a field missing from an older recorded config's params with the current default", () => {
     const config = createRunConfig(1, DEFAULT_PARAMS, []);
-    const withMissingField = { ...config, params: { ...config.params } } as Record<string, unknown>;
-    delete (withMissingField.params as Record<string, unknown>).nursingRatePerTick;
+    const withMissingField = { ...config, params: { ...config.params, reproduction: { ...config.params.reproduction } } } as Record<string, unknown>;
+    delete (withMissingField.params as { reproduction: Record<string, unknown> }).reproduction.nursingRatePerTick;
 
     const parsed = parseRunConfig(withMissingField);
-    expect(parsed!.params.nursingRatePerTick).toBe(DEFAULT_PARAMS.nursingRatePerTick);
+    expect(parsed!.params.reproduction.nursingRatePerTick).toBe(DEFAULT_PARAMS.nursingRatePerTick);
   });
 
   it("rejects garbage input", () => {
@@ -55,7 +62,7 @@ describe("SimRunner scenario load/export", () => {
 
     const scenario = runner.exportScenario();
     expect(scenario.seed).toBe(7);
-    expect(scenario.params).toEqual(DEFAULT_PARAMS);
+    expect(scenario.params).toEqual(DEFAULT_RUN_PARAMS);
     expect(scenario.interventionLog).toHaveLength(1);
     expect(scenario.interventionLog[0].tool).toBe("meteor");
   });

@@ -150,3 +150,177 @@ export const DEFAULT_PARAMS: Params = {
   consumptionRetentionPerTick: 0.985,
   consumptionDecayIntervalTicks: 10,
 };
+
+/**
+ * Domain-grouped view of Params, for anything that presents or serializes params to something
+ * outside the sim's own hot path — RunConfig (see sim/runConfig.ts) and the future Phase 7
+ * parameter UI. Internal sim/render functions keep taking flat Params: they were all written
+ * against individual fields, splitting every one of those call sites into "which subdomain does
+ * this function need" would be a much larger, higher-risk mechanical rewrite for no behavioral
+ * benefit (see groupParams/flattenParams below — the conversion is lossless either direction).
+ * This is the boundary-layer grouping the plan calls for, without churning the sim's internals.
+ */
+export interface WorldParams {
+  worldWidth: number;
+  worldHeight: number;
+  gridCellSize: number;
+  foodMode: FoodMode;
+  patchBimodality: number;
+  richPatchCount: number;
+  poorPatchCount: number;
+  richPatchRadius: number;
+  poorPatchRadius: number;
+  richPatchCapacity: number;
+  poorPatchCapacity: number;
+  baseCapacity: number;
+  ambientFoodFraction: number;
+  regrowthRate: number;
+  regrowthCyclePeriod: number;
+  regrowthCycleAmplitude: number;
+}
+
+export interface EvolutionParams {
+  baseCost: number;
+  moveCost: number;
+  senseCost: number;
+  baseEnergyCapacity: number;
+  maxAge: number;
+  maxGain: number;
+  specializationExponent: number;
+  intakeRate: number;
+  foundingPopulationSize: number;
+}
+
+export interface ReproductionParams {
+  offspringEnergyFractionMin: number;
+  offspringEnergyFractionMax: number;
+  maxOffspringCount: number;
+  nursingRatePerTick: number;
+}
+
+export interface TerrainParams {
+  terrainHillCount: number;
+  terrainRoughness: number;
+  passabilitySteepness: number;
+  fertilitySteepness: number;
+}
+
+export interface TaxonomyParams {
+  taxonomyIntervalTicks: number;
+  speciationThreshold: number;
+  minFounders: number;
+  founderCountThreshold: number;
+  allopatricPassabilityThreshold: number;
+}
+
+export interface ObservationParams {
+  geneFlowWindowTicks: number;
+  consumptionRetentionPerTick: number;
+  consumptionDecayIntervalTicks: number;
+}
+
+export interface RenderParams {
+  genotypeColorDivergenceScale: number;
+}
+
+export interface RunParams {
+  world: WorldParams;
+  evolution: EvolutionParams;
+  reproduction: ReproductionParams;
+  terrain: TerrainParams;
+  taxonomy: TaxonomyParams;
+  observation: ObservationParams;
+  render: RenderParams;
+}
+
+export function groupParams(p: Params): RunParams {
+  return {
+    world: {
+      worldWidth: p.worldWidth,
+      worldHeight: p.worldHeight,
+      gridCellSize: p.gridCellSize,
+      foodMode: p.foodMode,
+      patchBimodality: p.patchBimodality,
+      richPatchCount: p.richPatchCount,
+      poorPatchCount: p.poorPatchCount,
+      richPatchRadius: p.richPatchRadius,
+      poorPatchRadius: p.poorPatchRadius,
+      richPatchCapacity: p.richPatchCapacity,
+      poorPatchCapacity: p.poorPatchCapacity,
+      baseCapacity: p.baseCapacity,
+      ambientFoodFraction: p.ambientFoodFraction,
+      regrowthRate: p.regrowthRate,
+      regrowthCyclePeriod: p.regrowthCyclePeriod,
+      regrowthCycleAmplitude: p.regrowthCycleAmplitude,
+    },
+    evolution: {
+      baseCost: p.baseCost,
+      moveCost: p.moveCost,
+      senseCost: p.senseCost,
+      baseEnergyCapacity: p.baseEnergyCapacity,
+      maxAge: p.maxAge,
+      maxGain: p.maxGain,
+      specializationExponent: p.specializationExponent,
+      intakeRate: p.intakeRate,
+      foundingPopulationSize: p.foundingPopulationSize,
+    },
+    reproduction: {
+      offspringEnergyFractionMin: p.offspringEnergyFractionMin,
+      offspringEnergyFractionMax: p.offspringEnergyFractionMax,
+      maxOffspringCount: p.maxOffspringCount,
+      nursingRatePerTick: p.nursingRatePerTick,
+    },
+    terrain: {
+      terrainHillCount: p.terrainHillCount,
+      terrainRoughness: p.terrainRoughness,
+      passabilitySteepness: p.passabilitySteepness,
+      fertilitySteepness: p.fertilitySteepness,
+    },
+    taxonomy: {
+      taxonomyIntervalTicks: p.taxonomyIntervalTicks,
+      speciationThreshold: p.speciationThreshold,
+      minFounders: p.minFounders,
+      founderCountThreshold: p.founderCountThreshold,
+      allopatricPassabilityThreshold: p.allopatricPassabilityThreshold,
+    },
+    observation: {
+      geneFlowWindowTicks: p.geneFlowWindowTicks,
+      consumptionRetentionPerTick: p.consumptionRetentionPerTick,
+      consumptionDecayIntervalTicks: p.consumptionDecayIntervalTicks,
+    },
+    render: {
+      genotypeColorDivergenceScale: p.genotypeColorDivergenceScale,
+    },
+  };
+}
+
+export function flattenParams(r: RunParams): Params {
+  return {
+    ...r.world,
+    ...r.evolution,
+    ...r.reproduction,
+    ...r.terrain,
+    ...r.taxonomy,
+    ...r.observation,
+    ...r.render,
+  };
+}
+
+/** Merges a partial (possibly incomplete, possibly from an older build missing a since-added
+ * field) grouped params object onto a complete set of defaults, one subdomain at a time — a
+ * shallow `{...defaults, ...partial}` would replace an entire subgroup wholesale the moment the
+ * input has *any* key in it, silently dropping every field in that subgroup the input didn't
+ * happen to include. */
+export function mergeRunParams(defaults: RunParams, partial: Partial<Record<keyof RunParams, unknown>>): RunParams {
+  return {
+    world: { ...defaults.world, ...(partial.world as Partial<WorldParams> | undefined) },
+    evolution: { ...defaults.evolution, ...(partial.evolution as Partial<EvolutionParams> | undefined) },
+    reproduction: { ...defaults.reproduction, ...(partial.reproduction as Partial<ReproductionParams> | undefined) },
+    terrain: { ...defaults.terrain, ...(partial.terrain as Partial<TerrainParams> | undefined) },
+    taxonomy: { ...defaults.taxonomy, ...(partial.taxonomy as Partial<TaxonomyParams> | undefined) },
+    observation: { ...defaults.observation, ...(partial.observation as Partial<ObservationParams> | undefined) },
+    render: { ...defaults.render, ...(partial.render as Partial<RenderParams> | undefined) },
+  };
+}
+
+export const DEFAULT_RUN_PARAMS: RunParams = groupParams(DEFAULT_PARAMS);

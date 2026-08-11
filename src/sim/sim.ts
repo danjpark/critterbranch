@@ -24,7 +24,7 @@ import {
 } from "./taxonomy.ts";
 import { generateTerrain, type TerrainGrid } from "./terrain.ts";
 import { generateWorld, regrowFood, type World } from "./world.ts";
-import type { Params } from "../params.ts";
+import { flattenParams, type Params } from "../params.ts";
 
 export interface SimState {
   tick: number;
@@ -247,7 +247,9 @@ export function runSimulation(seed: number, params: Params, interventionLog: Int
 }
 
 /** Convenience wrapper: runs entirely from a RunConfig's own seed/params/interventionLog instead
- * of the caller having to unpack them — see sim/runConfig.ts. */
+ * of the caller having to unpack them — see sim/runConfig.ts. RunConfig stores params
+ * domain-grouped (RunParams); flattenParams() converts back to the flat shape every sim function
+ * actually takes. */
 export function runSimulationFromConfig(config: RunConfig, totalTicks: number): SimState {
-  return runSimulation(config.seed, config.params, config.interventionLog, totalTicks);
+  return runSimulation(config.seed, flattenParams(config.params), config.interventionLog, totalTicks);
 }

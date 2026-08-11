@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GENE_RANGES } from "./sim/genome.ts";
-import { DEFAULT_PARAMS } from "./params.ts";
+import { DEFAULT_PARAMS, DEFAULT_RUN_PARAMS, flattenParams, groupParams, mergeRunParams, type RunParams } from "./params.ts";
 
 describe("DEFAULT_PARAMS safety invariants", () => {
   it("keeps offspringEnergyFractionMax below the lowest possible reproThreshold", () => {
@@ -16,5 +16,31 @@ describe("DEFAULT_PARAMS safety invariants", () => {
     expect(DEFAULT_PARAMS.baseCost).toBeGreaterThan(0);
     expect(DEFAULT_PARAMS.moveCost).toBeGreaterThan(0);
     expect(DEFAULT_PARAMS.senseCost).toBeGreaterThan(0);
+  });
+});
+
+describe("RunParams grouping", () => {
+  it("groupParams/flattenParams round-trip losslessly", () => {
+    expect(flattenParams(groupParams(DEFAULT_PARAMS))).toEqual(DEFAULT_PARAMS);
+    expect(groupParams(flattenParams(DEFAULT_RUN_PARAMS))).toEqual(DEFAULT_RUN_PARAMS);
+  });
+
+  it("accounts for every Params field exactly once across the domain groups", () => {
+    const flatKeys = Object.keys(DEFAULT_PARAMS).sort();
+    const groupedKeys = Object.values(DEFAULT_RUN_PARAMS)
+      .flatMap((group) => Object.keys(group))
+      .sort();
+    expect(groupedKeys).toEqual(flatKeys);
+  });
+
+  it("mergeRunParams fills in a missing field within one subgroup without dropping its siblings", () => {
+    const partial: Partial<Record<keyof RunParams, unknown>> = {
+      world: { ...DEFAULT_RUN_PARAMS.world, worldWidth: 999 },
+      // reproduction deliberately omitted entirely -- must come back as full defaults, not undefined.
+    };
+    const merged = mergeRunParams(DEFAULT_RUN_PARAMS, partial);
+    expect(merged.world.worldWidth).toBe(999);
+    expect(merged.world.worldHeight).toBe(DEFAULT_RUN_PARAMS.world.worldHeight);
+    expect(merged.reproduction).toEqual(DEFAULT_RUN_PARAMS.reproduction);
   });
 });
