@@ -16,7 +16,7 @@ function makeCreatureAt(id: number, x: number, y: number): Creature {
 describe("findCreatureAt", () => {
   it("finds a creature directly under the click", () => {
     const { state } = createSimState(1, DEFAULT_PARAMS);
-    state.creatures = [makeCreatureAt(0, 100, 100)];
+    state.evolution.creatures = [makeCreatureAt(0, 100, 100)];
     const scale = CANVAS_SIZE / DEFAULT_PARAMS.worldWidth;
 
     const found = findCreatureAt(state, DEFAULT_PARAMS, 100 * scale, 100 * scale, CANVAS_SIZE, CANVAS_SIZE);
@@ -25,7 +25,7 @@ describe("findCreatureAt", () => {
 
   it("returns null when nothing is close enough", () => {
     const { state } = createSimState(1, DEFAULT_PARAMS);
-    state.creatures = [makeCreatureAt(0, 10, 10)];
+    state.evolution.creatures = [makeCreatureAt(0, 10, 10)];
 
     const found = findCreatureAt(state, DEFAULT_PARAMS, CANVAS_SIZE - 1, CANVAS_SIZE - 1, CANVAS_SIZE, CANVAS_SIZE);
     expect(found).toBeNull();
@@ -33,7 +33,7 @@ describe("findCreatureAt", () => {
 
   it("picks the nearer of two creatures", () => {
     const { state } = createSimState(1, DEFAULT_PARAMS);
-    state.creatures = [makeCreatureAt(0, 100, 100), makeCreatureAt(1, 102, 100)];
+    state.evolution.creatures = [makeCreatureAt(0, 100, 100), makeCreatureAt(1, 102, 100)];
     const scale = CANVAS_SIZE / DEFAULT_PARAMS.worldWidth;
 
     const found = findCreatureAt(state, DEFAULT_PARAMS, 101 * scale, 100 * scale, CANVAS_SIZE, CANVAS_SIZE);
@@ -43,7 +43,7 @@ describe("findCreatureAt", () => {
   it("accounts for toroidal wraparound when picking the nearest creature", () => {
     const { state } = createSimState(1, DEFAULT_PARAMS);
     // A creature at the far edge (worldWidth - 1) is actually adjacent to x=0 on a torus.
-    state.creatures = [makeCreatureAt(0, DEFAULT_PARAMS.worldWidth - 1, 100)];
+    state.evolution.creatures = [makeCreatureAt(0, DEFAULT_PARAMS.worldWidth - 1, 100)];
     const scale = CANVAS_SIZE / DEFAULT_PARAMS.worldWidth;
 
     const found = findCreatureAt(state, DEFAULT_PARAMS, 0, 100 * scale, CANVAS_SIZE, CANVAS_SIZE);

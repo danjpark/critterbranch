@@ -17,16 +17,16 @@ describe("raiseTerrain / lowerTerrain", () => {
     const y = params.worldHeight / 2;
     const gx = Math.floor(x / params.gridCellSize);
     const gy = Math.floor(y / params.gridCellSize);
-    const idx = gy * state.terrain.cols + gx;
+    const idx = gy * state.evolution.terrain.cols + gx;
 
-    const beforeElevation = state.terrain.elevation[idx];
-    const beforePassability = state.terrain.passability[idx];
+    const beforeElevation = state.evolution.terrain.elevation[idx];
+    const beforePassability = state.evolution.terrain.passability[idx];
 
     const intervention: Intervention = { tick: 0, tool: "raiseTerrain", params: { x, y, radius: 12, strength: 1 } };
-    applyIntervention(state, rng, params, intervention);
+    applyIntervention(state.evolution, rng, params, intervention);
 
-    expect(state.terrain.elevation[idx]).toBeGreaterThan(beforeElevation);
-    expect(state.terrain.passability[idx]).toBeLessThanOrEqual(beforePassability);
+    expect(state.evolution.terrain.elevation[idx]).toBeGreaterThan(beforeElevation);
+    expect(state.evolution.terrain.passability[idx]).toBeLessThanOrEqual(beforePassability);
   });
 
   it("lowerTerrain decreases elevation, never below 0", () => {
@@ -36,10 +36,10 @@ describe("raiseTerrain / lowerTerrain", () => {
     const y = params.worldHeight / 2;
 
     for (let i = 0; i < 20; i++) {
-      applyIntervention(state, rng, params, { tick: 0, tool: "lowerTerrain", params: { x, y, radius: 12, strength: 1 } });
+      applyIntervention(state.evolution, rng, params, { tick: 0, tool: "lowerTerrain", params: { x, y, radius: 12, strength: 1 } });
     }
 
-    expect(Array.from(state.terrain.elevation).every((e) => e >= 0)).toBe(true);
+    expect(Array.from(state.evolution.terrain.elevation).every((e) => e >= 0)).toBe(true);
   });
 });
 
@@ -52,38 +52,38 @@ describe("barrierStamp", () => {
       tool: "barrierStamp",
       params: { x1: 0, y1: 100, x2: 200, y2: 100, width: 8, targetPassability: 0, formationTicks: 0 },
     };
-    applyIntervention(state, rng, params, intervention);
+    applyIntervention(state.evolution, rng, params, intervention);
 
     const gy = Math.floor(100 / params.gridCellSize);
-    const idx = gy * state.terrain.cols + Math.floor(50 / params.gridCellSize);
-    expect(state.terrain.passability[idx]).toBe(0);
+    const idx = gy * state.evolution.terrain.cols + Math.floor(50 / params.gridCellSize);
+    expect(state.evolution.terrain.passability[idx]).toBe(0);
   });
 
   it("ramps passability gradually when formationTicks > 0", () => {
     const { state, rng } = createSimState(1, DEFAULT_PARAMS);
     const params = DEFAULT_PARAMS;
     const gy = Math.floor(100 / params.gridCellSize);
-    const idx = gy * state.terrain.cols + Math.floor(50 / params.gridCellSize);
-    const before = state.terrain.passability[idx];
+    const idx = gy * state.evolution.terrain.cols + Math.floor(50 / params.gridCellSize);
+    const before = state.evolution.terrain.passability[idx];
 
     const intervention: Intervention = {
       tick: 0,
       tool: "barrierStamp",
       params: { x1: 0, y1: 100, x2: 200, y2: 100, width: 8, targetPassability: 0, formationTicks: 100 },
     };
-    applyIntervention(state, rng, params, intervention);
+    applyIntervention(state.evolution, rng, params, intervention);
 
     // Immediately after applying, nothing has ramped yet (transition starts at tick 0, no processing has run).
-    expect(state.terrain.passability[idx]).toBeCloseTo(before);
+    expect(state.evolution.terrain.passability[idx]).toBeCloseTo(before);
 
-    processActiveTransitions(state, 50);
-    const halfway = state.terrain.passability[idx];
+    processActiveTransitions(state.evolution, 50);
+    const halfway = state.evolution.terrain.passability[idx];
     expect(halfway).toBeLessThan(before);
     expect(halfway).toBeGreaterThan(0);
 
-    processActiveTransitions(state, 100);
-    expect(state.terrain.passability[idx]).toBeCloseTo(0);
-    expect(state.activeTransitions.length).toBe(0);
+    processActiveTransitions(state.evolution, 100);
+    expect(state.evolution.terrain.passability[idx]).toBeCloseTo(0);
+    expect(state.evolution.activeTransitions.length).toBe(0);
   });
 });
 
@@ -95,15 +95,15 @@ describe("dropFood", () => {
     const y = params.worldHeight / 2;
     const gx = Math.floor(x / params.gridCellSize);
     const gy = Math.floor(y / params.gridCellSize);
-    const idx = gy * state.world.cols + gx;
+    const idx = gy * state.evolution.world.cols + gx;
 
-    const beforeCapacity = state.world.capacityR[idx];
-    const beforeAmount = state.world.r[idx];
+    const beforeCapacity = state.evolution.world.capacityR[idx];
+    const beforeAmount = state.evolution.world.r[idx];
 
-    applyIntervention(state, rng, params, { tick: 0, tool: "dropFood", params: { x, y, radius: 8, foodType: 0, density: 5 } });
+    applyIntervention(state.evolution, rng, params, { tick: 0, tool: "dropFood", params: { x, y, radius: 8, foodType: 0, density: 5 } });
 
-    expect(state.world.capacityR[idx]).toBeGreaterThan(beforeCapacity);
-    expect(state.world.r[idx]).toBeGreaterThan(beforeAmount);
+    expect(state.evolution.world.capacityR[idx]).toBeGreaterThan(beforeCapacity);
+    expect(state.evolution.world.r[idx]).toBeGreaterThan(beforeAmount);
   });
 });
 
@@ -115,16 +115,16 @@ describe("drought / bloom", () => {
     const y = params.worldHeight / 2;
     const gx = Math.floor(x / params.gridCellSize);
     const gy = Math.floor(y / params.gridCellSize);
-    const idx = gy * state.world.cols + gx;
+    const idx = gy * state.evolution.world.cols + gx;
 
-    state.world.r[idx] = 0;
-    applyIntervention(state, rng, params, { tick: 0, tool: "drought", params: { x, y, radius: 8, multiplier: 0, durationTicks: 50 } });
+    state.evolution.world.r[idx] = 0;
+    applyIntervention(state.evolution, rng, params, { tick: 0, tool: "drought", params: { x, y, radius: 8, multiplier: 0, durationTicks: 50 } });
 
-    processRegrowthOverrides(state, 0);
-    expect(state.world.regrowthModifier[idx]).toBe(0);
+    processRegrowthOverrides(state.evolution, 0);
+    expect(state.evolution.world.regrowthModifier[idx]).toBe(0);
 
-    processRegrowthOverrides(state, 60);
-    expect(state.world.regrowthModifier[idx]).toBe(1);
+    processRegrowthOverrides(state.evolution, 60);
+    expect(state.evolution.world.regrowthModifier[idx]).toBe(1);
   });
 });
 
@@ -135,13 +135,13 @@ describe("meteor", () => {
     const cx = params.worldWidth / 2;
     const cy = params.worldHeight / 2;
 
-    state.creatures = state.creatures.map((c, i) => ({ ...c, x: i === 0 ? cx : cx + 90, y: cy }));
-    const populationBefore = state.creatures.length;
+    state.evolution.creatures = state.evolution.creatures.map((c, i) => ({ ...c, x: i === 0 ? cx : cx + 90, y: cy }));
+    const populationBefore = state.evolution.creatures.length;
 
-    applyIntervention(state, rng, params, { tick: 0, tool: "meteor", params: { x: cx, y: cy, radius: 10, craterRecoveryTicks: 200 } });
+    applyIntervention(state.evolution, rng, params, { tick: 0, tool: "meteor", params: { x: cx, y: cy, radius: 10, craterRecoveryTicks: 200 } });
 
-    expect(state.creatures.length).toBeLessThan(populationBefore);
-    expect(state.creatures.some((c) => Math.abs(c.x - (cx + 90)) < 1)).toBe(true);
+    expect(state.evolution.creatures.length).toBeLessThan(populationBefore);
+    expect(state.evolution.creatures.some((c) => Math.abs(c.x - (cx + 90)) < 1)).toBe(true);
   });
 
   it("zeroes fertility immediately and recovers it over craterRecoveryTicks", () => {
@@ -151,13 +151,13 @@ describe("meteor", () => {
     const y = params.worldHeight / 2;
     const gx = Math.floor(x / params.gridCellSize);
     const gy = Math.floor(y / params.gridCellSize);
-    const idx = gy * state.terrain.cols + gx;
+    const idx = gy * state.evolution.terrain.cols + gx;
 
-    applyIntervention(state, rng, params, { tick: 0, tool: "meteor", params: { x, y, radius: 10, craterRecoveryTicks: 100 } });
-    expect(state.terrain.fertility[idx]).toBe(0);
+    applyIntervention(state.evolution, rng, params, { tick: 0, tool: "meteor", params: { x, y, radius: 10, craterRecoveryTicks: 100 } });
+    expect(state.evolution.terrain.fertility[idx]).toBe(0);
 
-    processActiveTransitions(state, 100);
-    expect(state.terrain.fertility[idx]).toBeGreaterThan(0);
+    processActiveTransitions(state.evolution, 100);
+    expect(state.evolution.terrain.fertility[idx]).toBeGreaterThan(0);
   });
 });
 
@@ -165,15 +165,15 @@ describe("seedFounders", () => {
   it("adds exactly count creatures near the target point", () => {
     const { state, rng } = createSimState(1, DEFAULT_PARAMS);
     const params = DEFAULT_PARAMS;
-    const before = state.creatures.length;
+    const before = state.evolution.creatures.length;
 
-    applyIntervention(state, rng, params, {
+    applyIntervention(state.evolution, rng, params, {
       tick: 0,
       tool: "seedFounders",
       params: { x: 50, y: 50, spreadRadius: 2, count: 10, genome: "random" },
     });
 
-    expect(state.creatures.length).toBe(before + 10);
+    expect(state.evolution.creatures.length).toBe(before + 10);
   });
 });
 
@@ -207,7 +207,7 @@ describe("replay reproduces a live run with interventions exactly", () => {
     for (let i = 0; i < 300; i++) tick(instance.state, instance.rng, params);
 
     const liveHash = hashState(instance.state);
-    const totalTicks = instance.state.tick;
+    const totalTicks = instance.state.evolution.tick;
 
     // Headless replay from just the captured log.
     const replayed = runSimulation(seed, params, instance.interventionLog, totalTicks);

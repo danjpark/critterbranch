@@ -25,7 +25,7 @@ const MIN_VISIBLE_OPACITY = 0.08;
  * on screen, and lets you watch two lineages stop fighting once they've specialized apart.
  */
 export function renderCompetitionHeatmap(ctx: CanvasRenderingContext2D, state: SimState, params: Params, colorOptions: ColorOptions): void {
-  const { consumptionGrid } = state;
+  const { consumptionGrid } = state.observations;
   if (consumptionGrid.bySpecies.size === 0) return;
 
   const canvasWidth = ctx.canvas.width;
@@ -37,9 +37,9 @@ export function renderCompetitionHeatmap(ctx: CanvasRenderingContext2D, state: S
 
   const speciesEntries = Array.from(consumptionGrid.bySpecies.entries())
     .map(([speciesId, cells]) => {
-      const species = state.taxonomy.species.get(speciesId);
+      const species = state.observations.taxonomy.species.get(speciesId);
       if (!species) return null;
-      const [r, g, b] = parseRgb(genotypeColor(species.centroid, state.foundingCentroid, colorOptions));
+      const [r, g, b] = parseRgb(genotypeColor(species.centroid, state.evolution.foundingCentroid, colorOptions));
       return { cells, r, g, b };
     })
     .filter((e): e is { cells: Float64Array; r: number; g: number; b: number } => e !== null);

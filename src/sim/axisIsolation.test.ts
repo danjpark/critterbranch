@@ -21,7 +21,7 @@ function runFor(seed: number, overrides: Partial<Params>, ticks: number) {
 }
 
 function speciationEvents(state: ReturnType<typeof runFor>) {
-  return state.taxonomyEvents.filter((e): e is Extract<typeof e, { type: "speciation" }> => e.type === "speciation");
+  return state.observations.taxonomyEvents.filter((e): e is Extract<typeof e, { type: "speciation" }> => e.type === "speciation");
 }
 
 describe("neutral control", () => {
@@ -34,12 +34,12 @@ describe("neutral control", () => {
       for (const seed of [1, 2, 3]) {
         const state = runFor(seed, NEUTRAL, 4000);
 
-        expect(state.taxonomyEvents.filter((e) => e.type === "speciation")).toHaveLength(0);
-        expect(state.taxonomy.species.size).toBe(1);
+        expect(state.observations.taxonomyEvents.filter((e) => e.type === "speciation")).toHaveLength(0);
+        expect(state.observations.taxonomy.species.size).toBe(1);
 
-        if (state.creatures.length > 0) {
+        if (state.evolution.creatures.length > 0) {
           for (const key of GENE_KEYS) {
-            expect(isBimodal(state.creatures.map((c) => c.genome[key]))).toBe(false);
+            expect(isBimodal(state.evolution.creatures.map((c) => c.genome[key]))).toBe(false);
           }
         }
       }
@@ -91,15 +91,15 @@ describe("foraging axis in isolation", () => {
 
       for (let t = 0; t < 10_000; t++) {
         tick(state, rng, params);
-        if (state.tick % 500 === 0 && state.creatures.length > 0) {
-          if (foragingGenes.some((key) => isBimodal(state.creatures.map((c) => c.genome[key])))) {
+        if (state.evolution.tick % 500 === 0 && state.evolution.creatures.length > 0) {
+          if (foragingGenes.some((key) => isBimodal(state.evolution.creatures.map((c) => c.genome[key])))) {
             sawForagingBimodality = true;
           }
         }
       }
 
       expect(sawForagingBimodality).toBe(true);
-      expect(state.taxonomy.species.size).toBeGreaterThan(1);
+      expect(state.observations.taxonomy.species.size).toBeGreaterThan(1);
     },
     120_000,
   );
@@ -130,8 +130,8 @@ describe("life-history axis in isolation", () => {
         return Math.max(...totals) / Math.max(1, Math.min(...totals));
       };
 
-      const cyclingRange = rangeOf(cyclingState.populationHistory);
-      const flatRange = rangeOf(flatState.populationHistory);
+      const cyclingRange = rangeOf(cyclingState.observations.populationHistory);
+      const flatRange = rangeOf(flatState.observations.populationHistory);
 
       expect(cyclingRange).toBeGreaterThan(flatRange * 2);
       expect(cyclingRange).toBeGreaterThan(3);
@@ -139,7 +139,7 @@ describe("life-history axis in isolation", () => {
       // The wide population swing is directional selection, not disruptive selection — it should
       // not be misreported as speciation.
       expect(speciationEvents(cyclingState)).toHaveLength(0);
-      expect(cyclingState.taxonomy.species.size).toBe(1);
+      expect(cyclingState.observations.taxonomy.species.size).toBe(1);
     },
     120_000,
   );

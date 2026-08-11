@@ -53,7 +53,7 @@ describe("updateTaxonomy", () => {
     const { state, rng } = createSimState(1, params);
 
     // Stamp an impassable vertical wall right down the middle of the map.
-    applyIntervention(state, rng, params, {
+    applyIntervention(state.evolution, rng, params, {
       tick: 0,
       tool: "barrierStamp",
       params: { x1: 100, y1: 0, x2: 100, y2: 200, width: 10, targetPassability: 0, formationTicks: 0 },
@@ -61,10 +61,10 @@ describe("updateTaxonomy", () => {
 
     const left = Array.from({ length: 10 }, (_, i) => makeCreature(i, makeGenome({ dietPref: 0.02, speed: 0.3 }), 20, 100));
     const right = Array.from({ length: 10 }, (_, i) => makeCreature(i + 100, makeGenome({ dietPref: 0.98, speed: 0.3 }), 180, 100));
-    state.creatures = [...left, ...right];
-    const taxonomy = initTaxonomy(state.creatures, 0);
+    state.evolution.creatures = [...left, ...right];
+    const taxonomy = initTaxonomy(state.evolution.creatures, 0);
 
-    const events = updateTaxonomy(taxonomy, state.creatures, state.terrain, params, 100);
+    const events = updateTaxonomy(taxonomy, state.evolution.creatures, state.evolution.terrain, params, 100);
     expect(events).toHaveLength(1);
     if (events[0].type === "speciation") {
       expect(events[0].event.mechanism).toBe("allopatric");
@@ -108,19 +108,19 @@ describe("Phase 4 milestone: hand-raised barrier produces a detected, logged all
     const { state, rng } = createSimState(1, params);
 
     // Stamp a wall down the middle of the map, instantly.
-    applyIntervention(state, rng, params, {
+    applyIntervention(state.evolution, rng, params, {
       tick: 0,
       tool: "barrierStamp",
       params: { x1: 100, y1: 0, x2: 100, y2: 200, width: 10, targetPassability: 0, formationTicks: 0 },
     });
 
     // Seed two clearly genetically-distinct founding groups, one on each side of the wall.
-    applyIntervention(state, rng, params, {
+    applyIntervention(state.evolution, rng, params, {
       tick: 0,
       tool: "seedFounders",
       params: { x: 30, y: 100, spreadRadius: 15, count: 15, genome: makeGenome({ dietPref: 0.05, speed: 0.4 }) },
     });
-    applyIntervention(state, rng, params, {
+    applyIntervention(state.evolution, rng, params, {
       tick: 0,
       tool: "seedFounders",
       params: { x: 170, y: 100, spreadRadius: 15, count: 15, genome: makeGenome({ dietPref: 0.95, speed: 0.4 }) },
@@ -129,12 +129,12 @@ describe("Phase 4 milestone: hand-raised barrier produces a detected, logged all
     let foundAllopatricSplit = false;
     for (let i = 0; i < 200 && !foundAllopatricSplit; i++) {
       tick(state, rng, params);
-      foundAllopatricSplit = state.taxonomyEvents.some((e) => e.type === "speciation" && e.event.mechanism === "allopatric");
+      foundAllopatricSplit = state.observations.taxonomyEvents.some((e) => e.type === "speciation" && e.event.mechanism === "allopatric");
     }
 
     expect(foundAllopatricSplit).toBe(true);
 
-    const splitEvent = state.taxonomyEvents.find((e) => e.type === "speciation" && e.event.mechanism === "allopatric");
+    const splitEvent = state.observations.taxonomyEvents.find((e) => e.type === "speciation" && e.event.mechanism === "allopatric");
     expect(splitEvent).toBeDefined();
     if (splitEvent?.type === "speciation") {
       // The two seeded groups both descend from the barrier being between them, not selection —
@@ -144,7 +144,7 @@ describe("Phase 4 milestone: hand-raised barrier produces a detected, logged all
     }
 
     // The species registry itself should also reflect the split, not just the event log.
-    const allopatricSpecies = Array.from(state.taxonomy.species.values()).find((s) => s.mechanism === "allopatric");
+    const allopatricSpecies = Array.from(state.observations.taxonomy.species.values()).find((s) => s.mechanism === "allopatric");
     expect(allopatricSpecies).toBeDefined();
     expect(allopatricSpecies?.parentId).not.toBeNull();
   });

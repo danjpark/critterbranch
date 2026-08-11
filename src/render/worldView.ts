@@ -20,7 +20,7 @@ export function renderWorld(ctx: CanvasRenderingContext2D, state: SimState, para
   const scaleY = canvasHeight / params.worldHeight;
 
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-  ctx.drawImage(getTerrainLayer(state.terrain, params, scaleX, scaleY, canvasWidth, canvasHeight), 0, 0);
+  ctx.drawImage(getTerrainLayer(state.evolution.terrain, params, scaleX, scaleY, canvasWidth, canvasHeight), 0, 0);
   drawFood(ctx, state, params, scaleX, scaleY);
   drawCreatures(ctx, state, options, scaleX, scaleY);
 }
@@ -90,7 +90,7 @@ function paintTerrain(ctx: CanvasRenderingContext2D, terrain: TerrainGrid, param
 
 /** Food keeps a fixed, distinct visual language: small squares in fixed R/B colors, sized by true abundance. */
 function drawFood(ctx: CanvasRenderingContext2D, state: SimState, params: Params, scaleX: number, scaleY: number): void {
-  const { world } = state;
+  const { world } = state.evolution;
   const cellW = params.gridCellSize * scaleX;
   const cellH = params.gridCellSize * scaleY;
 
@@ -126,12 +126,12 @@ function drawFood(ctx: CanvasRenderingContext2D, state: SimState, params: Params
 function drawCreatures(ctx: CanvasRenderingContext2D, state: SimState, options: RenderOptions, scaleX: number, scaleY: number): void {
   const radius = Math.max(2, Math.min(scaleX, scaleY) * 1.1);
 
-  for (const creature of state.creatures) {
+  for (const creature of state.evolution.creatures) {
     if (options.lineageFilter && !options.lineageFilter.has(creature.lineageId)) continue;
 
     const cx = creature.x * scaleX;
     const cy = creature.y * scaleY;
-    const fill = cachedGenotypeColor(creature, state.foundingCentroid, options.colorOptions);
+    const fill = cachedGenotypeColor(creature, state.evolution.foundingCentroid, options.colorOptions);
 
     // Thin dark outline underneath so light-lightness individuals don't vanish over pale ground.
     ctx.beginPath();
@@ -172,7 +172,7 @@ export function findCreatureAt(
   let closest: Creature | null = null;
   let closestDist = pickRadius;
 
-  for (const creature of state.creatures) {
+  for (const creature of state.evolution.creatures) {
     const dx = torDelta(creature.x, worldX, params.worldWidth);
     const dy = torDelta(creature.y, worldY, params.worldHeight);
     const dist = Math.sqrt(dx * dx + dy * dy);

@@ -41,11 +41,11 @@ export function renderScatter(ctx: CanvasRenderingContext2D, state: SimState, op
   drawAxes(ctx, plotLeft, plotTop, plotWidth, plotHeight, options.xGene, options.yGene, xMin, xMax, yMin, yMax);
 
   const radius = 3;
-  for (const creature of state.creatures) {
+  for (const creature of state.evolution.creatures) {
     if (options.lineageFilter && !options.lineageFilter.has(creature.lineageId)) continue;
 
     const { cx, cy } = plotPosition(creature.genome, options, plotLeft, plotTop, plotWidth, plotHeight, xMin, xMax, yMin, yMax);
-    const fill = cachedGenotypeColor(creature, state.foundingCentroid, options.colorOptions);
+    const fill = cachedGenotypeColor(creature, state.evolution.foundingCentroid, options.colorOptions);
 
     ctx.beginPath();
     ctx.arc(cx, cy, radius + 0.6, 0, Math.PI * 2);
@@ -154,7 +154,7 @@ export function findPointAt(
   let closest: Creature | null = null;
   let closestDist = pickRadius;
 
-  for (const creature of state.creatures) {
+  for (const creature of state.evolution.creatures) {
     if (options.lineageFilter && !options.lineageFilter.has(creature.lineageId)) continue;
 
     const { cx, cy } = plotPosition(creature.genome, options, plotLeft, plotTop, plotWidth, plotHeight, xMin, xMax, yMin, yMax);

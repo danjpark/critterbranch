@@ -78,7 +78,7 @@ describe("SimRunner scenario load/export", () => {
       { tick: 500, tool: "seedFounders" as const, params: { x: 80, y: 80, spreadRadius: 3, count: 5, genome: "random" as const } },
     ];
     // Apply it the same way the scenario player will (see SimRunner.stepOneTick).
-    applyIntervention(referenceState, referenceRng, params, interventionLog[0]);
+    applyIntervention(referenceState.evolution, referenceRng, params, interventionLog[0]);
     for (let i = 0; i < 500; i++) tick(referenceState, referenceRng, params);
 
     // Scenario run: load it into a fresh SimRunner and drive it forward via stepOnce, exactly
@@ -102,7 +102,7 @@ describe("SimRunner scenario load/export", () => {
 
     expect(runner.sim.params.worldWidth).toBe(80);
     expect(runner.sim.params).not.toEqual(DEFAULT_PARAMS);
-    expect(runner.sim.state.world.cols).toBe(80 / customParams.gridCellSize);
+    expect(runner.sim.state.evolution.world.cols).toBe(80 / customParams.gridCellSize);
 
     for (let i = 0; i < 200; i++) runner.stepOnce();
 
@@ -151,7 +151,7 @@ describe("meteor undo", () => {
     const runnerB = new SimRunner(seed);
     for (let i = 0; i < N + K; i++) runnerB.stepOnce();
 
-    expect(runnerA.sim.state.tick).toBe(runnerB.sim.state.tick);
+    expect(runnerA.sim.state.evolution.tick).toBe(runnerB.sim.state.evolution.tick);
     expect(hashState(runnerA.sim.state)).toBe(hashState(runnerB.sim.state));
     expect(runnerA.sim.rng.snapshot()).toEqual(runnerB.sim.rng.snapshot());
     // The undone meteor must not linger in the log -- it never "really" happened.

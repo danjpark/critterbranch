@@ -43,10 +43,10 @@ export function renderTree(ctx: CanvasRenderingContext2D, state: SimState, optio
   ctx.fillStyle = "#14161a";
   ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
-  const layout = layoutTree(state.taxonomy, state.tick);
+  const layout = layoutTree(state.observations.taxonomy, state.evolution.tick);
   if (layout.nodes.length === 0) return layout;
 
-  const { tickToX, rowToY } = computeScales(canvasWidth, state.tick);
+  const { tickToX, rowToY } = computeScales(canvasWidth, state.evolution.tick);
   const nodeById = new Map(layout.nodes.map((n) => [n.speciesId, n]));
 
   for (const node of layout.nodes) {
@@ -56,7 +56,7 @@ export function renderTree(ctx: CanvasRenderingContext2D, state: SimState, optio
     const x1 = tickToX(node.originTick);
     const x2 = tickToX(node.endTick);
     const y = rowToY(node.row);
-    const color = genotypeColor(node.centroid, state.foundingCentroid, options.colorOptions);
+    const color = genotypeColor(node.centroid, state.evolution.foundingCentroid, options.colorOptions);
     const isSelected = options.selectedSpeciesId === node.speciesId;
 
     ctx.save();
@@ -112,8 +112,8 @@ const HIT_TOLERANCE_X = 4;
 
 /** Which species (if any) a click at canvas coordinates landed on. Recomputes the layout fresh — cheap, since species count stays small even over a long run. */
 export function findBranchAt(state: SimState, canvasWidth: number, canvasX: number, canvasY: number): number | null {
-  const layout = layoutTree(state.taxonomy, state.tick);
-  const { tickToX, rowToY } = computeScales(canvasWidth, state.tick);
+  const layout = layoutTree(state.observations.taxonomy, state.evolution.tick);
+  const { tickToX, rowToY } = computeScales(canvasWidth, state.evolution.tick);
 
   for (const node of layout.nodes) {
     if (Math.abs(canvasY - rowToY(node.row)) > HIT_TOLERANCE_Y) continue;

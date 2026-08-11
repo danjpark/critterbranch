@@ -15,13 +15,13 @@ export function renderMuller(ctx: CanvasRenderingContext2D, state: SimState, col
   ctx.fillStyle = "#14161a";
   ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
-  const history = state.populationHistory;
+  const history = state.observations.populationHistory;
   if (history.length === 0) return;
 
-  const orderedSpecies = layoutTree(state.taxonomy, state.tick).nodes;
+  const orderedSpecies = layoutTree(state.observations.taxonomy, state.evolution.tick).nodes;
   if (orderedSpecies.length === 0) return;
 
-  const maxTick = Math.max(state.tick, 1);
+  const maxTick = Math.max(state.evolution.tick, 1);
   let maxTotal = 1;
   for (const sample of history) {
     let total = 0;
@@ -51,7 +51,7 @@ export function renderMuller(ctx: CanvasRenderingContext2D, state: SimState, col
   }
 
   orderedSpecies.forEach((node, speciesIndex) => {
-    ctx.fillStyle = genotypeColor(node.centroid, state.foundingCentroid, colorOptions);
+    ctx.fillStyle = genotypeColor(node.centroid, state.evolution.foundingCentroid, colorOptions);
     ctx.beginPath();
     history.forEach((sample, i) => {
       const x = tickToX(sample.tick);

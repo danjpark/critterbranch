@@ -1,7 +1,7 @@
 import { createCreature, energyCapacity } from "./creature.ts";
 import { type Genome, randomGenome } from "./genome.ts";
 import type { RNG } from "./rng.ts";
-import type { SimState } from "./sim.ts";
+import type { EvolutionState } from "./sim.ts";
 import { clamp, clamp01, lerp, torDelta, wrap } from "./util.ts";
 import type { Params } from "../params.ts";
 
@@ -121,7 +121,7 @@ function gaussianFalloff(dist: number, gridRadius: number): number {
   return Math.exp(-(dist * dist) / (2 * sigma * sigma));
 }
 
-function applyRaiseLowerTerrain(state: SimState, params: Params, p: RaiseLowerTerrainParams, sign: 1 | -1): void {
+function applyRaiseLowerTerrain(state: EvolutionState, params: Params, p: RaiseLowerTerrainParams, sign: 1 | -1): void {
   const { indices, distances } = cellsWithinRadius(state.terrain.cols, state.terrain.rows, params.gridCellSize, p.x, p.y, p.radius);
   const gridRadius = p.radius / params.gridCellSize;
 
@@ -144,7 +144,7 @@ function pointToSegmentDistance(px: number, py: number, x1: number, y1: number, 
   return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
 }
 
-function applyBarrierStamp(state: SimState, params: Params, p: BarrierStampParams, currentTick: number): void {
+function applyBarrierStamp(state: EvolutionState, params: Params, p: BarrierStampParams, currentTick: number): void {
   const halfWidth = p.width / 2;
   const cellIndices: number[] = [];
   const fromValues: number[] = [];
@@ -175,7 +175,7 @@ function applyBarrierStamp(state: SimState, params: Params, p: BarrierStampParam
   });
 }
 
-function applyDropFood(state: SimState, params: Params, p: DropFoodParams): void {
+function applyDropFood(state: EvolutionState, params: Params, p: DropFoodParams): void {
   const { indices, distances } = cellsWithinRadius(state.world.cols, state.world.rows, params.gridCellSize, p.x, p.y, p.radius);
   const gridRadius = p.radius / params.gridCellSize;
   const capacityArr = p.foodType === 0 ? state.world.capacityR : state.world.capacityB;
@@ -189,7 +189,7 @@ function applyDropFood(state: SimState, params: Params, p: DropFoodParams): void
   }
 }
 
-function applyDroughtBloom(state: SimState, params: Params, p: DroughtBloomParams, currentTick: number): void {
+function applyDroughtBloom(state: EvolutionState, params: Params, p: DroughtBloomParams, currentTick: number): void {
   const { indices } = cellsWithinRadius(state.world.cols, state.world.rows, params.gridCellSize, p.x, p.y, p.radius);
   state.activeRegrowthOverrides.push({
     cellIndices: indices,
@@ -199,7 +199,7 @@ function applyDroughtBloom(state: SimState, params: Params, p: DroughtBloomParam
   });
 }
 
-function applyMeteor(state: SimState, params: Params, p: MeteorParams, currentTick: number): void {
+function applyMeteor(state: EvolutionState, params: Params, p: MeteorParams, currentTick: number): void {
   state.creatures = state.creatures.filter((c) => {
     const dx = torDelta(c.x, p.x, params.worldWidth);
     const dy = torDelta(c.y, p.y, params.worldHeight);
@@ -239,7 +239,7 @@ function applyMeteor(state: SimState, params: Params, p: MeteorParams, currentTi
   });
 }
 
-function applySeedFounders(state: SimState, params: Params, rng: RNG, p: SeedFoundersParams, currentTick: number): void {
+function applySeedFounders(state: EvolutionState, params: Params, rng: RNG, p: SeedFoundersParams, currentTick: number): void {
   for (let i = 0; i < p.count; i++) {
     const genome = p.genome === "random" ? randomGenome(rng) : { ...p.genome };
     const x = wrap(p.x + rng.nextRange(-p.spreadRadius, p.spreadRadius), params.worldWidth);
@@ -263,7 +263,7 @@ function applySeedFounders(state: SimState, params: Params, rng: RNG, p: SeedFou
 }
 
 /** Applies one intervention's immediate effect, mutating state. Ongoing effects (ramps, overrides) register into state's active-effect lists, processed each tick by processActiveEffects. */
-export function applyIntervention(state: SimState, rng: RNG, params: Params, intervention: Intervention): void {
+export function applyIntervention(state: EvolutionState, rng: RNG, params: Params, intervention: Intervention): void {
   switch (intervention.tool) {
     case "raiseTerrain":
       applyRaiseLowerTerrain(state, params, intervention.params, 1);
@@ -291,7 +291,7 @@ export function applyIntervention(state: SimState, rng: RNG, params: Params, int
 }
 
 /** Advances all active field transitions (barrier formation, crater recovery) by one tick. */
-export function processActiveTransitions(state: SimState, currentTick: number): void {
+export function processActiveTransitions(state: EvolutionState, currentTick: number): void {
   if (state.activeTransitions.length === 0) return;
 
   state.activeTransitions = state.activeTransitions.filter((transition) => {
@@ -305,7 +305,7 @@ export function processActiveTransitions(state: SimState, currentTick: number): 
 }
 
 /** Recomputes world.regrowthModifier from whichever drought/bloom overrides are still active. */
-export function processRegrowthOverrides(state: SimState, currentTick: number): void {
+export function processRegrowthOverrides(state: EvolutionState, currentTick: number): void {
   state.activeRegrowthOverrides = state.activeRegrowthOverrides.filter((o) => currentTick < o.endTick);
   state.world.regrowthModifier.fill(1);
   for (const override of state.activeRegrowthOverrides) {

@@ -146,9 +146,9 @@ export class SimRunner {
 
   /** Fires any scripted-scenario interventions due at the current tick, then advances one tick. */
   private stepOneTick(): void {
-    while (this.scenarioIndex < this.scenarioQueue.length && this.scenarioQueue[this.scenarioIndex].tick === this.sim.state.tick) {
+    while (this.scenarioIndex < this.scenarioQueue.length && this.scenarioQueue[this.scenarioIndex].tick === this.sim.state.evolution.tick) {
       const intervention = this.scenarioQueue[this.scenarioIndex];
-      applyIntervention(this.sim.state, this.sim.rng, this.sim.params, intervention);
+      applyIntervention(this.sim.state.evolution, this.sim.rng, this.sim.params, intervention);
       this.sim.interventionLog.push(intervention);
       this.scenarioIndex++;
     }
@@ -158,7 +158,7 @@ export class SimRunner {
   /** The selected creature, or null. Clears the selection if that creature has since died. */
   selectedCreature(): Creature | null {
     if (this.selectedCreatureId === null) return null;
-    const found = this.sim.state.creatures.find((c) => c.id === this.selectedCreatureId) ?? null;
+    const found = this.sim.state.evolution.creatures.find((c) => c.id === this.selectedCreatureId) ?? null;
     if (!found) this.selectedCreatureId = null;
     return found;
   }
@@ -169,13 +169,13 @@ export class SimRunner {
 
   selectedSpecies(): Species | null {
     if (this.selectedSpeciesId === null) return null;
-    return this.sim.state.taxonomy.species.get(this.selectedSpeciesId) ?? null;
+    return this.sim.state.observations.taxonomy.species.get(this.selectedSpeciesId) ?? null;
   }
 
   /** Filters the World view to only the currently-selected species and everything descended from it. */
   filterToSelectedLineage(): void {
     if (this.selectedSpeciesId === null) return;
-    this.lineageFilter = collectDescendantIds(this.sim.state.taxonomy, this.selectedSpeciesId);
+    this.lineageFilter = collectDescendantIds(this.sim.state.observations.taxonomy, this.selectedSpeciesId);
   }
 
   clearLineageFilter(): void {
@@ -222,18 +222,18 @@ export class SimRunner {
         targetPassability: 1 - this.brush.strength,
         formationTicks: this.brush.durationTicks,
       });
-      invalidateTerrainCache(this.sim.state.terrain);
+      invalidateTerrainCache(this.sim.state.evolution.terrain);
       return;
     }
 
     switch (tool) {
       case "raiseTerrain":
         this.apply("raiseTerrain", { x, y, radius: this.brush.radius, strength: this.brush.strength * 2 });
-        invalidateTerrainCache(this.sim.state.terrain);
+        invalidateTerrainCache(this.sim.state.evolution.terrain);
         return;
       case "lowerTerrain":
         this.apply("lowerTerrain", { x, y, radius: this.brush.radius, strength: this.brush.strength * 2 });
-        invalidateTerrainCache(this.sim.state.terrain);
+        invalidateTerrainCache(this.sim.state.evolution.terrain);
         return;
       case "dropFoodR":
         this.apply("dropFood", { x, y, radius: this.brush.radius, foodType: 0, density: this.brush.strength * 4 });
@@ -250,7 +250,7 @@ export class SimRunner {
       case "meteor":
         this.meteorCheckpoint = this.createCheckpoint();
         this.apply("meteor", { x, y, radius: this.brush.radius, craterRecoveryTicks: this.brush.durationTicks });
-        invalidateTerrainCache(this.sim.state.terrain);
+        invalidateTerrainCache(this.sim.state.evolution.terrain);
         return;
       case "seedFounders":
         this.apply("seedFounders", { x, y, spreadRadius: Math.max(this.brush.radius / 4, 1), count: this.brush.seedCount, genome: "random" as const });
@@ -273,7 +273,7 @@ export class SimRunner {
     if (!this.meteorCheckpoint) return;
     this.restoreCheckpoint(this.meteorCheckpoint);
     this.meteorCheckpoint = null;
-    invalidateTerrainCache(this.sim.state.terrain);
+    invalidateTerrainCache(this.sim.state.evolution.terrain);
   }
 
   private createCheckpoint(): SimulationCheckpoint {

@@ -106,7 +106,7 @@ const controls = createControls({
     controls.setInspected(null);
     godModePanel.setActiveTool(null);
     godModePanel.setUndoEnabled(false);
-    treePanel.setSelectedSpecies(null, 0, runner.colorOptions, runner.sim.state.foundingCentroid);
+    treePanel.setSelectedSpecies(null, 0, runner.colorOptions, runner.sim.state.evolution.foundingCentroid);
     treePanel.setLineageFilterActive(false);
     render();
   },
@@ -160,7 +160,7 @@ function loadScenarioAndRefresh(parsed: unknown): void {
   controls.setInspected(null);
   godModePanel.setActiveTool(null);
   godModePanel.setUndoEnabled(false);
-  treePanel.setSelectedSpecies(null, 0, runner.colorOptions, runner.sim.state.foundingCentroid);
+  treePanel.setSelectedSpecies(null, 0, runner.colorOptions, runner.sim.state.evolution.foundingCentroid);
   treePanel.setLineageFilterActive(false);
   render();
 }
@@ -275,8 +275,8 @@ function render(): void {
   // Terrain is normally cached (see worldView.ts) since it's static — but an in-progress god-mode
   // effect (barrier still forming, crater still recovering) changes it every tick, so the cache
   // must be invalidated every frame while any of those are active.
-  if (runner.sim.state.activeTransitions.length > 0) {
-    invalidateTerrainCache(runner.sim.state.terrain);
+  if (runner.sim.state.evolution.activeTransitions.length > 0) {
+    invalidateTerrainCache(runner.sim.state.evolution.terrain);
   }
 
   // Only the currently-visible canvas needs to actually redraw each frame — Tree/Muller cost
@@ -310,14 +310,14 @@ function render(): void {
   }
 
   let livingSpeciesCount = 0;
-  for (const species of runner.sim.state.taxonomy.species.values()) {
+  for (const species of runner.sim.state.observations.taxonomy.species.values()) {
     if (species.extinctTick === null) livingSpeciesCount++;
   }
-  controls.setStatus(runner.sim.state.tick, runner.sim.state.creatures.length, livingSpeciesCount);
-  eventFeed.setEvents(runner.sim.state.taxonomyEvents);
-  geneFlowChart.render(runner.sim.state.geneFlow.history);
-  traitChart.render(runner.sim.state.traitHistory, traitChartGene);
-  treePanel.setSelectedSpecies(runner.selectedSpecies(), runner.sim.state.tick, runner.colorOptions, runner.sim.state.foundingCentroid);
+  controls.setStatus(runner.sim.state.evolution.tick, runner.sim.state.evolution.creatures.length, livingSpeciesCount);
+  eventFeed.setEvents(runner.sim.state.observations.taxonomyEvents);
+  geneFlowChart.render(runner.sim.state.observations.geneFlow.history);
+  traitChart.render(runner.sim.state.observations.traitHistory, traitChartGene);
+  treePanel.setSelectedSpecies(runner.selectedSpecies(), runner.sim.state.evolution.tick, runner.colorOptions, runner.sim.state.evolution.foundingCentroid);
 
   if (runner.selectedCreatureId !== null) {
     controls.setInspected(runner.selectedCreature());

@@ -23,7 +23,7 @@ describe("population dynamics", () => {
   it("does not go extinct immediately under default params", () => {
     const { state, rng } = createSimState(7, DEFAULT_PARAMS);
     for (let i = 0; i < 3000; i++) tick(state, rng, DEFAULT_PARAMS);
-    expect(state.creatures.length).toBeGreaterThan(0);
+    expect(state.evolution.creatures.length).toBeGreaterThan(0);
   });
 });
 
@@ -32,8 +32,8 @@ describe("consumption grid", () => {
     const { state, rng } = createSimState(7, DEFAULT_PARAMS);
     for (let i = 0; i < 200; i++) tick(state, rng, DEFAULT_PARAMS);
 
-    expect(state.consumptionGrid.bySpecies.size).toBeGreaterThan(0);
-    const founderCells = state.consumptionGrid.bySpecies.get(0);
+    expect(state.observations.consumptionGrid.bySpecies.size).toBeGreaterThan(0);
+    const founderCells = state.observations.consumptionGrid.bySpecies.get(0);
     expect(founderCells).toBeDefined();
     expect(founderCells!.some((v) => v > 0)).toBe(true);
   });

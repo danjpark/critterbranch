@@ -26,7 +26,12 @@ import { generateTerrain, type TerrainGrid } from "./terrain.ts";
 import { generateWorld, regrowFood, type World } from "./world.ts";
 import { flattenParams, type Params } from "../params.ts";
 
-export interface SimState {
+/**
+ * Core evolutionary state: the minimum a tick actually needs to advance the simulation. Nothing
+ * in here exists to feed a chart — creature.ts/world.ts/terrain.ts/intervention.ts only ever read
+ * or write this half of SimState.
+ */
+export interface EvolutionState {
   tick: number;
   nextId: number;
   creatures: Creature[];
@@ -37,6 +42,18 @@ export interface SimState {
   /** In-progress god-mode effects (barrier formation, crater recovery), processed once per tick. */
   activeTransitions: FieldTransition[];
   activeRegrowthOverrides: RegrowthOverride[];
+}
+
+/**
+ * Everything derived FROM evolution state for observation/analytics purposes — taxonomy
+ * classification, charts, the competition heatmap. Nothing here feeds back into how a creature
+ * forages, reproduces, or dies; it's read by render/* and recomputed by dedicated update
+ * functions (updateTaxonomy, updateGeneFlow, decayConsumption, sampleTraits, samplePopulation),
+ * never inlined into creature/world mechanics. That separation is what lets a new visualization
+ * get added (as five of these six fields were, across this project's history) without touching
+ * creature.ts at all.
+ */
+export interface ObservationState {
   taxonomy: TaxonomyState;
   /** Every speciation/extinction event ever detected, in tick order — the event feed's data source. */
   taxonomyEvents: TaxonomyEvent[];
@@ -47,6 +64,11 @@ export interface SimState {
   consumptionGrid: ConsumptionGrid;
   /** Population mean +/- std per gene over time — the trait time-series chart's data source. */
   traitHistory: TraitSample[];
+}
+
+export interface SimState {
+  evolution: EvolutionState;
+  observations: ObservationState;
 }
 
 export interface SimInstance {
@@ -100,20 +122,24 @@ export function createSimState(seed: number, params: Params): SimInstance {
 
   return {
     state: {
-      tick: 0,
-      nextId,
-      creatures,
-      world,
-      terrain,
-      foundingCentroid,
-      activeTransitions: [],
-      activeRegrowthOverrides: [],
-      taxonomy,
-      taxonomyEvents: [],
-      geneFlow: initGeneFlow(),
-      populationHistory: [samplePopulation(taxonomy, 0)],
-      consumptionGrid: initConsumptionGrid(cols, rows),
-      traitHistory: creatures.length > 0 ? [sampleTraits(creatures.map((c) => c.genome), 0)] : [],
+      evolution: {
+        tick: 0,
+        nextId,
+        creatures,
+        world,
+        terrain,
+        foundingCentroid,
+        activeTransitions: [],
+        activeRegrowthOverrides: [],
+      },
+      observations: {
+        taxonomy,
+        taxonomyEvents: [],
+        geneFlow: initGeneFlow(),
+        populationHistory: [samplePopulation(taxonomy, 0)],
+        consumptionGrid: initConsumptionGrid(cols, rows),
+        traitHistory: creatures.length > 0 ? [sampleTraits(creatures.map((c) => c.genome), 0)] : [],
+      },
     },
     rng,
     seed,
@@ -124,24 +150,27 @@ export function createSimState(seed: number, params: Params): SimInstance {
 
 /** Advances the sim by exactly one tick, mutating `state` in place. */
 export function tick(state: SimState, rng: RNG, params: Params): void {
+  const evo = state.evolution;
+  const obs = state.observations;
+
   // Ongoing god-mode effects (a barrier still forming, a crater still recovering) must update
   // before food regrows and creatures act this tick, so both see this tick's values, not last
   // tick's.
-  processActiveTransitions(state, state.tick);
-  processRegrowthOverrides(state, state.tick);
-  regrowFood(state.world, state.terrain, state.tick, params);
-  if (state.tick % params.consumptionDecayIntervalTicks === 0) {
-    decayConsumption(state.consumptionGrid, params.consumptionRetentionPerTick ** params.consumptionDecayIntervalTicks);
+  processActiveTransitions(evo, evo.tick);
+  processRegrowthOverrides(evo, evo.tick);
+  regrowFood(evo.world, evo.terrain, evo.tick, params);
+  if (evo.tick % params.consumptionDecayIntervalTicks === 0) {
+    decayConsumption(obs.consumptionGrid, params.consumptionRetentionPerTick ** params.consumptionDecayIntervalTicks);
   }
 
   const nextGeneration: Creature[] = [];
-  const allocateId = () => state.nextId++;
+  const allocateId = () => evo.nextId++;
 
-  for (const creature of state.creatures) {
-    stepCreature(creature, state.world, state.terrain, rng, params, state.consumptionGrid);
+  for (const creature of evo.creatures) {
+    stepCreature(creature, evo.world, evo.terrain, rng, params, obs.consumptionGrid);
 
     if (isReadyToReproduce(creature, params)) {
-      nextGeneration.push(...reproduce(creature, rng, params, state.tick, allocateId));
+      nextGeneration.push(...reproduce(creature, rng, params, evo.tick, allocateId));
     }
 
     if (creature.energy > 0 && creature.age < params.maxAge) {
@@ -149,23 +178,23 @@ export function tick(state: SimState, rng: RNG, params: Params): void {
     }
   }
 
-  state.creatures = nextGeneration;
-  applyNursing(state.creatures, state.tick, params);
+  evo.creatures = nextGeneration;
+  applyNursing(evo.creatures, evo.tick, params);
 
   // Gene flow needs to see every tick to catch every region crossing; taxonomy is expensive
   // enough (a near-linear pass over the whole population per species) that it only runs
   // periodically — a species doesn't meaningfully drift apart within a handful of ticks anyway.
-  updateGeneFlow(state.geneFlow, state.creatures, params, state.tick);
-  if (state.tick % params.taxonomyIntervalTicks === 0) {
-    const events = updateTaxonomy(state.taxonomy, state.creatures, state.terrain, params, state.tick);
-    if (events.length > 0) state.taxonomyEvents.push(...events);
-    state.populationHistory.push(samplePopulation(state.taxonomy, state.tick));
-    if (state.creatures.length > 0) {
-      state.traitHistory.push(sampleTraits(state.creatures.map((c) => c.genome), state.tick));
+  updateGeneFlow(obs.geneFlow, evo.creatures, params, evo.tick);
+  if (evo.tick % params.taxonomyIntervalTicks === 0) {
+    const events = updateTaxonomy(obs.taxonomy, evo.creatures, evo.terrain, params, evo.tick);
+    if (events.length > 0) obs.taxonomyEvents.push(...events);
+    obs.populationHistory.push(samplePopulation(obs.taxonomy, evo.tick));
+    if (evo.creatures.length > 0) {
+      obs.traitHistory.push(sampleTraits(evo.creatures.map((c) => c.genome), evo.tick));
     }
   }
 
-  state.tick += 1;
+  evo.tick += 1;
 }
 
 /**
@@ -174,53 +203,59 @@ export function tick(state: SimState, rng: RNG, params: Params): void {
  * headless counterpart that replays a previously-recorded log instead.
  */
 export function applyInterventionNow(instance: SimInstance, params: Params, tool: Intervention["tool"], toolParams: Intervention["params"]): void {
-  const intervention = { tick: instance.state.tick, tool, params: toolParams } as Intervention;
-  applyIntervention(instance.state, instance.rng, params, intervention);
+  const intervention = { tick: instance.state.evolution.tick, tool, params: toolParams } as Intervention;
+  applyIntervention(instance.state.evolution, instance.rng, params, intervention);
   instance.interventionLog.push(intervention);
 }
 
 /** Deep clone, safe to mutate independently of the original — used for the meteor undo checkpoint. */
 export function cloneSimState(state: SimState): SimState {
+  const evo = state.evolution;
+  const obs = state.observations;
   return {
-    tick: state.tick,
-    nextId: state.nextId,
-    creatures: state.creatures.map((c) => ({ ...c, genome: { ...c.genome } })),
-    world: {
-      cols: state.world.cols,
-      rows: state.world.rows,
-      r: state.world.r.slice(),
-      b: state.world.b.slice(),
-      capacityR: state.world.capacityR.slice(),
-      capacityB: state.world.capacityB.slice(),
-      regrowthModifier: state.world.regrowthModifier.slice(),
+    evolution: {
+      tick: evo.tick,
+      nextId: evo.nextId,
+      creatures: evo.creatures.map((c) => ({ ...c, genome: { ...c.genome } })),
+      world: {
+        cols: evo.world.cols,
+        rows: evo.world.rows,
+        r: evo.world.r.slice(),
+        b: evo.world.b.slice(),
+        capacityR: evo.world.capacityR.slice(),
+        capacityB: evo.world.capacityB.slice(),
+        regrowthModifier: evo.world.regrowthModifier.slice(),
+      },
+      terrain: {
+        cols: evo.terrain.cols,
+        rows: evo.terrain.rows,
+        elevation: evo.terrain.elevation.slice(),
+        passability: evo.terrain.passability.slice(),
+        fertility: evo.terrain.fertility.slice(),
+      },
+      foundingCentroid: { ...evo.foundingCentroid },
+      activeTransitions: evo.activeTransitions.map((t) => ({
+        ...t,
+        cellIndices: [...t.cellIndices],
+        fromValues: [...t.fromValues],
+        toValues: [...t.toValues],
+      })),
+      activeRegrowthOverrides: evo.activeRegrowthOverrides.map((o) => ({ ...o, cellIndices: [...o.cellIndices] })),
     },
-    terrain: {
-      cols: state.terrain.cols,
-      rows: state.terrain.rows,
-      elevation: state.terrain.elevation.slice(),
-      passability: state.terrain.passability.slice(),
-      fertility: state.terrain.fertility.slice(),
+    observations: {
+      taxonomy: cloneTaxonomy(obs.taxonomy),
+      // Event objects are never mutated after being pushed (see updateTaxonomy), so a shallow
+      // array copy sharing references is safe — no need to deep-clone each event.
+      taxonomyEvents: [...obs.taxonomyEvents],
+      geneFlow: cloneGeneFlow(obs.geneFlow),
+      // Samples are never mutated after being pushed (fresh objects each time, see
+      // samplePopulation), so a shallow array copy sharing references is safe here too.
+      populationHistory: [...obs.populationHistory],
+      consumptionGrid: cloneConsumptionGrid(obs.consumptionGrid),
+      // Samples are never mutated after being pushed (fresh objects each time, see sampleTraits),
+      // so a shallow array copy sharing references is safe here too.
+      traitHistory: [...obs.traitHistory],
     },
-    foundingCentroid: { ...state.foundingCentroid },
-    activeTransitions: state.activeTransitions.map((t) => ({
-      ...t,
-      cellIndices: [...t.cellIndices],
-      fromValues: [...t.fromValues],
-      toValues: [...t.toValues],
-    })),
-    activeRegrowthOverrides: state.activeRegrowthOverrides.map((o) => ({ ...o, cellIndices: [...o.cellIndices] })),
-    taxonomy: cloneTaxonomy(state.taxonomy),
-    // Event objects are never mutated after being pushed (see updateTaxonomy), so a shallow
-    // array copy sharing references is safe — no need to deep-clone each event.
-    taxonomyEvents: [...state.taxonomyEvents],
-    geneFlow: cloneGeneFlow(state.geneFlow),
-    // Samples are never mutated after being pushed (fresh objects each time, see
-    // samplePopulation), so a shallow array copy sharing references is safe here too.
-    populationHistory: [...state.populationHistory],
-    consumptionGrid: cloneConsumptionGrid(state.consumptionGrid),
-    // Samples are never mutated after being pushed (fresh objects each time, see sampleTraits),
-    // so a shallow array copy sharing references is safe here too.
-    traitHistory: [...state.traitHistory],
   };
 }
 
@@ -235,9 +270,9 @@ export function runSimulation(seed: number, params: Params, interventionLog: Int
   const sortedLog = [...interventionLog].sort((a, b) => a.tick - b.tick);
 
   let logIndex = 0;
-  while (state.tick < totalTicks) {
-    while (logIndex < sortedLog.length && sortedLog[logIndex].tick === state.tick) {
-      applyIntervention(state, rng, params, sortedLog[logIndex]);
+  while (state.evolution.tick < totalTicks) {
+    while (logIndex < sortedLog.length && sortedLog[logIndex].tick === state.evolution.tick) {
+      applyIntervention(state.evolution, rng, params, sortedLog[logIndex]);
       logIndex++;
     }
     tick(state, rng, params);
