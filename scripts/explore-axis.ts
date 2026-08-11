@@ -27,12 +27,12 @@ console.log(`params: specializationExponent=${params.specializationExponent} pat
 
 for (let t = 0; t < ticks; t++) {
   tick(state, rng, params);
-  if (state.tick % 1000 === 0) {
-    if (state.creatures.length === 0) {
-      console.log(`tick=${state.tick} EXTINCT`);
+  if (state.evolution.tick % 1000 === 0) {
+    if (state.evolution.creatures.length === 0) {
+      console.log(`tick=${state.evolution.tick} EXTINCT`);
       break;
     }
-    const bimodalGenes = GENE_KEYS.filter((key) => isBimodal(state.creatures.map((c) => c.genome[key])));
-    console.log(`tick=${state.tick} pop=${state.creatures.length} bimodal=[${bimodalGenes.join(",")}] species=${state.taxonomy.species.size} events=${state.taxonomyEvents.length}`);
+    const bimodalGenes = GENE_KEYS.filter((key) => isBimodal(state.evolution.creatures.map((c) => c.genome[key])));
+    console.log(`tick=${state.evolution.tick} pop=${state.evolution.creatures.length} bimodal=[${bimodalGenes.join(",")}] species=${state.observations.taxonomy.species.size} events=${state.observations.taxonomyEvents.length}`);
   }
 }

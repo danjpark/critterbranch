@@ -330,6 +330,25 @@ Cost: you need mate-finding (nontrivial at low density), diploid or averaged gen
 - Move to struct-of-arrays typed storage once the naive version works — not before.
 - Target 500–1,000 creatures at 1,000+ ticks/sec. The design intent is a legible map of tens to hundreds of visible icons, not a swarm — so this is comfortably achievable on the main thread. **Defer the worker and typed arrays until profiling says you need them.** Small populations also mean drift is strong and speciation happens fast in wall-clock terms, which is what you want for watching.
 
+**Baseline** (run `npm run benchmark`; deterministic, fixed seed — numbers are comparable across
+runs but will shift with hardware). This was still comfortably meeting target at the point profiling
+was last checked, well before the point a worker/typed-arrays would need to be seriously considered:
+
+| founding population | ticks/sec | updateTaxonomy ms/call | decayConsumption ms/call |
+|---|---|---|---|
+| 100 | ~2,300 | ~0.43 | ~0.004 |
+| 500 | ~1,900 | ~0.57 | ~0.002 |
+| 1,000 | ~1,400 | ~0.66 | ~0.002 |
+| 5,000 | ~440 | ~1.3 | ~0.002 |
+
+500–1,000 (the actual design target) clears the 1,000+ ticks/sec bar; 5,000 (well beyond the
+intended "legible map" scale) does not, which is expected and not a regression — nobody is meant
+to run that large. `updateTaxonomy` scales roughly with population as expected (a near-linear pass
+per species); `decayConsumption`'s cost is dominated by tracked-species count, not population, and
+stays flat since it's already batched (see sim/consumption.ts) rather than run every tick. ~52 MB
+heap after a 20,000-tick run at founding=1,000 — bounded, not growing without limit (see
+sim/historyRetention.ts for why observation history specifically doesn't grow forever).
+
 ---
 
 ## Build order

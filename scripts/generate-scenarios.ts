@@ -14,10 +14,10 @@ function writeScenario(name: string, seed: number, interventionLog: Intervention
   // Sanity check: make sure the scenario actually replays without throwing and doesn't wipe out
   // the population, before shipping it as an example.
   const result = runSimulationFromConfig(config, sanityCheckTicks);
-  if (result.creatures.length === 0) {
+  if (result.evolution.creatures.length === 0) {
     throw new Error(`${name}: population went extinct by tick ${sanityCheckTicks} — pick different numbers`);
   }
-  console.log(`${name}: population ${result.creatures.length} at tick ${sanityCheckTicks} — OK`);
+  console.log(`${name}: population ${result.evolution.creatures.length} at tick ${sanityCheckTicks} — OK`);
 
   const filePath = path.join(OUT_DIR, `${name}.json`);
   fs.writeFileSync(filePath, JSON.stringify(config, null, 2));
