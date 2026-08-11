@@ -19,6 +19,7 @@ function makeSpecies(overrides: Partial<Species> & { id: number }): Species {
     peakMemberCount: 10,
     mechanism: "founder-population",
     dominantDivergentGene: null,
+    originEvidence: null,
     ...overrides,
   };
 }

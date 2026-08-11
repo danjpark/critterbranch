@@ -2,10 +2,31 @@ import { isBimodal } from "./bimodality.ts";
 import type { Creature } from "./creature.ts";
 import { GENE_KEYS, GENE_RANGES, type Genome, geneticDistance, genomeCentroid } from "./genome.ts";
 import type { TerrainGrid } from "./terrain.ts";
-import { circularMean, wrap, wrappedLerp } from "./util.ts";
+import { circularMean, torDist, wrap, wrappedLerp } from "./util.ts";
 import type { Params } from "../params.ts";
 
 export type SpeciationMechanism = "founder-population" | "allopatric" | "sympatric" | "founder";
+
+/**
+ * The raw measurements a mechanism classification was inferred FROM — the classification itself
+ * (SpeciationMechanism) is an interpretation under explicit, tunable thresholds, not a fact about
+ * the world. Keeping the evidence alongside the label means "why did this get called allopatric"
+ * has an actual answer beyond "the code said so": you can see the sampled passability was 0.03
+ * against a 0.15 threshold, not just trust the tag.
+ */
+export interface SpeciationEvidence {
+  /** Weighted genetic distance between the two clusters' centroids (genome.ts's geneticDistance). */
+  geneticSeparation: number;
+  /** Lowest terrain passability sampled along the two clusters' shortest wrapped path — low means a barrier was between them. */
+  minimumBarrierPassability: number;
+  /** Torus-aware distance between the two clusters' average positions. */
+  spatialSeparation: number;
+  /** Size of the smaller (spinoff) cluster — few founders is a drift signature. */
+  founderCount: number;
+  /** Fraction of total divergence explained by the single most-diverged gene (0-1) — high means one axis drove this, low means drift spread across many genes. */
+  divergenceDominanceRatio: number;
+  dominantDivergentGene: keyof Genome;
+}
 
 export interface Species {
   id: number;
@@ -19,6 +40,9 @@ export interface Species {
   peakMemberCount: number;
   mechanism: SpeciationMechanism;
   dominantDivergentGene: keyof Genome | null;
+  /** The measurements classifyMechanism() based this species' mechanism tag on — null only for
+   * the founding population (species 0), which was never "classified," it's the starting point. */
+  originEvidence: SpeciationEvidence | null;
 }
 
 export interface SpeciationEvent {
@@ -28,6 +52,7 @@ export interface SpeciationEvent {
   mechanism: SpeciationMechanism;
   dominantDivergentGene: keyof Genome;
   founderCount: number;
+  evidence: SpeciationEvidence;
 }
 
 export interface ExtinctionEvent {
@@ -121,6 +146,7 @@ export function initTaxonomy(founders: Creature[], tick: number): TaxonomyState 
     peakMemberCount: founders.length,
     mechanism: "founder-population",
     dominantDivergentGene: null,
+    originEvidence: null,
   };
   return { nextSpeciesId: 1, species: new Map([[0, species]]), candidates: new Map() };
 }
@@ -252,24 +278,45 @@ function sampleMinPassabilityAlongLine(terrain: TerrainGrid, params: Params, x1:
   return minPassability;
 }
 
+/** Gathers every raw measurement classifyMechanism's decision is based on. Computed once, up
+ * front, so the mechanism label and the evidence behind it can never drift apart from each other. */
+function computeSpeciationEvidence(spinoff: Creature[], keep: Creature[], parentCentroid: Genome, newCentroid: Genome, terrain: TerrainGrid, params: Params): SpeciationEvidence {
+  const posA = averagePosition(spinoff, params);
+  const posB = averagePosition(keep, params);
+  return {
+    geneticSeparation: geneticDistance(parentCentroid, newCentroid),
+    minimumBarrierPassability: sampleMinPassabilityAlongLine(terrain, params, posA.x, posA.y, posB.x, posB.y),
+    spatialSeparation: torDist(posA.x, posA.y, posB.x, posB.y, params.worldWidth, params.worldHeight),
+    founderCount: spinoff.length,
+    divergenceDominanceRatio: dominanceRatio(newCentroid, parentCentroid),
+    dominantDivergentGene: mostDivergentGene(newCentroid, parentCentroid),
+  };
+}
+
 /**
- * Infers why a split happened from the state at the tick it was detected — see SPEC.md's "tag
- * every speciation event with its mechanism":
+ * Infers why a split happened from raw evidence about the state at the tick it was detected — see
+ * SPEC.md's "tag every speciation event with its mechanism":
  * - allopatric: a low-passability region separates the two sub-clusters spatially.
  * - founder: few founders, no single dominant gene, no spatial barrier — a drift signature.
  * - sympatric: neither of the above — disruptive selection while sharing the same space.
  */
-export function classifyMechanism(spinoff: Creature[], keep: Creature[], parentCentroid: Genome, newCentroid: Genome, terrain: TerrainGrid, params: Params): SpeciationMechanism {
-  const posA = averagePosition(spinoff, params);
-  const posB = averagePosition(keep, params);
-  const minPassability = sampleMinPassabilityAlongLine(terrain, params, posA.x, posA.y, posB.x, posB.y);
-  if (minPassability < params.allopatricPassabilityThreshold) return "allopatric";
-
-  if (spinoff.length < params.founderCountThreshold && dominanceRatio(newCentroid, parentCentroid) < 0.5) {
-    return "founder";
-  }
-
+function mechanismFromEvidence(evidence: SpeciationEvidence, params: Params): SpeciationMechanism {
+  if (evidence.minimumBarrierPassability < params.allopatricPassabilityThreshold) return "allopatric";
+  if (evidence.founderCount < params.founderCountThreshold && evidence.divergenceDominanceRatio < 0.5) return "founder";
   return "sympatric";
+}
+
+/** Computes evidence once and classifies from it — see computeSpeciationEvidence/mechanismFromEvidence above. */
+export function classifyMechanism(
+  spinoff: Creature[],
+  keep: Creature[],
+  parentCentroid: Genome,
+  newCentroid: Genome,
+  terrain: TerrainGrid,
+  params: Params,
+): { mechanism: SpeciationMechanism; evidence: SpeciationEvidence } {
+  const evidence = computeSpeciationEvidence(spinoff, keep, parentCentroid, newCentroid, terrain, params);
+  return { mechanism: mechanismFromEvidence(evidence, params), evidence };
 }
 
 /**
@@ -354,8 +401,8 @@ export function updateTaxonomy(taxonomy: TaxonomyState, creatures: Creature[], t
     // Confirmed: the split has now been seen on speciationConfirmationPasses consecutive passes.
     taxonomy.candidates.delete(species.id);
 
-    const dominantGene = mostDivergentGene(newCentroid, keepCentroid);
-    const mechanism = classifyMechanism(split.spinoff, split.keep, keepCentroid, newCentroid, terrain, params);
+    const { mechanism, evidence } = classifyMechanism(split.spinoff, split.keep, keepCentroid, newCentroid, terrain, params);
+    const dominantGene = evidence.dominantDivergentGene;
 
     const newId = taxonomy.nextSpeciesId++;
     for (const c of split.spinoff) c.lineageId = newId;
@@ -371,6 +418,7 @@ export function updateTaxonomy(taxonomy: TaxonomyState, creatures: Creature[], t
       peakMemberCount: split.spinoff.length,
       mechanism,
       dominantDivergentGene: dominantGene,
+      originEvidence: evidence,
     });
 
     species.memberCount = split.keep.length;
@@ -378,7 +426,7 @@ export function updateTaxonomy(taxonomy: TaxonomyState, creatures: Creature[], t
 
     events.push({
       type: "speciation",
-      event: { tick, speciesId: newId, parentId: species.id, mechanism, dominantDivergentGene: dominantGene, founderCount: split.spinoff.length },
+      event: { tick, speciesId: newId, parentId: species.id, mechanism, dominantDivergentGene: dominantGene, founderCount: split.spinoff.length, evidence },
     });
   }
 

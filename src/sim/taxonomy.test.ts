@@ -68,8 +68,20 @@ describe("updateTaxonomy", () => {
     if (events[0].type === "speciation") {
       expect(events[0].event.mechanism).toBe("sympatric");
       expect(events[0].event.dominantDivergentGene).toBe("dietPref");
+
+      // The event carries the raw evidence its mechanism tag was inferred from, not just the
+      // label -- enough to independently see *why* this got called sympatric: no barrier, and
+      // plenty of founders on both sides (so not a drift/founder-effect signature either).
+      const { evidence } = events[0].event;
+      expect(evidence.dominantDivergentGene).toBe("dietPref");
+      expect(evidence.founderCount).toBe(10);
+      expect(evidence.geneticSeparation).toBeGreaterThan(DEFAULT_PARAMS.speciationThreshold);
+      expect(evidence.minimumBarrierPassability).toBeGreaterThanOrEqual(DEFAULT_PARAMS.allopatricPassabilityThreshold);
     }
     expect(taxonomy.species.size).toBe(2);
+    // The species registry carries the same evidence, not just the transient event.
+    const spinoffSpecies = Array.from(taxonomy.species.values()).find((s) => s.id !== 0);
+    expect(spinoffSpecies?.originEvidence?.dominantDivergentGene).toBe("dietPref");
   });
 
   it("tags a split as allopatric when a low-passability barrier separates the clusters", () => {
@@ -235,8 +247,9 @@ describe("classifyMechanism: torus-aware spatial geometry", () => {
     const spinoff = Array.from({ length: 10 }, (_, i) => makeCreature(i, makeGenome({}), 10, 100));
     const keep = Array.from({ length: 10 }, (_, i) => makeCreature(i + 100, makeGenome({}), 190, 100));
 
-    const mechanism = classifyMechanism(spinoff, keep, makeGenome({}), makeGenome({}), terrain, params);
+    const { mechanism, evidence } = classifyMechanism(spinoff, keep, makeGenome({}), makeGenome({}), terrain, params);
     expect(mechanism).not.toBe("allopatric");
+    expect(evidence.minimumBarrierPassability).toBeGreaterThanOrEqual(params.allopatricPassabilityThreshold);
   });
 
   it("detects a barrier sitting right at the wrap seam that a naive straight-line sample would miss entirely", () => {
@@ -249,7 +262,8 @@ describe("classifyMechanism: torus-aware spatial geometry", () => {
     const spinoff = Array.from({ length: 10 }, (_, i) => makeCreature(i, makeGenome({}), 30, 100));
     const keep = Array.from({ length: 10 }, (_, i) => makeCreature(i + 100, makeGenome({}), 170, 100));
 
-    const mechanism = classifyMechanism(spinoff, keep, makeGenome({}), makeGenome({}), terrain, params);
+    const { mechanism, evidence } = classifyMechanism(spinoff, keep, makeGenome({}), makeGenome({}), terrain, params);
     expect(mechanism).toBe("allopatric");
+    expect(evidence.minimumBarrierPassability).toBeLessThan(params.allopatricPassabilityThreshold);
   });
 });
