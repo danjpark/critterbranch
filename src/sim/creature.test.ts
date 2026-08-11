@@ -184,4 +184,25 @@ describe("isReadyToReproduce / reproduce", () => {
 
     expect(cheapManyChildren.length).toBeGreaterThan(fewExpensiveChildren.length);
   });
+
+  it("sets each child's nursingUntilTick from the parent's own nursingDuration gene", () => {
+    const params = DEFAULT_PARAMS;
+    const rng = new RNG(5);
+    const parent = createCreature({
+      id: 0,
+      parentId: null,
+      lineageId: 0,
+      genome: testGenome({ nursingDuration: 250 }),
+      x: 0,
+      y: 0,
+      energy: 1000,
+      birthTick: 40,
+      rng,
+    });
+    const children = reproduce(parent, rng, params, 40, () => 1);
+    for (const child of children) {
+      expect(child.nursingUntilTick).toBe(40 + 250);
+      expect(child.parentId).toBe(0);
+    }
+  });
 });

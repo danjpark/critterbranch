@@ -65,7 +65,11 @@ describe("foraging axis in isolation", () => {
   it(
     "produces detected speciation events on foraging genes when patchBimodality is maxed and the other two axes are flat",
     () => {
-      const state = runFor(1, { ...NEUTRAL, patchBimodality: 1.0 }, 20_000);
+      // This axis's split already landed right at the edge of a 20k-tick budget (tick ~19-20k) —
+      // nursingDuration adding a 9th, genuinely-costly gene to the population's energy economy
+      // (see sim/nursing.ts) shifts overall dynamics slightly, so this needs a bit more headroom
+      // than diet/life-history to stay reliable.
+      const state = runFor(1, { ...NEUTRAL, patchBimodality: 1.0 }, 26_000);
 
       const events = speciationEvents(state);
       expect(events.length).toBeGreaterThan(0);

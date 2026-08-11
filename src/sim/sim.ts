@@ -2,6 +2,7 @@ import { type Creature, createCreature, energyCapacity, isReadyToReproduce, repr
 import { cloneConsumptionGrid, type ConsumptionGrid, decayConsumption, initConsumptionGrid } from "./consumption.ts";
 import { cloneGeneFlow, type GeneFlowState, initGeneFlow, updateGeneFlow } from "./geneFlow.ts";
 import { type Genome, genomeCentroid, randomGenome, sampleTraits, type TraitSample } from "./genome.ts";
+import { applyNursing } from "./nursing.ts";
 import {
   applyIntervention,
   type FieldTransition,
@@ -143,6 +144,7 @@ export function tick(state: SimState, rng: RNG, params: Params): void {
   }
 
   state.creatures = nextGeneration;
+  applyNursing(state.creatures, state.tick, params);
 
   // Gene flow needs to see every tick to catch every region crossing; taxonomy is expensive
   // enough (a near-linear pass over the whole population per species) that it only runs

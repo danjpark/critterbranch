@@ -18,6 +18,9 @@ export interface Creature {
   energy: number;
   age: number;
   birthTick: number;
+  /** Tick at which this creature stops receiving ongoing nursing from parentId (see
+   * sim/nursing.ts). Meaningless when parentId is null (founders are never nursed). */
+  nursingUntilTick: number;
 }
 
 export interface NewCreatureOptions {
@@ -29,6 +32,9 @@ export interface NewCreatureOptions {
   y: number;
   energy: number;
   birthTick: number;
+  /** Only meaningful when parentId is non-null (see nursing.ts) — every other caller (founders,
+   * god-mode seeding, tests) creates parentless creatures, so this defaults to "not nursed." */
+  nursingUntilTick?: number;
   rng: RNG;
 }
 
@@ -44,6 +50,7 @@ export function createCreature(options: NewCreatureOptions): Creature {
     energy: options.energy,
     age: 0,
     birthTick: options.birthTick,
+    nursingUntilTick: options.nursingUntilTick ?? options.birthTick,
   };
 }
 
@@ -209,6 +216,9 @@ export function reproduce(creature: Creature, rng: RNG, params: Params, tick: nu
       y: wrap(creature.y + rng.nextRange(-1, 1), params.worldHeight),
       energy: childEnergies[i] * affordableFraction,
       birthTick: tick,
+      // Parent's own gene decides how long it keeps caring for this child, same as
+      // offspringInvestment already deciding the one-time birth endowment above.
+      nursingUntilTick: tick + creature.genome.nursingDuration,
       rng,
     }),
   );

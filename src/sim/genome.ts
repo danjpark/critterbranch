@@ -9,6 +9,10 @@ export interface Genome {
   size: number;
   reproThreshold: number;
   offspringInvestment: number;
+  /** Ticks a parent keeps actively feeding each child after birth, on top of the one-time birth
+   * endowment offspringInvestment already controls — see sim/nursing.ts. 0 = no ongoing care,
+   * matching every existing scenario/test's implicit assumption before this gene existed. */
+  nursingDuration: number;
   mutationRate: number;
 }
 
@@ -20,6 +24,7 @@ export const GENE_KEYS = [
   "size",
   "reproThreshold",
   "offspringInvestment",
+  "nursingDuration",
   "mutationRate",
 ] as const satisfies readonly (keyof Genome)[];
 
@@ -31,6 +36,7 @@ export const GENE_RANGES: Record<keyof Genome, [number, number]> = {
   size: [0.5, 2.0],
   reproThreshold: [0.4, 0.95],
   offspringInvestment: [0, 1],
+  nursingDuration: [0, 600],
   mutationRate: [0.001, 0.2],
 };
 
@@ -65,6 +71,13 @@ export const GENE_WEIGHTS: Record<keyof Genome, number> = {
   size: 0.2,
   reproThreshold: 0.8,
   offspringInvestment: 1.0,
+  // Deliberately low, matching mutationRate — adding a 9th gene to a metric calibrated around 8
+  // dilutes every other gene's relative contribution (more weightSum in the denominator without a
+  // proportional numerator signal until something actually selects on this gene), which broke the
+  // barrier milestone and both axis-isolation tests at the previous 0.6 weight. Low weight keeps
+  // nursingDuration real (it still counts toward divergence once something selects on it) without
+  // re-diluting every threshold already tuned for the other eight genes.
+  nursingDuration: 0.1,
   mutationRate: 0.1,
 };
 

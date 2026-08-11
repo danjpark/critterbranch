@@ -47,6 +47,11 @@ export interface Params {
   offspringEnergyFractionMin: number;
   offspringEnergyFractionMax: number;
   maxOffspringCount: number;
+  /** Energy/tick a parent transfers to each child still within its nursingDuration window (see
+   * sim/nursing.ts) — a fixed biological rate, not itself evolvable; nursingDuration is the
+   * evolvable "how long" axis. Comparable in scale to the base metabolic costs below, so ongoing
+   * care is a genuine ongoing cost to the parent, not a rounding error. */
+  nursingRatePerTick: number;
 
   // Terrain
   terrainHillCount: number;
@@ -124,6 +129,7 @@ export const DEFAULT_PARAMS: Params = {
   offspringEnergyFractionMin: 0.08,
   offspringEnergyFractionMax: 0.32,
   maxOffspringCount: 4,
+  nursingRatePerTick: 0.004,
 
   terrainHillCount: 5,
   terrainRoughness: 0.3,

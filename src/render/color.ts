@@ -27,11 +27,14 @@ function foragingAxisPosition(genome: Genome): number {
   return (nSpeed - nSense + nWander) / 2;
 }
 
-/** Cheap-and-many (0) vs expensive-and-few (1) life-history position. */
+/** Cheap-and-many (0) vs expensive-and-few (1) life-history position — now also folding in
+ * nursingDuration (ongoing parental care), the other half of the r/K trade-off alongside the
+ * one-time birth investment offspringInvestment already captured. */
 function lifeHistoryAxisPosition(genome: Genome): number {
   const nRepro = normalizeGene("reproThreshold", genome.reproThreshold);
   const nInvest = normalizeGene("offspringInvestment", genome.offspringInvestment);
-  return (nRepro + nInvest) / 2;
+  const nNursing = normalizeGene("nursingDuration", genome.nursingDuration);
+  return (nRepro + nInvest + nNursing) / 3;
 }
 
 /**
