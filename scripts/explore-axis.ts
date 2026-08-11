@@ -16,6 +16,7 @@ const overridesByAxis: Record<string, Partial<Params>> = {
   lifehistory: { ...NEUTRAL, regrowthCycleAmplitude: 1.0, regrowthCyclePeriod: 3000 },
   "lifehistory-mild": { ...NEUTRAL, regrowthCycleAmplitude: 0.6, regrowthCyclePeriod: 3000 },
   "lifehistory-slow": { ...NEUTRAL, regrowthCycleAmplitude: 0.6, regrowthCyclePeriod: 6000 },
+  "foraging-no-nursing": { ...NEUTRAL, patchBimodality: 1.0, nursingRatePerTick: 0 },
 };
 
 const params = { ...DEFAULT_PARAMS, ...overridesByAxis[axis] };

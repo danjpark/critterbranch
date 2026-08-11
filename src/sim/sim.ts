@@ -3,6 +3,7 @@ import { cloneConsumptionGrid, type ConsumptionGrid, decayConsumption, initConsu
 import { cloneGeneFlow, type GeneFlowState, initGeneFlow, updateGeneFlow } from "./geneFlow.ts";
 import { type Genome, genomeCentroid, randomGenome, sampleTraits, type TraitSample } from "./genome.ts";
 import { applyNursing } from "./nursing.ts";
+import type { RunConfig } from "./runConfig.ts";
 import {
   applyIntervention,
   type FieldTransition,
@@ -51,9 +52,13 @@ export interface SimState {
 export interface SimInstance {
   state: SimState;
   rng: RNG;
-  /** The seed this run was created with — combined with interventionLog, this is a run's entire
-   * exportable identity (see SPEC.md: "the intervention log is also a saved scenario"). */
+  /** The seed this run was created with — combined with params and interventionLog, this is a
+   * run's entire exportable identity (see sim/runConfig.ts). */
   seed: number;
+  /** The exact params this run was created with — kept alongside the instance (not just used
+   * once at creation and discarded) so a later export captures what actually happened, not
+   * whatever DEFAULT_PARAMS happens to be by then. */
+  params: Params;
   /** Every god-mode action applied to this run, in application order. The whole point of this
    * log is that `runSimulation(seed, params, interventionLog)` can reproduce the run exactly,
    * headlessly, with nobody present — see runSimulation below. */
@@ -112,6 +117,7 @@ export function createSimState(seed: number, params: Params): SimInstance {
     },
     rng,
     seed,
+    params,
     interventionLog: [],
   };
 }
@@ -238,4 +244,10 @@ export function runSimulation(seed: number, params: Params, interventionLog: Int
   }
 
   return state;
+}
+
+/** Convenience wrapper: runs entirely from a RunConfig's own seed/params/interventionLog instead
+ * of the caller having to unpack them — see sim/runConfig.ts. */
+export function runSimulationFromConfig(config: RunConfig, totalTicks: number): SimState {
+  return runSimulation(config.seed, config.params, config.interventionLog, totalTicks);
 }

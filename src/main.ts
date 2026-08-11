@@ -1,12 +1,12 @@
 import "./style.css";
-import { isScenario, SimRunner } from "./app/simRunner.ts";
-import { DEFAULT_PARAMS } from "./params.ts";
+import { SimRunner } from "./app/simRunner.ts";
 import { renderMuller } from "./render/mullerView.ts";
 import { renderCompetitionHeatmap } from "./render/overlays.ts";
 import { findPointAt, renderScatter } from "./render/scatterView.ts";
 import { findBranchAt, renderTree } from "./render/treeView.ts";
 import { findCreatureAt, invalidateTerrainCache, renderWorld } from "./render/worldView.ts";
 import type { Genome } from "./sim/genome.ts";
+import { parseRunConfig } from "./sim/runConfig.ts";
 import {
   createControls,
   createEventFeed,
@@ -151,11 +151,12 @@ const treePanel = createTreePanel({
 });
 
 function loadScenarioAndRefresh(parsed: unknown): void {
-  if (!isScenario(parsed)) {
+  const config = parseRunConfig(parsed);
+  if (!config) {
     window.alert("That file doesn't look like a Critterbranch scenario.");
     return;
   }
-  runner.loadScenario(parsed);
+  runner.loadScenario(config);
   controls.setInspected(null);
   godModePanel.setActiveTool(null);
   godModePanel.setUndoEnabled(false);
@@ -228,15 +229,15 @@ worldCanvas.addEventListener("click", (event) => {
   const canvasY = ((event.clientY - rect.top) / rect.height) * worldCanvas.height;
 
   if (runner.activeTool) {
-    const scaleX = worldCanvas.width / DEFAULT_PARAMS.worldWidth;
-    const scaleY = worldCanvas.height / DEFAULT_PARAMS.worldHeight;
+    const scaleX = worldCanvas.width / runner.sim.params.worldWidth;
+    const scaleY = worldCanvas.height / runner.sim.params.worldHeight;
     runner.useToolAt(canvasX / scaleX, canvasY / scaleY);
     godModePanel.setUndoEnabled(runner.canUndoMeteor());
     render();
     return;
   }
 
-  const creature = findCreatureAt(runner.sim.state, DEFAULT_PARAMS, canvasX, canvasY, worldCanvas.width, worldCanvas.height);
+  const creature = findCreatureAt(runner.sim.state, runner.sim.params, canvasX, canvasY, worldCanvas.width, worldCanvas.height);
   runner.select(creature?.id ?? null);
   controls.setInspected(creature);
   render();
@@ -282,13 +283,13 @@ function render(): void {
   // scales with species count (small) rather than population (not small), but there's no reason
   // to pay even that when the tab isn't showing.
   if (activeView === "world") {
-    renderWorld(worldCtx, runner.sim.state, DEFAULT_PARAMS, {
+    renderWorld(worldCtx, runner.sim.state, runner.sim.params, {
       colorOptions: runner.colorOptions,
       selectedCreatureId: runner.selectedCreatureId,
       lineageFilter: runner.lineageFilter,
     });
     if (showCompetitionHeatmap) {
-      renderCompetitionHeatmap(worldCtx, runner.sim.state, DEFAULT_PARAMS, runner.colorOptions);
+      renderCompetitionHeatmap(worldCtx, runner.sim.state, runner.sim.params, runner.colorOptions);
     }
   } else if (activeView === "tree") {
     renderTree(treeCtx, runner.sim.state, {

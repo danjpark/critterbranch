@@ -4,33 +4,12 @@ import { collectDescendantIds } from "../render/treeLayout.ts";
 import { invalidateTerrainCache } from "../render/worldView.ts";
 import type { Creature } from "../sim/creature.ts";
 import { applyIntervention, type Intervention } from "../sim/intervention.ts";
+import { createRunConfig, type RunConfig } from "../sim/runConfig.ts";
 import { applyInterventionNow, cloneSimState, createSimState, tick, type SimInstance, type SimState } from "../sim/sim.ts";
 import type { SpeciationMechanism, Species } from "../sim/taxonomy.ts";
 import type { GodTool, SpeedSetting } from "../ui/controls.ts";
 
 const ALL_MECHANISMS: SpeciationMechanism[] = ["founder-population", "allopatric", "sympatric", "founder"];
-
-export interface Scenario {
-  seed: number;
-  interventionLog: Intervention[];
-}
-
-/** Minimal shape validation for a scenario loaded from a user-supplied file — not a full schema
- * check, just enough to fail loudly instead of crashing deep inside the sim on garbage input. */
-export function isScenario(value: unknown): value is Scenario {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as Record<string, unknown>;
-  if (typeof candidate.seed !== "number") return false;
-  if (!Array.isArray(candidate.interventionLog)) return false;
-  return candidate.interventionLog.every(
-    (entry) =>
-      typeof entry === "object" &&
-      entry !== null &&
-      typeof (entry as Record<string, unknown>).tick === "number" &&
-      typeof (entry as Record<string, unknown>).tool === "string" &&
-      typeof (entry as Record<string, unknown>).params === "object",
-  );
-}
 
 const MAX_SPEED_BUDGET_MS = 40;
 
@@ -95,13 +74,15 @@ export class SimRunner {
     resetGenotypeColorCache();
   }
 
-  /** Loads a scenario (seed + a pre-scripted intervention log) and starts it fresh at tick 0 —
-   * interventions fire automatically as play reaches their recorded tick, exactly reproducing
-   * how they were originally applied. This is what makes an exported run a shareable "scenario"
-   * rather than just a save file: press play and watch it unfold. */
-  loadScenario(scenario: Scenario): void {
-    this.sim = createSimState(scenario.seed, DEFAULT_PARAMS);
-    this.scenarioQueue = [...scenario.interventionLog].sort((a, b) => a.tick - b.tick);
+  /** Loads a run config (seed + params + a pre-scripted intervention log) and starts it fresh at
+   * tick 0 — interventions fire automatically as play reaches their recorded tick, exactly
+   * reproducing how they were originally applied. This is what makes an exported run a shareable
+   * "scenario" rather than just a save file: press play and watch it unfold. Crucially, this now
+   * runs with the CONFIG's own recorded params, not whatever DEFAULT_PARAMS happens to be in the
+   * build that opens it — see sim/runConfig.ts. Does not mutate `config`. */
+  loadScenario(config: RunConfig): void {
+    this.sim = createSimState(config.seed, { ...config.params });
+    this.scenarioQueue = [...config.interventionLog].sort((a, b) => a.tick - b.tick);
     this.scenarioIndex = 0;
     this.selectedCreatureId = null;
     this.selectedSpeciesId = null;
@@ -110,8 +91,8 @@ export class SimRunner {
     resetGenotypeColorCache();
   }
 
-  exportScenario(): Scenario {
-    return { seed: this.sim.seed, interventionLog: this.sim.interventionLog };
+  exportScenario(): RunConfig {
+    return createRunConfig(this.sim.seed, this.sim.params, this.sim.interventionLog);
   }
 
   togglePlaying(): boolean {
@@ -157,11 +138,11 @@ export class SimRunner {
   private stepOneTick(): void {
     while (this.scenarioIndex < this.scenarioQueue.length && this.scenarioQueue[this.scenarioIndex].tick === this.sim.state.tick) {
       const intervention = this.scenarioQueue[this.scenarioIndex];
-      applyIntervention(this.sim.state, this.sim.rng, DEFAULT_PARAMS, intervention);
+      applyIntervention(this.sim.state, this.sim.rng, this.sim.params, intervention);
       this.sim.interventionLog.push(intervention);
       this.scenarioIndex++;
     }
-    tick(this.sim.state, this.sim.rng, DEFAULT_PARAMS);
+    tick(this.sim.state, this.sim.rng, this.sim.params);
   }
 
   /** The selected creature, or null. Clears the selection if that creature has since died. */
@@ -287,6 +268,6 @@ export class SimRunner {
   }
 
   private apply<Tool extends Intervention["tool"]>(tool: Tool, params: Extract<Intervention, { tool: Tool }>["params"]): void {
-    applyInterventionNow(this.sim, DEFAULT_PARAMS, tool, params);
+    applyInterventionNow(this.sim, this.sim.params, tool, params);
   }
 }
