@@ -1,18 +1,9 @@
+import type { ColorOptions } from "../app/simRunner.ts";
 import type { Creature } from "../sim/creature.ts";
 import { GENE_RANGES, type Genome, geneticDistance } from "../sim/genome.ts";
 import { clamp, clamp01, lerp } from "../sim/util.ts";
 
-export interface ColorOptions {
-  /** Restricts hue to the blue<->orange arc instead of the full wheel (diet is otherwise a red/green split). */
-  deuteranopiaSafe: boolean;
-  /** Raw genetic distance (see genome.ts) that maps to the maximum chroma (0.20). */
-  divergenceScale: number;
-}
-
-export const DEFAULT_COLOR_OPTIONS: ColorOptions = {
-  deuteranopiaSafe: false,
-  divergenceScale: 0.35,
-};
+export type { ColorOptions };
 
 function normalizeGene(gene: keyof Genome, value: number): number {
   const [min, max] = GENE_RANGES[gene];
@@ -108,13 +99,13 @@ export const FOOD_B_COLOR = "#3d7dd9";
 // A creature's genome never changes after birth (mutation only produces a new genome for its
 // children), and foundingCentroid is fixed for a SimState's lifetime — so its color is fixed
 // too, aside from ColorOptions changing. Recomputing the full OkLCh matrix chain for every
-// creature on every render frame is pure waste; cache by creature id and only recompute when
-// the options that actually affect the output change.
-const colorCache = new Map<number, { optionsKey: string; color: string }>();
-// Creature ids only ever go up, and a cache entry outlives its creature's death — so over a
-// long run this would otherwise grow without bound. Bounded, self-healing: once it's full we
-// drop the whole thing rather than track per-entry recency for what's a cosmetic cache.
-const MAX_CACHE_ENTRIES = 50_000;
+// creature on every render frame is pure waste; cache by creature object identity (not id — ids
+// are reused across a restart, but a restart also builds entirely new Creature objects) and only
+// recompute when the options that actually affect the output change. Keyed by a WeakMap, so a
+// dead creature's entry is reclaimed automatically once nothing else references it — same idiom
+// as the terrain-layer cache in render/worldView.ts. Nothing outside this module needs to know
+// this cache exists, let alone reset it.
+const colorCache = new WeakMap<Creature, { optionsKey: string; color: string }>();
 
 function colorOptionsKey(options: ColorOptions): string {
   return `${options.deuteranopiaSafe ? 1 : 0}:${options.divergenceScale}`;
@@ -122,16 +113,10 @@ function colorOptionsKey(options: ColorOptions): string {
 
 export function cachedGenotypeColor(creature: Creature, foundingCentroid: Genome, options: ColorOptions): string {
   const optionsKey = colorOptionsKey(options);
-  const cached = colorCache.get(creature.id);
+  const cached = colorCache.get(creature);
   if (cached && cached.optionsKey === optionsKey) return cached.color;
 
   const color = genotypeColor(creature.genome, foundingCentroid, options);
-  if (colorCache.size >= MAX_CACHE_ENTRIES) colorCache.clear();
-  colorCache.set(creature.id, { optionsKey, color });
+  colorCache.set(creature, { optionsKey, color });
   return color;
-}
-
-/** Must be called on restart — creature ids are reused across runs, so a stale cache entry would show the wrong color. */
-export function resetGenotypeColorCache(): void {
-  colorCache.clear();
 }

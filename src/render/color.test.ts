@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { cachedGenotypeColor, DEFAULT_COLOR_OPTIONS, genotypeColor, okLchToCssRgb, resetGenotypeColorCache } from "./color.ts";
+import { cachedGenotypeColor, genotypeColor, okLchToCssRgb } from "./color.ts";
+import type { ColorOptions } from "../app/simRunner.ts";
 import { createCreature } from "../sim/creature.ts";
 import { genomeCentroid, randomGenome, type Genome } from "../sim/genome.ts";
 import { RNG } from "../sim/rng.ts";
+
+const DEFAULT_COLOR_OPTIONS: ColorOptions = { deuteranopiaSafe: false, divergenceScale: 0.35 };
 
 function parseRgb(css: string): [number, number, number] {
   const match = css.match(/^rgb\((\d+), (\d+), (\d+)\)$/);
@@ -73,7 +76,6 @@ describe("genotypeColor", () => {
 
 describe("cachedGenotypeColor", () => {
   it("returns the same value as the uncached function", () => {
-    resetGenotypeColorCache();
     const rng = new RNG(9);
     const genome = randomGenome(rng);
     const centroid = randomGenome(rng);
@@ -82,8 +84,7 @@ describe("cachedGenotypeColor", () => {
     expect(cachedGenotypeColor(creature, centroid, DEFAULT_COLOR_OPTIONS)).toBe(genotypeColor(genome, centroid, DEFAULT_COLOR_OPTIONS));
   });
 
-  it("picks up a changed option even for a previously-cached creature id", () => {
-    resetGenotypeColorCache();
+  it("picks up a changed option even for a previously-cached creature", () => {
     const rng = new RNG(9);
     const genome: Genome = { ...randomGenome(rng), dietPref: 1, speed: 0.2, senseRadius: 20, wanderPersistence: 0 };
     const centroid = randomGenome(rng);

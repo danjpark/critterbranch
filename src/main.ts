@@ -4,7 +4,7 @@ import { renderMuller } from "./render/mullerView.ts";
 import { renderCompetitionHeatmap } from "./render/overlays.ts";
 import { findPointAt, renderScatter } from "./render/scatterView.ts";
 import { findBranchAt, renderTree } from "./render/treeView.ts";
-import { findCreatureAt, invalidateTerrainCache, renderWorld } from "./render/worldView.ts";
+import { findCreatureAt, renderWorld } from "./render/worldView.ts";
 import type { Genome } from "./sim/genome.ts";
 import { parseRunConfig } from "./sim/runConfig.ts";
 import {
@@ -272,13 +272,6 @@ scatterCanvas.addEventListener("click", (event) => {
 });
 
 function render(): void {
-  // Terrain is normally cached (see worldView.ts) since it's static — but an in-progress god-mode
-  // effect (barrier still forming, crater still recovering) changes it every tick, so the cache
-  // must be invalidated every frame while any of those are active.
-  if (runner.sim.state.evolution.activeTransitions.length > 0) {
-    invalidateTerrainCache(runner.sim.state.evolution.terrain);
-  }
-
   // Only the currently-visible canvas needs to actually redraw each frame — Tree/Muller cost
   // scales with species count (small) rather than population (not small), but there's no reason
   // to pay even that when the tab isn't showing.

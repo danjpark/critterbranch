@@ -25,12 +25,14 @@ export function renderWorld(ctx: CanvasRenderingContext2D, state: SimState, para
   drawCreatures(ctx, state, options, scaleX, scaleY);
 }
 
-// Terrain is static for a SimState's whole lifetime (until Phase 3 adds terrain-editing god-mode
-// brushes), so redrawing all ~2,500 cells every frame is pure waste. Render it once per terrain
-// grid + canvas size and blit the cached layer. Keyed by object identity via WeakMap, so a
-// restart (which builds a new TerrainGrid) naturally misses the cache — no manual reset needed.
-// If Phase 3 mutates a TerrainGrid in place, it must call invalidateTerrainCache(terrain) itself.
-const terrainLayerCache = new WeakMap<TerrainGrid, { canvas: HTMLCanvasElement; width: number; height: number }>();
+// Terrain is static for most of a SimState's lifetime, so redrawing all ~2,500 cells every frame
+// is pure waste. Render it once per (terrain grid, canvas size, terrain revision) and blit the
+// cached layer. Keyed by object identity via WeakMap, so a restart (which builds a new
+// TerrainGrid) naturally misses the cache — no manual reset needed. Staleness from an in-place
+// terrain edit (a god-mode brush stroke, an in-progress barrier ramp) is detected the same
+// automatic way, by comparing revision numbers — see TerrainGrid.revision in sim/terrain.ts.
+// Nothing outside this module needs to know a cache exists here at all, let alone invalidate it.
+const terrainLayerCache = new WeakMap<TerrainGrid, { canvas: HTMLCanvasElement; width: number; height: number; revision: number }>();
 
 function getTerrainLayer(
   terrain: TerrainGrid,
@@ -41,7 +43,7 @@ function getTerrainLayer(
   canvasHeight: number,
 ): HTMLCanvasElement {
   const cached = terrainLayerCache.get(terrain);
-  if (cached && cached.width === canvasWidth && cached.height === canvasHeight) {
+  if (cached && cached.width === canvasWidth && cached.height === canvasHeight && cached.revision === terrain.revision) {
     return cached.canvas;
   }
 
@@ -49,12 +51,8 @@ function getTerrainLayer(
   layer.width = canvasWidth;
   layer.height = canvasHeight;
   paintTerrain(layer.getContext("2d")!, terrain, params, scaleX, scaleY);
-  terrainLayerCache.set(terrain, { canvas: layer, width: canvasWidth, height: canvasHeight });
+  terrainLayerCache.set(terrain, { canvas: layer, width: canvasWidth, height: canvasHeight, revision: terrain.revision });
   return layer;
-}
-
-export function invalidateTerrainCache(terrain: TerrainGrid): void {
-  terrainLayerCache.delete(terrain);
 }
 
 /**

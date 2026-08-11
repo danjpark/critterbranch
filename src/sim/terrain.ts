@@ -8,6 +8,11 @@ export interface TerrainGrid {
   elevation: Float64Array;
   passability: Float64Array;
   fertility: Float64Array;
+  /** Bumped by intervention.ts whenever elevation/passability/fertility actually change (a
+   * terrain brush stroke, a barrier ramp tick, a crater). Lets a renderer's own terrain-layer
+   * cache detect staleness on its own by comparing revisions — no caller needs to know the
+   * renderer has a cache to invalidate, let alone import into it to invalidate it. */
+  revision: number;
 }
 
 /**
@@ -50,5 +55,5 @@ export function generateTerrain(rng: RNG, params: Params, cols: number, rows: nu
     fertility[i] = clamp01(1 - params.fertilitySteepness * elevation[i]);
   }
 
-  return { cols, rows, elevation, passability, fertility };
+  return { cols, rows, elevation, passability, fertility, revision: 0 };
 }

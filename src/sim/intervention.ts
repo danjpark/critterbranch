@@ -133,6 +133,7 @@ function applyRaiseLowerTerrain(state: EvolutionState, params: Params, p: RaiseL
     state.terrain.passability[idx] = clamp01(1 - params.passabilitySteepness * newElevation);
     state.terrain.fertility[idx] = clamp01(1 - params.fertilitySteepness * newElevation);
   }
+  state.terrain.revision++;
 }
 
 function pointToSegmentDistance(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
@@ -162,6 +163,7 @@ function applyBarrierStamp(state: EvolutionState, params: Params, p: BarrierStam
 
   if (p.formationTicks <= 0) {
     for (const idx of cellIndices) state.terrain.passability[idx] = p.targetPassability;
+    state.terrain.revision++;
     return;
   }
 
@@ -221,6 +223,7 @@ function applyMeteor(state: EvolutionState, params: Params, p: MeteorParams, cur
   }
 
   if (indices.length === 0) return;
+  state.terrain.revision++;
 
   if (p.craterRecoveryTicks <= 0) {
     for (const idx of indices) {
@@ -302,6 +305,7 @@ export function processActiveTransitions(state: EvolutionState, currentTick: num
     }
     return progress < 1;
   });
+  state.terrain.revision++;
 }
 
 /** Recomputes world.regrowthModifier from whichever drought/bloom overrides are still active. */

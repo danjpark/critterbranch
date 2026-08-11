@@ -232,6 +232,7 @@ export function cloneSimState(state: SimState): SimState {
         elevation: evo.terrain.elevation.slice(),
         passability: evo.terrain.passability.slice(),
         fertility: evo.terrain.fertility.slice(),
+        revision: evo.terrain.revision,
       },
       foundingCentroid: { ...evo.foundingCentroid },
       activeTransitions: evo.activeTransitions.map((t) => ({

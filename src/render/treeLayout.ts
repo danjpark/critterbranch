@@ -70,28 +70,3 @@ export function layoutTree(taxonomy: TaxonomyState, currentTick: number): TreeLa
 
   return { nodes, rowCount: nextRow };
 }
-
-/** A species and every species descended from it — the set a lineage-filter click should show. */
-export function collectDescendantIds(taxonomy: TaxonomyState, rootId: number): Set<number> {
-  const childrenOf = new Map<number, number[]>();
-  for (const s of taxonomy.species.values()) {
-    if (s.parentId !== null) {
-      const arr = childrenOf.get(s.parentId);
-      if (arr) arr.push(s.id);
-      else childrenOf.set(s.parentId, [s.id]);
-    }
-  }
-
-  const result = new Set<number>([rootId]);
-  const stack = [rootId];
-  while (stack.length > 0) {
-    const id = stack.pop()!;
-    for (const childId of childrenOf.get(id) ?? []) {
-      if (!result.has(childId)) {
-        result.add(childId);
-        stack.push(childId);
-      }
-    }
-  }
-  return result;
-}

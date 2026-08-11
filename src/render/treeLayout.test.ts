@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { collectDescendantIds, layoutTree } from "./treeLayout.ts";
+import { layoutTree } from "./treeLayout.ts";
 import { randomGenome, type Genome } from "../sim/genome.ts";
 import { RNG } from "../sim/rng.ts";
-import type { Species, TaxonomyState } from "../sim/taxonomy.ts";
+import { collectDescendantIds, type Species, type TaxonomyState } from "../sim/taxonomy.ts";
 
 function genome(): Genome {
   return randomGenome(new RNG(1));

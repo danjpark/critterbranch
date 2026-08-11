@@ -1,13 +1,10 @@
 import { DEFAULT_PARAMS, flattenParams } from "../params.ts";
-import { DEFAULT_COLOR_OPTIONS, resetGenotypeColorCache, type ColorOptions } from "../render/color.ts";
-import { collectDescendantIds } from "../render/treeLayout.ts";
-import { invalidateTerrainCache } from "../render/worldView.ts";
 import type { Creature } from "../sim/creature.ts";
 import { applyIntervention, type Intervention } from "../sim/intervention.ts";
 import type { RNGSnapshot } from "../sim/rng.ts";
 import { createRunConfig, type RunConfig } from "../sim/runConfig.ts";
 import { applyInterventionNow, cloneSimState, createSimState, tick, type SimInstance, type SimState } from "../sim/sim.ts";
-import type { SpeciationMechanism, Species } from "../sim/taxonomy.ts";
+import { collectDescendantIds, type SpeciationMechanism, type Species } from "../sim/taxonomy.ts";
 import type { GodTool, SpeedSetting } from "../ui/controls.ts";
 
 const ALL_MECHANISMS: SpeciationMechanism[] = ["founder-population", "allopatric", "sympatric", "founder"];
@@ -27,6 +24,23 @@ const DEFAULT_BRUSH: BrushSettings = {
   strength: 0.5,
   durationTicks: 0,
   seedCount: 20,
+};
+
+/** How a creature's genome maps to a fill color — see render/color.ts's genotypeColor(), which is
+ * the only thing that actually interprets these. Defined here (app layer, alongside
+ * BrushSettings, another piece of user-adjustable display state SimRunner owns) rather than in
+ * render/, so SimRunner never needs to import from render/ just to hold this state — render/
+ * modules import this type from here instead. */
+export interface ColorOptions {
+  /** Restricts hue to the blue<->orange arc instead of the full wheel (diet is otherwise a red/green split). */
+  deuteranopiaSafe: boolean;
+  /** Raw genetic distance (see sim/genome.ts) that maps to the maximum chroma (0.20). */
+  divergenceScale: number;
+}
+
+const DEFAULT_COLOR_OPTIONS: ColorOptions = {
+  deuteranopiaSafe: false,
+  divergenceScale: 0.35,
 };
 
 /**
@@ -81,7 +95,6 @@ export class SimRunner {
     this.meteorCheckpoint = null;
     this.scenarioQueue = [];
     this.scenarioIndex = 0;
-    resetGenotypeColorCache();
   }
 
   /** Loads a run config (seed + params + a pre-scripted intervention log) and starts it fresh at
@@ -98,7 +111,6 @@ export class SimRunner {
     this.selectedSpeciesId = null;
     this.lineageFilter = null;
     this.meteorCheckpoint = null;
-    resetGenotypeColorCache();
   }
 
   exportScenario(): RunConfig {
@@ -222,18 +234,15 @@ export class SimRunner {
         targetPassability: 1 - this.brush.strength,
         formationTicks: this.brush.durationTicks,
       });
-      invalidateTerrainCache(this.sim.state.evolution.terrain);
       return;
     }
 
     switch (tool) {
       case "raiseTerrain":
         this.apply("raiseTerrain", { x, y, radius: this.brush.radius, strength: this.brush.strength * 2 });
-        invalidateTerrainCache(this.sim.state.evolution.terrain);
         return;
       case "lowerTerrain":
         this.apply("lowerTerrain", { x, y, radius: this.brush.radius, strength: this.brush.strength * 2 });
-        invalidateTerrainCache(this.sim.state.evolution.terrain);
         return;
       case "dropFoodR":
         this.apply("dropFood", { x, y, radius: this.brush.radius, foodType: 0, density: this.brush.strength * 4 });
@@ -250,7 +259,6 @@ export class SimRunner {
       case "meteor":
         this.meteorCheckpoint = this.createCheckpoint();
         this.apply("meteor", { x, y, radius: this.brush.radius, craterRecoveryTicks: this.brush.durationTicks });
-        invalidateTerrainCache(this.sim.state.evolution.terrain);
         return;
       case "seedFounders":
         this.apply("seedFounders", { x, y, spreadRadius: Math.max(this.brush.radius / 4, 1), count: this.brush.seedCount, genome: "random" as const });
@@ -273,7 +281,6 @@ export class SimRunner {
     if (!this.meteorCheckpoint) return;
     this.restoreCheckpoint(this.meteorCheckpoint);
     this.meteorCheckpoint = null;
-    invalidateTerrainCache(this.sim.state.evolution.terrain);
   }
 
   private createCheckpoint(): SimulationCheckpoint {
