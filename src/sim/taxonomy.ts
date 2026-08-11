@@ -2,7 +2,7 @@ import { isBimodal } from "./bimodality.ts";
 import type { Creature } from "./creature.ts";
 import { GENE_KEYS, GENE_RANGES, type Genome, geneticDistance, genomeCentroid } from "./genome.ts";
 import type { TerrainGrid } from "./terrain.ts";
-import { wrap } from "./util.ts";
+import { circularMean, wrap, wrappedLerp } from "./util.ts";
 import type { Params } from "../params.ts";
 
 export type SpeciationMechanism = "founder-population" | "allopatric" | "sympatric" | "founder";
@@ -196,23 +196,27 @@ function findSplit(members: Creature[], threshold: number, minFounders: number):
   return clusterA.length >= clusterB.length ? { keep: clusterA, spinoff: clusterB } : { keep: clusterB, spinoff: clusterA };
 }
 
-function averagePosition(members: Creature[]): { x: number; y: number } {
-  let sx = 0;
-  let sy = 0;
-  for (const m of members) {
-    sx += m.x;
-    sy += m.y;
-  }
-  return { x: sx / members.length, y: sy / members.length };
+/** Circular (torus-aware) mean position — a plain average breaks near the wrap seam, where two
+ * points that are actually close together (e.g. x=1 and worldWidth-1) would otherwise average to
+ * a point on the far side of the map from either of them. */
+function averagePosition(members: Creature[], params: Params): { x: number; y: number } {
+  return {
+    x: circularMean(members.map((m) => m.x), params.worldWidth),
+    y: circularMean(members.map((m) => m.y), params.worldHeight),
+  };
 }
 
+/** Samples passability along the SHORTEST wrapped path between two points, not a straight line in
+ * unwrapped coordinates — the latter can sample clean terrain straight through the middle of the
+ * map while completely missing a barrier that actually separates the two points the short way,
+ * around the edge. */
 function sampleMinPassabilityAlongLine(terrain: TerrainGrid, params: Params, x1: number, y1: number, x2: number, y2: number): number {
   const steps = 12;
   let minPassability = 1;
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
-    const x = x1 + (x2 - x1) * t;
-    const y = y1 + (y2 - y1) * t;
+    const x = wrappedLerp(x1, x2, t, params.worldWidth);
+    const y = wrappedLerp(y1, y2, t, params.worldHeight);
     const gx = wrap(Math.floor(x / params.gridCellSize), terrain.cols);
     const gy = wrap(Math.floor(y / params.gridCellSize), terrain.rows);
     const p = terrain.passability[gy * terrain.cols + gx];
@@ -228,9 +232,9 @@ function sampleMinPassabilityAlongLine(terrain: TerrainGrid, params: Params, x1:
  * - founder: few founders, no single dominant gene, no spatial barrier — a drift signature.
  * - sympatric: neither of the above — disruptive selection while sharing the same space.
  */
-function classifyMechanism(spinoff: Creature[], keep: Creature[], parentCentroid: Genome, newCentroid: Genome, terrain: TerrainGrid, params: Params): SpeciationMechanism {
-  const posA = averagePosition(spinoff);
-  const posB = averagePosition(keep);
+export function classifyMechanism(spinoff: Creature[], keep: Creature[], parentCentroid: Genome, newCentroid: Genome, terrain: TerrainGrid, params: Params): SpeciationMechanism {
+  const posA = averagePosition(spinoff, params);
+  const posB = averagePosition(keep, params);
   const minPassability = sampleMinPassabilityAlongLine(terrain, params, posA.x, posA.y, posB.x, posB.y);
   if (minPassability < params.allopatricPassabilityThreshold) return "allopatric";
 
