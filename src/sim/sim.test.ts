@@ -38,3 +38,29 @@ describe("consumption grid", () => {
     expect(founderCells!.some((v) => v > 0)).toBe(true);
   });
 });
+
+describe("observation history compaction", () => {
+  it("bounds populationHistory/traitHistory on a long run instead of growing every sample forever", () => {
+    // Actually simulating far enough for compaction to matter (100k+ ticks) would be far too slow
+    // for a regular test run — this tests the WIRING (tick() calls compactHistory at the right
+    // cadence, HISTORY_COMPACTION_INTERVAL_TICKS=5000) by injecting a large synthetic history and
+    // running just one real tick across a compaction boundary, not by actually simulating that long.
+    const { state, rng } = createSimState(1, DEFAULT_PARAMS);
+    const syntheticSamples = 1000;
+    state.observations.populationHistory = Array.from({ length: syntheticSamples }, (_, i) => ({
+      tick: i * 100,
+      counts: { 0: 500 },
+    }));
+    state.evolution.tick = 100_000; // a compaction boundary (100000 % HISTORY_COMPACTION_INTERVAL_TICKS(5000) === 0)
+
+    tick(state, rng, DEFAULT_PARAMS);
+
+    expect(state.observations.populationHistory.length).toBeLessThan(syntheticSamples / 3);
+    // Still ordered and still ends at (approximately) the current tick -- compaction must never
+    // reorder or drop the most recent samples.
+    const history = state.observations.populationHistory;
+    for (let i = 1; i < history.length; i++) {
+      expect(history[i].tick).toBeGreaterThan(history[i - 1].tick);
+    }
+  });
+});

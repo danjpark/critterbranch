@@ -2,6 +2,7 @@ import { type Creature, createCreature, energyCapacity, isReadyToReproduce, repr
 import { cloneConsumptionGrid, type ConsumptionGrid, decayConsumption, initConsumptionGrid } from "./consumption.ts";
 import { cloneGeneFlow, type GeneFlowState, initGeneFlow, updateGeneFlow } from "./geneFlow.ts";
 import { type Genome, genomeCentroid, randomGenome, sampleTraits, type TraitSample } from "./genome.ts";
+import { compactHistory, DEFAULT_HISTORY_RETENTION } from "./historyRetention.ts";
 import { applyNursing } from "./nursing.ts";
 import type { RunConfig } from "./runConfig.ts";
 import {
@@ -25,6 +26,11 @@ import {
 import { generateTerrain, type TerrainGrid } from "./terrain.ts";
 import { generateWorld, regrowFood, type World } from "./world.ts";
 import { flattenParams, type Params } from "../params.ts";
+
+/** How often dense observation history gets compacted (see historyRetention.ts) — a purely
+ * internal memory-management cadence, not a scientifically meaningful tunable, so unlike
+ * taxonomyIntervalTicks etc. this isn't exposed via Params. */
+const HISTORY_COMPACTION_INTERVAL_TICKS = 5000;
 
 /**
  * Core evolutionary state: the minimum a tick actually needs to advance the simulation. Nothing
@@ -192,6 +198,14 @@ export function tick(state: SimState, rng: RNG, params: Params): void {
     if (evo.creatures.length > 0) {
       obs.traitHistory.push(sampleTraits(evo.creatures.map((c) => c.genome), evo.tick));
     }
+  }
+
+  // Dense time-series history (NOT taxonomyEvents — discrete events are never downsampled) is
+  // compacted periodically rather than every tick, so a long run stays memory-bounded without
+  // paying an O(n) pass on every single tick — see historyRetention.ts.
+  if (evo.tick > 0 && evo.tick % HISTORY_COMPACTION_INTERVAL_TICKS === 0) {
+    obs.populationHistory = compactHistory(obs.populationHistory, (s) => s.tick, evo.tick, DEFAULT_HISTORY_RETENTION);
+    obs.traitHistory = compactHistory(obs.traitHistory, (s) => s.tick, evo.tick, DEFAULT_HISTORY_RETENTION);
   }
 
   evo.tick += 1;
