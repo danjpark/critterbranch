@@ -4,6 +4,7 @@ import { collectDescendantIds } from "../render/treeLayout.ts";
 import { invalidateTerrainCache } from "../render/worldView.ts";
 import type { Creature } from "../sim/creature.ts";
 import { applyIntervention, type Intervention } from "../sim/intervention.ts";
+import type { RNGSnapshot } from "../sim/rng.ts";
 import { createRunConfig, type RunConfig } from "../sim/runConfig.ts";
 import { applyInterventionNow, cloneSimState, createSimState, tick, type SimInstance, type SimState } from "../sim/sim.ts";
 import type { SpeciationMechanism, Species } from "../sim/taxonomy.ts";
@@ -28,9 +29,18 @@ const DEFAULT_BRUSH: BrushSettings = {
   seedCount: 20,
 };
 
-interface MeteorCheckpoint {
+/**
+ * A resumable point-in-time snapshot of everything undo needs to restore exactly: not just
+ * SimState, but the RNG stream position (a plain state clone with no RNG snapshot can be undone
+ * visually, but every subsequent draw diverges from what would have happened had the undone
+ * action never occurred) and the scenario-replay cursor (a meteor struck mid-scenario-playback
+ * must not leave already-fired scripted interventions re-queued to fire again after undo).
+ */
+interface SimulationCheckpoint {
   state: SimState;
+  rng: RNGSnapshot;
   loggedInterventionCount: number;
+  scenarioIndex: number;
 }
 
 /**
@@ -54,7 +64,7 @@ export class SimRunner {
   mechanismFilter: Set<SpeciationMechanism> = new Set(ALL_MECHANISMS);
   /** First point of an in-progress barrier drag (barrierStamp needs two points, everything else needs one). */
   private barrierDragStart: { x: number; y: number } | null = null;
-  private meteorCheckpoint: MeteorCheckpoint | null = null;
+  private meteorCheckpoint: SimulationCheckpoint | null = null;
   /** A loaded scenario's pre-scripted interventions, sorted by tick, still waiting to fire as play advances. */
   private scenarioQueue: Intervention[] = [];
   private scenarioIndex = 0;
@@ -238,7 +248,7 @@ export class SimRunner {
         this.apply("bloom", { x, y, radius: this.brush.radius, multiplier: 1 + this.brush.strength * 4, durationTicks: Math.max(this.brush.durationTicks, 1) });
         return;
       case "meteor":
-        this.meteorCheckpoint = { state: cloneSimState(this.sim.state), loggedInterventionCount: this.sim.interventionLog.length };
+        this.meteorCheckpoint = this.createCheckpoint();
         this.apply("meteor", { x, y, radius: this.brush.radius, craterRecoveryTicks: this.brush.durationTicks });
         invalidateTerrainCache(this.sim.state.terrain);
         return;
@@ -253,18 +263,33 @@ export class SimRunner {
   }
 
   /**
-   * Restores the state from right before the last meteor and drops that meteor from the log, so
-   * the log stays a truthful record of what actually happened (as if it never struck). Does NOT
-   * rewind the RNG — if ticks ran between the strike and the undo, replaying the (now
-   * meteor-free) log won't reproduce whatever those extra ticks drew. That's an acceptable gap
-   * for an "oops, undo that" safety net; it isn't meant to fabricate an alternate replay history.
+   * Restores state from right before the last meteor and drops that meteor from the log, so the
+   * log stays a truthful record of what actually happened (as if it never struck) — including
+   * rewinding the RNG stream and the scenario-replay cursor, so continued play afterward is
+   * exactly as if the meteor (and everything it perturbed downstream) had never happened, not an
+   * approximation that quietly diverges from then on.
    */
   undoLastMeteor(): void {
     if (!this.meteorCheckpoint) return;
-    this.sim.state = this.meteorCheckpoint.state;
-    this.sim.interventionLog.length = this.meteorCheckpoint.loggedInterventionCount;
+    this.restoreCheckpoint(this.meteorCheckpoint);
     this.meteorCheckpoint = null;
     invalidateTerrainCache(this.sim.state.terrain);
+  }
+
+  private createCheckpoint(): SimulationCheckpoint {
+    return {
+      state: cloneSimState(this.sim.state),
+      rng: this.sim.rng.snapshot(),
+      loggedInterventionCount: this.sim.interventionLog.length,
+      scenarioIndex: this.scenarioIndex,
+    };
+  }
+
+  private restoreCheckpoint(checkpoint: SimulationCheckpoint): void {
+    this.sim.state = checkpoint.state;
+    this.sim.rng.restore(checkpoint.rng);
+    this.sim.interventionLog.length = checkpoint.loggedInterventionCount;
+    this.scenarioIndex = checkpoint.scenarioIndex;
   }
 
   private apply<Tool extends Intervention["tool"]>(tool: Tool, params: Extract<Intervention, { tool: Tool }>["params"]): void {

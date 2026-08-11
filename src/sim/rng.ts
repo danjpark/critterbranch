@@ -6,6 +6,17 @@
 const MASK64 = (1n << 64n) - 1n;
 const MUL64 = 6364136223846793005n;
 
+/** Exact internal RNG state — everything needed to resume the stream from precisely this point,
+ * including the Box-Muller spare (skipping it would silently change the next gaussian() draw
+ * after a restore, since that spare is as much "state" as the PCG32 counters are). Deliberately
+ * not JSON-serializable as-is (raw bigints) — this is for in-memory checkpoints (see
+ * SimRunner's meteor undo), not for exported/persisted files. */
+export interface RNGSnapshot {
+  state: bigint;
+  inc: bigint;
+  spareGaussian: number | null;
+}
+
 export class RNG {
   private state = 0n;
   private inc = 0n;
@@ -59,5 +70,23 @@ export class RNG {
     const mul = Math.sqrt((-2 * Math.log(s)) / s);
     this.spareGaussian = v * mul;
     return u * mul;
+  }
+
+  snapshot(): RNGSnapshot {
+    return { state: this.state, inc: this.inc, spareGaussian: this.spareGaussian };
+  }
+
+  restore(snapshot: RNGSnapshot): void {
+    this.state = snapshot.state;
+    this.inc = snapshot.inc;
+    this.spareGaussian = snapshot.spareGaussian;
+  }
+
+  /** An independent RNG that continues the exact same stream as this one from this point on —
+   * mutating the clone (or the original) afterward never affects the other. */
+  clone(): RNG {
+    const copy = new RNG(0);
+    copy.restore(this.snapshot());
+    return copy;
   }
 }

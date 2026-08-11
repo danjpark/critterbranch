@@ -65,4 +65,43 @@ describe("RNG", () => {
     expect(mean).toBeCloseTo(0, 1);
     expect(Math.sqrt(variance)).toBeCloseTo(1, 1);
   });
+
+  describe("snapshot/restore", () => {
+    it("restore() rewinds the stream to exactly the snapshotted point, including the gaussian spare", () => {
+      const rng = new RNG(5);
+      // Draw an odd number of gaussian() calls so a spare is pending at the snapshot point --
+      // that spare is exactly the state a naive PCG32-only snapshot would silently drop.
+      for (let i = 0; i < 7; i++) rng.gaussian();
+      const snapshot = rng.snapshot();
+
+      const expected = Array.from({ length: 20 }, () => rng.next());
+
+      rng.restore(snapshot);
+      const actual = Array.from({ length: 20 }, () => rng.next());
+
+      expect(actual).toEqual(expected);
+    });
+
+    it("clone() continues the same stream as the original, from the point it was cloned", () => {
+      const original = new RNG(9);
+      for (let i = 0; i < 5; i++) original.next();
+
+      const clone = original.clone();
+      const fromOriginal = Array.from({ length: 10 }, () => original.next());
+      const fromClone = Array.from({ length: 10 }, () => clone.next());
+      expect(fromClone).toEqual(fromOriginal);
+    });
+
+    it("clone()'s state is unaffected by mutating the original afterward", () => {
+      const original = new RNG(9);
+      for (let i = 0; i < 5; i++) original.next();
+
+      const clone = original.clone();
+      const snapshotRightAfterClone = clone.snapshot();
+
+      for (let i = 0; i < 20; i++) original.next();
+
+      expect(clone.snapshot()).toEqual(snapshotRightAfterClone);
+    });
+  });
 });

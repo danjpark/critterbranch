@@ -117,3 +117,37 @@ describe("SimRunner scenario load/export", () => {
     expect(config).toEqual(snapshot);
   });
 });
+
+describe("meteor undo", () => {
+  it("undo rewinds state AND the RNG stream, so continued play matches a run where the meteor never happened", () => {
+    const seed = 55;
+    const N = 300;
+    const M = 150;
+    const K = 300;
+
+    // Run A: advance N, checkpoint via meteor, advance M, undo, advance K.
+    const runnerA = new SimRunner(seed);
+    for (let i = 0; i < N; i++) runnerA.stepOnce();
+
+    runnerA.setActiveTool("meteor");
+    runnerA.brush.radius = 20;
+    runnerA.useToolAt(100, 100);
+    expect(runnerA.canUndoMeteor()).toBe(true);
+
+    for (let i = 0; i < M; i++) runnerA.stepOnce();
+
+    runnerA.undoLastMeteor();
+    expect(runnerA.canUndoMeteor()).toBe(false);
+    for (let i = 0; i < K; i++) runnerA.stepOnce();
+
+    // Run B: same seed, no meteor at all, straight to N + K ticks.
+    const runnerB = new SimRunner(seed);
+    for (let i = 0; i < N + K; i++) runnerB.stepOnce();
+
+    expect(runnerA.sim.state.tick).toBe(runnerB.sim.state.tick);
+    expect(hashState(runnerA.sim.state)).toBe(hashState(runnerB.sim.state));
+    expect(runnerA.sim.rng.snapshot()).toEqual(runnerB.sim.rng.snapshot());
+    // The undone meteor must not linger in the log -- it never "really" happened.
+    expect(runnerA.sim.interventionLog).toEqual(runnerB.sim.interventionLog);
+  });
+});
