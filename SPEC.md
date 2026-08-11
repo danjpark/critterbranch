@@ -463,3 +463,46 @@ within existing spatial structure the other two axes provide, not create bimodal
 `axisIsolation.test.ts` tests this axis accordingly: population-size-swing amplitude vs. a flat
 control, and confirms no spurious species split is reported for what is genuinely directional (not
 disruptive) selection.
+
+---
+
+## Addendum 4 — the nursing ("ongoing parental care") mechanic
+
+Implements the mechanic scoped into Phase 6 back in Addendum 1: real sustained parental care, not
+just the one-time birth endowment `offspringInvestment` already controlled, so the r/K
+selection question ("does resource abundance favor slow-maturation/heavy-investment vs.
+fast/cheap/many") has an axis that can actually answer it.
+
+**Design, as built:**
+
+- New gene `nursingDuration` (range 0-600 ticks) — how long a parent keeps actively feeding a
+  given child after birth, on top of that child's one-time birth energy. 0 is a fully valid value
+  (no ongoing care), matching every scenario that predates this gene.
+- A parent's *own* `nursingDuration` gene decides how long it nurses *each* of its children —
+  set once, at birth, as `child.nursingUntilTick = birthTick + parent.genome.nursingDuration`
+  (`creature.ts`'s `reproduce()`). The child's own `nursingDuration` gene only matters later, once
+  *it* becomes a parent.
+- Each tick, every still-dependent child (`nursingUntilTick` not yet reached) receives a fixed
+  `nursingRatePerTick` (a biological constant, not itself evolvable — `nursingDuration` is the
+  evolvable "how long" axis) transferred from its parent, capped by the parent's available energy
+  (`sim/nursing.ts`). This is a genuine zero-sum cost to the parent, not free energy.
+- `nursingDuration` also folds into the life-history color axis (`render/color.ts`'s
+  `lifeHistoryAxisPosition`) alongside `reproThreshold`/`offspringInvestment`, and into taxonomy's
+  genetic-distance metric at a deliberately low weight (0.1, matching `mutationRate`) — a full
+  weight comparable to the other life-history genes measurably diluted the taxonomy detector's
+  already-tuned sensitivity (see below).
+
+**Decision: what happens if the parent dies mid-nursing?** The child simply stops receiving care
+and continues on its own — it does not die with the parent. A hard "dependent dies too" rule would
+stack a second, harsher death mechanic on top of ordinary starvation, and losing a parent's subsidy
+early is already a real cost (a lost energy stream) without needing to also be a death sentence.
+
+**A real tuning cost, worth recording:** adding a 9th gene to a taxonomy detector calibrated
+around 8 diluted every other gene's relative contribution to genetic distance enough to break the
+Phase 4 milestone test and both the diet and foraging axis-isolation tests (see their calibration
+history above) — fixed by the low weight noted above, plus a gentler `nursingRatePerTick` (0.004,
+down from an initial 0.015 that was enough of an energy-economy shock on its own to shift
+population dynamics) and, for the axis-isolation tests specifically, explicitly flattening
+`nursingRatePerTick: 0` in their shared `NEUTRAL` baseline — a true single-axis isolation test
+needs every *other* mechanism flattened, and nursing is very much another mechanism relative to
+whichever axis is under test.
