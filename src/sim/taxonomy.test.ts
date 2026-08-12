@@ -202,12 +202,18 @@ describe("Phase 4 milestone: hand-raised barrier produces a detected, logged all
     applyIntervention(state.evolution, rng, params, {
       tick: 0,
       tool: "seedFounders",
-      params: { x: 70, y: 100, spreadRadius: 15, count: 15, genome: makeGenome({ offspringInvestment: 0.05, speed: 0.4 }) },
+      // carnivory: 0 pinned alongside speed for the same reason — an isolated allopatric-split
+      // test shouldn't have its outcome depend on whatever incidental value the shared base
+      // genome happens to draw for a gene this test isn't studying. Found the hard way: this
+      // test started failing once carnivory (SPEC.md Addendum 7) made a real difference, because
+      // the fixed base genome's incidental carnivory (~0.79) triggered enough real predation to
+      // collapse the founder population before a split could be confirmed.
+      params: { x: 70, y: 100, spreadRadius: 15, count: 15, genome: makeGenome({ offspringInvestment: 0.05, speed: 0.4, carnivory: 0 }) },
     });
     applyIntervention(state.evolution, rng, params, {
       tick: 0,
       tool: "seedFounders",
-      params: { x: 130, y: 100, spreadRadius: 15, count: 15, genome: makeGenome({ offspringInvestment: 0.95, speed: 0.4 }) },
+      params: { x: 130, y: 100, spreadRadius: 15, count: 15, genome: makeGenome({ offspringInvestment: 0.95, speed: 0.4, carnivory: 0 }) },
     });
 
     let foundAllopatricSplit = false;

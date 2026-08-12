@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createCreature, energyCapacity, isReadyToReproduce, metabolicCost, reproduce } from "./creature.ts";
+import { createCreature, energyCapacity, gainPerUnit, isReadyToReproduce, metabolicCost, reproduce } from "./creature.ts";
 import { GENE_RANGES, randomGenome, type Genome } from "./genome.ts";
 import { RNG } from "./rng.ts";
 import { DEFAULT_PARAMS } from "../params.ts";
@@ -36,8 +36,29 @@ describe("metabolicCost", () => {
   });
 });
 
-// gainPerUnit's tests lived here — removed along with the function itself (SPEC.md Addendum 6):
-// there's only one food type now, so there's no specialization curve to test.
+describe("gainPerUnit", () => {
+  it("gives the maximum gain to a perfectly-matched specialist", () => {
+    const params = DEFAULT_PARAMS;
+    expect(gainPerUnit(0, 0, params)).toBeCloseTo(params.maxGain); // pure herbivore, fruit
+    expect(gainPerUnit(1, 1, params)).toBeCloseTo(params.maxGain); // pure carnivore, meat
+  });
+
+  it("gives zero gain for the opposite food type", () => {
+    const params = DEFAULT_PARAMS;
+    expect(gainPerUnit(0, 1, params)).toBeCloseTo(0); // pure herbivore attempting meat
+    expect(gainPerUnit(1, 0, params)).toBeCloseTo(0); // pure carnivore attempting fruit
+  });
+
+  it("penalizes a generalist below the average of the two specialists when specializationExponent > 1", () => {
+    // This is the mechanism the whole diet axis depends on (see SPEC.md Axis 1 / Addendum 7) —
+    // assert it directly rather than only observing it indirectly through population bimodality.
+    const params = { ...DEFAULT_PARAMS, specializationExponent: 2 };
+    const generalistGain = gainPerUnit(0.5, 0, params);
+    const herbivoreGain = gainPerUnit(0, 0, params);
+    const carnivoreGain = gainPerUnit(1, 1, params);
+    expect(generalistGain).toBeLessThan((herbivoreGain + carnivoreGain) / 2);
+  });
+});
 
 describe("isReadyToReproduce / reproduce", () => {
   it("is not ready below its reproThreshold fraction of capacity", () => {

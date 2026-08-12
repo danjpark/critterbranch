@@ -410,7 +410,7 @@ export function createLegend(): HTMLElement {
 
   const entries: [HTMLElement, string][] = [
     [squareSwatch(FRUIT_COLOR), "Fruit — square size shows how much is left there. Comes from trees, which grow, spread, and die on their own."],
-    [dotSwatch(), "A creature — dot color encodes its genome (foraging style, life history). Click one to inspect it."],
+    [dotSwatch(), "A creature — dot color encodes its genome (diet, foraging style, life history). Carnivores hunt nearby creatures for meat instead of eating fruit. Click one to inspect it."],
   ];
   for (const [swatch, text] of entries) {
     const row = document.createElement("div");

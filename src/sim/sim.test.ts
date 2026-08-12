@@ -58,6 +58,34 @@ describe("species behavior stats", () => {
   });
 });
 
+describe("predation", () => {
+  it("a population of forced carnivores actually kills and eats each other, with deaths recorded", () => {
+    // carnivory: 1 makes fruit worthless (gainPerUnit(1, 0, ...) = 0), so a healthy population
+    // here can only be surviving off successful kills — real end-to-end evidence the whole
+    // sense-target-attack-resolve pipeline works, not just its individual pieces in isolation.
+    const params = { ...DEFAULT_PARAMS, foundingPopulationSize: 60 };
+    const { state, rng } = createSimState(11, params);
+    for (const c of state.evolution.creatures) c.genome.carnivory = 1;
+
+    for (let i = 0; i < 500; i++) tick(state, rng, params);
+
+    let totalDeaths = 0;
+    for (const acc of state.observations.speciesBehavior.bySpecies.values()) totalDeaths += acc.deaths;
+    expect(totalDeaths).toBeGreaterThan(0);
+  });
+
+  it("stays deterministic with predation active", () => {
+    const params = { ...DEFAULT_PARAMS, foundingPopulationSize: 60 };
+    function run(): string {
+      const { state, rng } = createSimState(11, params);
+      for (const c of state.evolution.creatures) c.genome.carnivory = 1;
+      for (let i = 0; i < 500; i++) tick(state, rng, params);
+      return hashState(state);
+    }
+    expect(run()).toBe(run());
+  });
+});
+
 describe("observation history compaction", () => {
   it("bounds populationHistory/traitHistory on a long run instead of growing every sample forever", () => {
     // Actually simulating far enough for compaction to matter (100k+ ticks) would be far too slow

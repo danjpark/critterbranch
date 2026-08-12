@@ -1,7 +1,12 @@
 import type { RNG } from "./rng.ts";
 import { clamp } from "./util.ts";
+import type { Params } from "../params.ts";
 
 export interface Genome {
+  /** 0 = pure herbivore, 1 = pure carnivore — see sim/creature.ts's gainPerUnit and
+   * sim/predation.ts. Reinstates the original Axis 1 (diet) trade-off around fruit vs. meat
+   * instead of the old R vs. B (SPEC.md Addendum 7). */
+  carnivory: number;
   speed: number;
   senseRadius: number;
   wanderPersistence: number;
@@ -16,6 +21,7 @@ export interface Genome {
 }
 
 export const GENE_KEYS = [
+  "carnivory",
   "speed",
   "senseRadius",
   "wanderPersistence",
@@ -27,6 +33,7 @@ export const GENE_KEYS = [
 ] as const satisfies readonly (keyof Genome)[];
 
 export const GENE_RANGES: Record<keyof Genome, [number, number]> = {
+  carnivory: [0, 1],
   speed: [0.2, 3.0],
   senseRadius: [0, 20],
   wanderPersistence: [0, 1],
@@ -59,8 +66,27 @@ export function mutate(genome: Genome, rng: RNG): Genome {
   return child;
 }
 
+/**
+ * Fraction (0-1) of maxGain a creature actually realizes eating food of type `foodType` (0 =
+ * fruit, 1 = meat), given its own carnivory. With specializationExponent > 1, a generalist
+ * (carnivory 0.5) does WORSE than the average of the two specialists — the mechanism the whole
+ * diet axis depends on (SPEC.md Axis 1 / Addendum 7). Lives here rather than in creature.ts or
+ * sim/predation.ts because it's purely a function of Genome + Params (no Creature-specific state
+ * like position or energy) and both of those modules need it — putting it in either one would
+ * create an import cycle between them.
+ */
+export function specializationFactor(carnivory: number, foodType: 0 | 1, params: Params): number {
+  return Math.pow(1 - Math.abs(carnivory - foodType), params.specializationExponent);
+}
+
+/** Energy yield per unit of food type `foodType` (0 = fruit, 1 = meat) for a given carnivory. */
+export function gainPerUnit(carnivory: number, foodType: 0 | 1, params: Params): number {
+  return params.maxGain * specializationFactor(carnivory, foodType, params);
+}
+
 /** Weights used when combining per-gene distance into one scalar (genotype-color chroma, later taxonomy). */
 export const GENE_WEIGHTS: Record<keyof Genome, number> = {
+  carnivory: 1.0,
   speed: 1.0,
   senseRadius: 1.0,
   wanderPersistence: 0.6,

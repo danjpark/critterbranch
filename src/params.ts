@@ -18,9 +18,25 @@ export interface Params {
   baseEnergyCapacity: number;
   maxAge: number;
 
-  // Foraging (energy from eating fruit — see sim/trees.ts for where the fruit comes from)
-  fruitGainPerUnit: number;
+  // Axis 1 — diet (fruit vs. meat, see genome.ts's carnivory and sim/creature.ts's gainPerUnit).
+  // Reinstated in SPEC.md Addendum 7 with the exact original specialization-curve math, just
+  // fruit/meat labels instead of R/B.
+  /** Shared gain ceiling both the fruit and meat curves reference — a pure specialist (carnivory
+   * 0 or 1) eating its matching food type gets this much energy per unit/kill-fraction. */
+  maxGain: number;
+  /** Curve steepness: > 1 means a generalist (carnivory 0.5) does WORSE than the average of the
+   * two specialists, which is what forces a population to actually split rather than sit at the
+   * generalist optimum. */
+  specializationExponent: number;
   intakeRate: number;
+  /** How close (world units) a carnivory-leaning creature must end its move to a sensed prey
+   * target to actually attempt an attack — see sim/predation.ts. */
+  attackRange: number;
+  /** Ticks a creature must wait after any attack attempt (hit or miss) before attempting
+   * another. Without this, a predator that's caught up to prey gets a fresh roll every tick with
+   * no cost for a miss, and even modest per-attempt odds compound to near-certain death within a
+   * handful of ticks — a real population collapse this was tuned against, not a guess. */
+  attackCooldownTicks: number;
 
   // Fruit trees (axis 2 — foraging strategy). The commuter-vs-camper trade-off needs bimodal food
   // geometry (SPEC.md: "a few large, rich, widely-separated patches and many small, poor, densely
@@ -157,8 +173,11 @@ export const DEFAULT_PARAMS: Params = {
   baseEnergyCapacity: 20,
   maxAge: 2000,
 
-  fruitGainPerUnit: 2,
+  maxGain: 2,
+  specializationExponent: 2,
   intakeRate: 0.5,
+  attackRange: 3,
+  attackCooldownTicks: 20,
 
   // Initial values are a starting estimate, not yet play-tuned — expect these to move once trees
   // are actually watched growing/dying/spreading in a real run, the same way nursingRatePerTick
@@ -251,8 +270,11 @@ export interface EvolutionParams {
   senseCost: number;
   baseEnergyCapacity: number;
   maxAge: number;
-  fruitGainPerUnit: number;
+  maxGain: number;
+  specializationExponent: number;
   intakeRate: number;
+  attackRange: number;
+  attackCooldownTicks: number;
   foundingPopulationSize: number;
 }
 
@@ -330,8 +352,11 @@ export function groupParams(p: Params): RunParams {
       senseCost: p.senseCost,
       baseEnergyCapacity: p.baseEnergyCapacity,
       maxAge: p.maxAge,
-      fruitGainPerUnit: p.fruitGainPerUnit,
+      maxGain: p.maxGain,
+      specializationExponent: p.specializationExponent,
       intakeRate: p.intakeRate,
+      attackRange: p.attackRange,
+      attackCooldownTicks: p.attackCooldownTicks,
       foundingPopulationSize: p.foundingPopulationSize,
     },
     reproduction: {

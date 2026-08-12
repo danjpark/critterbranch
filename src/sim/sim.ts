@@ -21,6 +21,7 @@ import {
   processRegrowthOverrides,
   type RegrowthOverride,
 } from "./intervention.ts";
+import { buildCreatureIndex, resolvePredation, type PredationAttempt } from "./predation.ts";
 import { RNG } from "./rng.ts";
 import {
   cloneTaxonomy,
@@ -190,9 +191,15 @@ export function tick(state: SimState, rng: RNG, params: Params): void {
 
   const nextGeneration: Creature[] = [];
   const allocateId = () => evo.nextId++;
+  // Built once per tick from this tick's starting positions, before anyone moves — O(n) instead
+  // of an O(n²) all-pairs scan for prey-sensing. Same staleness tolerance the rest of this loop
+  // already has (e.g. fruit depletion order depends on array order too) — see sim/predation.ts.
+  const creatureIndex = buildCreatureIndex(evo.creatures, evo.world, params);
+  const predationAttempts: PredationAttempt[] = [];
 
   for (const creature of evo.creatures) {
-    stepCreature(creature, evo.world, evo.terrain, evo.trees, rng, params, evo.tick, obs.consumptionGrid);
+    const attempt = stepCreature(creature, evo.world, evo.terrain, evo.trees, creatureIndex, rng, params, evo.tick, obs.consumptionGrid);
+    if (attempt) predationAttempts.push(attempt);
 
     if (isReadyToReproduce(creature, params)) {
       const children = reproduce(creature, rng, params, evo.tick, allocateId);
@@ -207,7 +214,7 @@ export function tick(state: SimState, rng: RNG, params: Params): void {
     }
   }
 
-  evo.creatures = nextGeneration;
+  evo.creatures = resolvePredation(nextGeneration, predationAttempts, rng, params, obs.speciesBehavior);
   applyNursing(evo.creatures, evo.tick, params);
 
   // Gene flow needs to see every tick to catch every region crossing; taxonomy is expensive

@@ -1,12 +1,15 @@
 import type { ConsumptionGrid } from "./consumption.ts";
 import { recordConsumption } from "./consumption.ts";
-import { mutate, type Genome } from "./genome.ts";
+import { gainPerUnit, mutate, type Genome } from "./genome.ts";
 import type { Params } from "../params.ts";
+import { type CreatureIndex, findBestNearbyCreature, type PredationAttempt } from "./predation.ts";
 import type { RNG } from "./rng.ts";
 import type { TerrainGrid } from "./terrain.ts";
 import { trySeedSapling, type TreeState } from "./trees.ts";
 import { torDelta, torDist, wrap, lerp } from "./util.ts";
 import type { World } from "./world.ts";
+
+export { gainPerUnit } from "./genome.ts";
 
 export interface Creature {
   id: number;
@@ -27,6 +30,14 @@ export interface Creature {
    * (Addendum 5) divides this by age to get a realized-speed measurement per creature, which is
    * self-normalizing without needing any decay/reset logic here. */
   distanceTraveled: number;
+  /** Tick before which this creature won't attempt another attack — set on every attempt
+   * (success or failure), not just successes. Without this, a predator that's caught up to prey
+   * gets a fresh attack roll EVERY tick it stays in range with no cost for a miss, and even
+   * modest per-attempt odds compound to near-certain death within a handful of ticks — found via
+   * a real population collapsing from 100 to 15 within 200 ticks under plain default params. A
+   * recovery cooldown after every lunge, hit or miss, is standard in predator-prey modeling, not
+   * an artificial anti-collapse safeguard (SPEC.md Addendum 7). */
+  attackCooldownUntilTick: number;
 }
 
 export interface NewCreatureOptions {
@@ -58,6 +69,7 @@ export function createCreature(options: NewCreatureOptions): Creature {
     birthTick: options.birthTick,
     nursingUntilTick: options.nursingUntilTick ?? options.birthTick,
     distanceTraveled: 0,
+    attackCooldownUntilTick: options.birthTick,
   };
 }
 
@@ -77,9 +89,23 @@ interface SenseResult {
   x: number;
   y: number;
   score: number;
+  /** Set only when the best-scoring sensed target was a nearby creature (prey), not a fruit cell —
+   * see SPEC.md Addendum 7. A creature that steers toward this still opportunistically eats fruit
+   * at whatever cell it ends up on too (unchanged from before), the two aren't mutually exclusive. */
+  preyTarget: Creature | null;
 }
 
-function senseFood(creature: Creature, world: World, params: Params, worldWidth: number, worldHeight: number): SenseResult | null {
+function senseFoodOrPrey(
+  creature: Creature,
+  world: World,
+  creatureIndex: CreatureIndex,
+  params: Params,
+  worldWidth: number,
+  worldHeight: number,
+): SenseResult | null {
+  const fruitGain = gainPerUnit(creature.genome.carnivory, 0, params);
+  const meatGain = gainPerUnit(creature.genome.carnivory, 1, params);
+
   const cellSize = params.gridCellSize;
   const cx = Math.floor(creature.x / cellSize);
   const cy = Math.floor(creature.y / cellSize);
@@ -98,29 +124,51 @@ function senseFood(creature: Creature, world: World, params: Params, worldWidth:
 
       const amt = world.fruit[idx];
       if (amt > 1e-3) {
-        const score = amt / (dist + 1);
-        if (!best || score > best.score) best = { x: cellCenterX, y: cellCenterY, score };
+        const score = (amt * fruitGain) / (dist + 1);
+        if (!best || score > best.score) best = { x: cellCenterX, y: cellCenterY, score, preyTarget: null };
       }
     }
   }
+
+  // A herbivore's meatGain is ~0, so this branch naturally never wins the comparison below —
+  // no explicit "carnivory > threshold" gate needed, same as R-specialists never bothered
+  // sensing B food before this axis was fruit/meat instead.
+  if (meatGain > 1e-6) {
+    const prey = findBestNearbyCreature(
+      creatureIndex,
+      creature.x,
+      creature.y,
+      creature.genome.senseRadius,
+      creature.id,
+      (candidate, dist) => (candidate.energy * meatGain) / (dist + 1),
+    );
+    if (prey && (!best || prey.score > best.score)) {
+      best = { x: prey.creature.x, y: prey.creature.y, score: prey.score, preyTarget: prey.creature };
+    }
+  }
+
   return best;
 }
 
-/** Advances one creature by one tick in place: sense, steer, move, pay metabolism, eat. */
+/** Advances one creature by one tick in place: sense, steer, move, pay metabolism, eat/attack.
+ * Returns a queued predation attempt if it ended this move within attackRange of the prey it was
+ * steering toward — see sim/predation.ts's resolvePredation for why resolution is deferred rather
+ * than happening synchronously here. */
 export function stepCreature(
   creature: Creature,
   world: World,
   terrain: TerrainGrid,
   treeState: TreeState,
+  creatureIndex: CreatureIndex,
   rng: RNG,
   params: Params,
   tick: number,
   consumptionGrid: ConsumptionGrid | null = null,
-): void {
+): PredationAttempt | null {
   const worldWidth = world.cols * params.gridCellSize;
   const worldHeight = world.rows * params.gridCellSize;
 
-  const target = senseFood(creature, world, params, worldWidth, worldHeight);
+  const target = senseFoodOrPrey(creature, world, creatureIndex, params, worldWidth, worldHeight);
   if (target) {
     const dx = torDelta(target.x, creature.x, worldWidth);
     const dy = torDelta(target.y, creature.y, worldHeight);
@@ -144,6 +192,15 @@ export function stepCreature(
 
   creature.energy -= metabolicCost(creature.genome, params);
 
+  let attempt: PredationAttempt | null = null;
+  if (target?.preyTarget && tick >= creature.attackCooldownUntilTick) {
+    const distToPrey = torDist(creature.x, creature.y, target.preyTarget.x, target.preyTarget.y, worldWidth, worldHeight);
+    if (distToPrey <= params.attackRange) {
+      attempt = { predatorId: creature.id, preyId: target.preyTarget.id };
+      creature.attackCooldownUntilTick = tick + params.attackCooldownTicks;
+    }
+  }
+
   const idx =
     wrap(Math.floor(creature.y / params.gridCellSize), world.rows) * world.cols +
     wrap(Math.floor(creature.x / params.gridCellSize), world.cols);
@@ -151,12 +208,13 @@ export function stepCreature(
 
   if (take > 0) {
     world.fruit[idx] -= take;
-    creature.energy += take * params.fruitGainPerUnit;
+    creature.energy += take * gainPerUnit(creature.genome.carnivory, 0, params);
     if (consumptionGrid) recordConsumption(consumptionGrid, creature.lineageId, idx, take);
     trySeedSapling(treeState, creature.x, creature.y, rng, params, tick, world);
   }
 
   creature.age += 1;
+  return attempt;
 }
 
 export function isReadyToReproduce(creature: Creature, params: Params): boolean {

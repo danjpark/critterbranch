@@ -684,3 +684,88 @@ context, live-verified, so this isn't read as worse than it is:** under normal (
 default-params play, real sympatric speciation happens readily and looks healthy (three splits
 observed live within the first ~9,200 ticks of an ordinary run) — the gap is specifically the
 isolated-axis diagnostic tests, not the core "living, splitting tree" experience.
+
+## Addendum 7 — food redesign part B: predation and meat
+
+Design note, written before implementation, same process as Addenda 5 and 6. Sequenced after part
+A per Dan's own explicit choice ("one system at a time"). Two decisions confirmed with Dan before
+writing this: **cannibalism is allowed** (a creature can attack another of its own species — opens
+the real possibility of one ancestral population splitting into predator and prey sub-lineages of
+itself, which is more interesting than it is dangerous); and **no artificial population-collapse
+safeguard** — the original SPEC.md's own warning that predation "destabilizes population dynamics
+badly and can collapse a run to zero" is accepted as a real, expected risk to tune against via
+playtesting, not something to mechanically prevent up front. Population control via predation was
+literally Dan's stated motivation for this whole food redesign.
+
+**Reinstates Axis 1 (diet), reshaped around fruit vs. meat instead of R vs. B.** New gene
+`carnivory` (0 = pure herbivore, 1 = pure carnivore), same weight (1.0) and the exact same
+specialization-curve shape `gainPerUnit` had before part A removed it —
+`gain = maxGain * (1 - abs(carnivory - foodType))^specializationExponent`, foodType 0 = fruit, 1 =
+meat — just with new labels. `specializationExponent` is reintroduced; `maxGain` is what part A's
+`fruitGainPerUnit` reverts to being called, now the shared ceiling both curves reference.
+
+**Sensing and targeting extend the existing mechanism, not a parallel one.** `senseFood` already
+picks between food sources by comparing `amount * gain / (dist + 1)` scores (that's how R vs. B
+competed before, and how fruit alone works now) — prey becomes a third candidate in the same
+comparison, scored `preyEnergy * meatGain(carnivory) / (dist + 1)`. A herbivore's `meatGain` is
+near zero, so it naturally never finds attacking prey worthwhile — no explicit
+"carnivory > threshold" gate needed, the existing scoring mechanism already produces that behavior
+for free, the same way it already made R-specialists ignore B food without a gate.
+
+**Combat resolution — the seam Dan specifically asked for.** `effectiveAttackPower(genome) =
+genome.size`, `effectiveEvasionPower(genome) = genome.speed`: thin wrapper functions, not inlined
+math, so a later `attackPower`/`escapePower` gene pair can replace their internals without
+touching any call site. Success probability is a standard contest-success function,
+`attackPower / (attackPower + evasionPower)` — bounded (0, 1), and since every gene's range keeps
+size and speed strictly positive, never exactly 0 or 1. Two outcomes only: kill (prey removed,
+predator gains the prey's energy-at-death scaled by the predator's own `meatGain(carnivory)`) or
+escape (no kill, no extra cost beyond the metabolism both sides already paid this tick) — a third
+"outsmarting" dimension was floated and explicitly deferred back in Addendum 6's groundwork notes,
+per Dan: "introduces more dimensions I'm not ready to deal with."
+
+**Architecture — attempts are recorded during the existing per-creature pass, resolved in a
+separate pass after.** Resolving a kill synchronously mid-loop (directly zeroing a not-yet-visited
+prey's energy) would need every other piece of per-tick logic — reproduction eligibility, the
+survival check that builds `nextGeneration` — to defensively re-check "am I already dead" in ways
+they don't today, and a creature already pushed into `nextGeneration` earlier in the loop wouldn't
+get removed by a later kill without an explicit final filter anyway. Cleaner: `stepCreature`
+records a `{predatorId, preyId}` attempt (if it ends its move within `attackRange` of a valid prey
+target) into a list, unchanged otherwise; a new `resolvePredation` pass runs after
+`nextGeneration` is finalized, rolling each attempt in order and removing/crediting energy — a
+second attempt whose prey a first attempt already killed this tick is a genuine no-op, re-checked
+at resolution time, not just queue time. Prey-sensing needs a spatial index of creatures (bucketed
+by grid cell, same pattern `trees.ts`'s crowding-neighbor lookup already uses) built once per tick
+before the main loop — O(n) instead of an O(n²) all-pairs scan against a population that can run
+into the thousands.
+
+**Deliberately out of scope for this pass, flagged as natural follow-ups, not forgotten:** M2's
+`SpeciesProfile`/`CapabilityClassifier` diet dimension and `standardObjectives.ts`'s dietary
+objectives (removed in Addendum 6) are not being reinstated here — Dan asked for the core mechanic,
+not the observability layer on top of it. Revisit once the mechanic itself has been played with.
+
+**Implementation status (2026-08-12): built, one real bug found and fixed, two test fixtures
+repaired.** Built as designed above — `carnivory` gene, prey-sensing folded into the existing
+sense/score/steer mechanism, `effectiveAttackPower`/`effectiveEvasionPower` seam functions,
+deferred-queue attack resolution, cannibalism allowed, no artificial safeguard.
+
+The one real bug: a predator that caught up to prey got a fresh attack roll **every tick** it
+stayed in range, with no cost for a miss. Even modest per-attempt odds compound to near-certain
+death within a handful of ticks under sustained proximity — this produced a real, measured
+collapse (100 → 15 population within 200 ticks, most seeds ending near-total extinction by tick
+3000) under plain `DEFAULT_PARAMS`, not an edge case. Fixed with `Creature.attackCooldownUntilTick`
++ a new `attackCooldownTicks` param (20): a recovery window after every attack attempt, hit or
+miss. This is standard predator-prey-model pacing, not the artificial anti-collapse safeguard Dan
+declined — it doesn't prevent collapse, it just stops attacks from being free and infinite. After
+the fix, all 8 seeds checked (1-8) settled into healthy, stable populations (140-330) by tick 3000,
+instead of 6 of 8 collapsing to near-zero.
+
+Two pre-existing scripted-scenario tests (`taxonomy.test.ts`'s Phase 4 barrier milestone,
+`goldenScenarios.test.ts`'s barrier/allopatric split) broke not because of a mechanic bug, but
+because their fixed-seed base genome helper happened to draw a high incidental `carnivory` (~0.79)
+for a gene the tests were never trying to isolate — carnivory didn't exist when those tests were
+written, so that draw was silently inert until now. Fixed the same way those tests already pin
+`speed` to avoid movement confounds: pinned `carnivory: 0` explicitly alongside it.
+
+Full test suite green (243 passed, 3 pre-existing skips from Addendum 6 unrelated to this work),
+typecheck clean, no performance regression, live-verified in-browser across 25,000+ ticks with real
+speciation/extinction events and zero console errors.

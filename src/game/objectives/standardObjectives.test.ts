@@ -9,6 +9,7 @@ import { createBiodiversityObjective, createDisasterRecoveryObjective, createGeo
 
 function genome(offspringInvestment: number): Genome {
   return {
+    carnivory: 0,
     speed: 1,
     senseRadius: 5,
     wanderPersistence: 0.5,

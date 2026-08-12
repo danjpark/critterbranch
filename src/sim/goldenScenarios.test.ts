@@ -70,7 +70,10 @@ describe("golden scenario: barrier / allopatric split", () => {
       // differ too, and one combination happened to be economically unviable enough to crash the
       // whole population before any split could be detected. Diverging on exactly one axis is the
       // point.
-      const baseGenome = randomGenome(new RNG(1));
+      // carnivory: 0 pinned for the same reason as speed — an isolated allopatric-split scenario
+      // shouldn't depend on whatever incidental carnivory the shared base genome happens to draw
+      // (SPEC.md Addendum 7 made that a real, previously-inert value suddenly matter).
+      const baseGenome = { ...randomGenome(new RNG(1)), carnivory: 0 };
       const genomeLeft: Genome = { ...baseGenome, offspringInvestment: 0.05, speed: 0.4 };
       const genomeRight: Genome = { ...baseGenome, offspringInvestment: 0.95, speed: 0.4 };
       const config = createRunConfig(1, params, [

@@ -30,19 +30,19 @@ function lifeHistoryAxisPosition(genome: Genome): number {
 
 /**
  * Fill color for a creature: a pure function of its genome, per the spec's color-encoding rules.
- * Hue = foraging-strategy position. Chroma = divergence from the founding centroid. Lightness =
- * life-history position. Converted through OkLCh so equal gene distance reads as (roughly) equal
- * visual distance, unlike raw sRGB channels.
+ * Hue = diet x foraging-strategy angle. Chroma = divergence from the founding centroid.
+ * Lightness = life-history position. Converted through OkLCh so equal gene distance reads as
+ * (roughly) equal visual distance, unlike raw sRGB channels.
  *
- * Hue used to be a 2D angle (diet x foraging, via atan2) before SPEC.md Addendum 6 removed the
- * diet axis (dietPref/two food types) entirely — food is fruit-trees-only until predation
- * reinstates a real diet trade-off. Mapping hue from foraging alone is an interim measure, not a
- * redesign of the color scheme; revisit once part B (predation) gives diet real meaning again.
+ * The 2D atan2 hue was flattened to a 1D foraging-only mapping when SPEC.md Addendum 6 removed
+ * the diet axis entirely (fruit-trees-only, no dietPref) — restored here now that Addendum 7's
+ * carnivory gene gives diet a real axis again (0 = herbivore/fruit, 1 = carnivore/meat).
  */
 export function genotypeColor(genome: Genome, foundingCentroid: Genome, options: ColorOptions): string {
+  const dietAxis = normalizeGene("carnivory", genome.carnivory) * 2 - 1;
   const foragingAxis = foragingAxisPosition(genome);
 
-  let hueRad = foragingAxis * Math.PI;
+  let hueRad = Math.atan2(foragingAxis, dietAxis);
   if (options.deuteranopiaSafe) {
     hueRad = restrictToBlueOrangeArc(hueRad);
   }
