@@ -73,6 +73,57 @@ describe("GameRunner", () => {
     expect(runner.lastEraSummary).toBeNull();
   });
 
+  it("advanceEra works again directly from discovery, without a separate continueToTerraform call first (regression: button used to stay stuck)", () => {
+    const runner = new GameRunner("sandbox", 1);
+    runner.setSpeed("max");
+
+    runner.advanceEra();
+    while (runner.isAdvancingEra()) runner.stepEraAdvance();
+    expect(runner.game.gameState.phase).toBe("discovery");
+    expect(runner.canAdvanceEra()).toBe(true);
+
+    // No continueToTerraform() call here — advanceEra() itself should auto-continue.
+    runner.advanceEra();
+    expect(runner.game.gameState.phase).toBe("evolution");
+
+    while (runner.isAdvancingEra()) runner.stepEraAdvance();
+    expect(runner.game.gameState.phase).toBe("discovery");
+    expect(runner.game.gameState.era).toBe(2);
+    expect(runner.game.sim.state.evolution.tick).toBe(4000);
+  });
+
+  it("canAdvanceEra is false only while actively animating", () => {
+    const runner = new GameRunner("sandbox", 1);
+    expect(runner.canAdvanceEra()).toBe(true); // terraform
+
+    runner.advanceEra();
+    expect(runner.canAdvanceEra()).toBe(false); // evolution
+
+    runner.setSpeed("max");
+    while (runner.isAdvancingEra()) runner.stepEraAdvance();
+    expect(runner.canAdvanceEra()).toBe(true); // discovery
+  });
+
+  it("eraProgress reflects how far through the era's ticks stepEraAdvance has gotten", () => {
+    const runner = new GameRunner("sandbox", 1);
+    expect(runner.eraProgress()).toBeNull();
+
+    runner.setSpeed(500);
+    runner.advanceEra();
+    expect(runner.eraProgress()).toBe(0);
+
+    runner.stepEraAdvance();
+    expect(runner.eraProgress()).toBeCloseTo(500 / 2000);
+
+    // Three more calls reaches exactly 2000/2000 and finalizes within that same call — progress
+    // never lingers at a visible "1", it goes straight from <1 to null (no longer advancing).
+    runner.stepEraAdvance();
+    runner.stepEraAdvance();
+    runner.stepEraAdvance();
+    expect(runner.isAdvancingEra()).toBe(false);
+    expect(runner.eraProgress()).toBeNull();
+  });
+
   it("challenge mode tracks a fixed budget and reports objective progress", () => {
     const challenge = PROTOTYPE_CHALLENGES[0];
     const runner = new GameRunner("challenge", challenge.runConfig.seed, challenge);

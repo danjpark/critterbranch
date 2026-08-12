@@ -775,6 +775,8 @@ export interface GameControlsHandle {
   setAdvanceEnabled: (enabled: boolean) => void;
   setContinueEnabled: (enabled: boolean) => void;
   setTerraformError: (message: string | null) => void;
+  /** null hides/idles the bar (no era advancing); 0-1 fills it proportionally. */
+  setProgress: (fraction: number | null) => void;
 }
 
 /** Mode/seed/era-advancement controls for Game Mode — the terraform -> evolution -> discovery
@@ -825,6 +827,14 @@ export function createGameControlsPanel(challenges: ChallengeDefinition[], callb
   actionRow.className = "row";
   actionRow.append(advanceButton, continueButton);
 
+  // Fills as stepEraAdvance() ticks toward the era's target, so "how much longer" is visible at
+  // a glance instead of only the tick count in the status line below.
+  const progressBar = document.createElement("div");
+  progressBar.className = "progress-bar";
+  const progressFill = document.createElement("div");
+  progressFill.className = "progress-bar-fill";
+  progressBar.appendChild(progressFill);
+
   // Same speed vocabulary as the classic sandbox's playback controls — how fast an era's ticks
   // fly by while advancing, so you can actually watch terrain/creatures change instead of only
   // seeing the before/after result (see app/gameRunner.ts's stepEraAdvance).
@@ -851,7 +861,7 @@ export function createGameControlsPanel(challenges: ChallengeDefinition[], callb
   const errorLine = document.createElement("div");
   errorLine.className = "godmode-hint game-error";
 
-  root.append(sectionTitle("Mode"), modeRow, sectionTitle("Seed"), seedRow, actionRow, sectionTitle("Era speed"), speedRow, status, budgetStatus, errorLine);
+  root.append(sectionTitle("Mode"), modeRow, sectionTitle("Seed"), seedRow, actionRow, progressBar, sectionTitle("Era speed"), speedRow, status, budgetStatus, errorLine);
 
   return {
     root,
@@ -860,6 +870,9 @@ export function createGameControlsPanel(challenges: ChallengeDefinition[], callb
     },
     setBudget(remaining) {
       budgetStatus.textContent = remaining === null ? "Terraform points: unlimited (sandbox)" : `Terraform points: ${remaining}`;
+    },
+    setProgress(fraction) {
+      progressFill.style.width = fraction === null ? "0%" : `${Math.round(fraction * 100)}%`;
     },
     setAdvanceEnabled(enabled) {
       advanceButton.disabled = !enabled;

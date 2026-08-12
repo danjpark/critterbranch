@@ -464,6 +464,7 @@ function renderGame(): void {
   gameControls.setBudget(game.budget?.remaining ?? null);
   gameControls.setAdvanceEnabled(gameRunner.canAdvanceEra());
   gameControls.setContinueEnabled(gameRunner.canContinueToTerraform());
+  gameControls.setProgress(gameRunner.eraProgress());
   gameControls.setTerraformError(gameRunner.lastTerraformError);
   eraSummaryPanel.setSummary(gameRunner.lastEraSummary);
   objectivesPanel.setChallenge(gameRunner.objectives(), gameRunner.challengeStatus());

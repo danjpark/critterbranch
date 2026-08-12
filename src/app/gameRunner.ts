@@ -111,8 +111,12 @@ export class GameRunner {
     return result;
   }
 
+  /** True except while actively animating (evolution phase) — includes discovery, so the button
+   * never goes permanently unresponsive after an era finishes: see advanceEra()'s auto-continue
+   * below, which was a real reported bug ("I click it and then can't click it again") caused by
+   * discovery requiring a separate, easy-to-miss "Continue to terraform" click first. */
   canAdvanceEra(): boolean {
-    return this.game.gameState.phase === "terraform";
+    return this.game.gameState.phase !== "evolution";
   }
 
   isAdvancingEra(): boolean {
@@ -123,12 +127,30 @@ export class GameRunner {
    * target tick. The actual ticking happens incrementally via stepEraAdvance(), called once per
    * render frame, so the player can watch terrain/creatures change in real time — see the
    * roadmap feedback this was built for: "seeing the last image and the result is too hard to
-   * follow." */
+   * follow." If called while still reviewing the previous era's discovery summary, this
+   * auto-continues to terraform first (same effect as clicking continueToTerraform()) rather than
+   * requiring that as a separate click — the explicit Continue button still exists for players who
+   * just want to review and pause. */
   advanceEra(): void {
     if (!this.canAdvanceEra()) return;
+    if (this.game.gameState.phase === "discovery") {
+      continueToTerraform(this.game);
+      this.lastEraSummary = null;
+    }
     this.eraBeforeSnapshot = captureEraSnapshot(this.game);
     beginEraEvolution(this.game.gameState);
     this.eraTargetTick = this.game.sim.state.evolution.tick + this.game.eraConfig.ticksPerEra;
+  }
+
+  /** Fraction (0-1) of the current era-advance's ticks completed, or null when no era is
+   * advancing — drives the progress bar so the player can see roughly how long is left instead of
+   * just an indeterminate "Evolution running…" label. */
+  eraProgress(): number | null {
+    if (this.eraTargetTick === null || this.eraBeforeSnapshot === null) return null;
+    const total = this.eraTargetTick - this.eraBeforeSnapshot.tick;
+    if (total <= 0) return 1;
+    const done = this.game.sim.state.evolution.tick - this.eraBeforeSnapshot.tick;
+    return Math.min(1, Math.max(0, done / total));
   }
 
   /** Ticks the sim toward the current era's target according to `speed` — exactly the same
