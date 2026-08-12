@@ -265,6 +265,20 @@ button.active {
   border-color: #6d97e0;
 }
 
+.checkpoint-name-input {
+  width: 10rem;
+}
+
+.checkpoint-entry {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.checkpoint-entry span {
+  flex: 1 1 auto;
+}
+
 .gene-flow-canvas {
   display: block;
   width: 100%;

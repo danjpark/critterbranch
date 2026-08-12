@@ -765,6 +765,7 @@ export interface GameControlsCallbacks {
   onRestart: (seed: number, mode: GameMode, challengeId: string | null) => void;
   onAdvanceEra: () => void;
   onContinue: () => void;
+  onSpeedChange: (speed: SpeedSetting) => void;
 }
 
 export interface GameControlsHandle {
@@ -824,6 +825,25 @@ export function createGameControlsPanel(challenges: ChallengeDefinition[], callb
   actionRow.className = "row";
   actionRow.append(advanceButton, continueButton);
 
+  // Same speed vocabulary as the classic sandbox's playback controls — how fast an era's ticks
+  // fly by while advancing, so you can actually watch terrain/creatures change instead of only
+  // seeing the before/after result (see app/gameRunner.ts's stepEraAdvance).
+  const speedRow = document.createElement("div");
+  speedRow.className = "row";
+  const speedButtons = new Map<SpeedSetting, HTMLButtonElement>();
+  for (const speed of SPEED_OPTIONS) {
+    const btn = document.createElement("button");
+    btn.textContent = speed === "max" ? "max" : `${speed}x`;
+    btn.addEventListener("click", () => {
+      for (const b of speedButtons.values()) b.classList.remove("active");
+      btn.classList.add("active");
+      callbacks.onSpeedChange(speed);
+    });
+    speedButtons.set(speed, btn);
+    speedRow.appendChild(btn);
+  }
+  speedButtons.get(10)?.classList.add("active");
+
   const status = document.createElement("div");
   status.className = "status";
   const budgetStatus = document.createElement("div");
@@ -831,7 +851,7 @@ export function createGameControlsPanel(challenges: ChallengeDefinition[], callb
   const errorLine = document.createElement("div");
   errorLine.className = "godmode-hint game-error";
 
-  root.append(sectionTitle("Mode"), modeRow, sectionTitle("Seed"), seedRow, actionRow, status, budgetStatus, errorLine);
+  root.append(sectionTitle("Mode"), modeRow, sectionTitle("Seed"), seedRow, actionRow, sectionTitle("Era speed"), speedRow, status, budgetStatus, errorLine);
 
   return {
     root,
@@ -946,6 +966,91 @@ export function createObjectivesPanel(): ObjectivesHandle {
         list.appendChild(banner);
       }
       body.replaceChildren(list);
+    },
+  };
+}
+
+/** Structurally matches app/gameRunner.ts's GameCheckpoint — duplicated rather than imported so
+ * ui/ never depends on app/ (app already depends on ui/; the reverse would be a cycle). */
+export interface CheckpointSummary {
+  id: string;
+  name: string;
+  era: number;
+  tick: number;
+  createdAt: number;
+}
+
+export interface CheckpointsCallbacks {
+  onSave: (name: string) => void;
+  onRestore: (id: string) => void;
+  onDelete: (id: string) => void;
+}
+
+export interface CheckpointsHandle {
+  root: HTMLElement;
+  setCheckpoints: (checkpoints: CheckpointSummary[]) => void;
+}
+
+/** Named, session-only save points the player can jump back to — restoring one never deletes any
+ * other, so they behave like git branches: explicit save points, explicit "Delete" to collapse
+ * one you're done with. */
+export function createCheckpointsPanel(callbacks: CheckpointsCallbacks): CheckpointsHandle {
+  const root = document.createElement("div");
+  root.className = "panel";
+  root.append(sectionTitle("Checkpoints"));
+
+  const hint = document.createElement("div");
+  hint.className = "godmode-hint";
+  hint.textContent = "Save a named point in time, then jump back to it later — restoring one doesn't delete the others.";
+
+  const nameInput = document.createElement("input");
+  nameInput.type = "text";
+  nameInput.placeholder = "Checkpoint name";
+  nameInput.className = "seed-input checkpoint-name-input";
+  const saveButton = document.createElement("button");
+  saveButton.textContent = "Save Checkpoint";
+  saveButton.addEventListener("click", () => {
+    callbacks.onSave(nameInput.value);
+    nameInput.value = "";
+  });
+  const saveRow = document.createElement("div");
+  saveRow.className = "row";
+  saveRow.append(nameInput, saveButton);
+
+  const list = document.createElement("div");
+  list.className = "event-feed-list";
+  list.textContent = "No checkpoints saved yet.";
+
+  root.append(hint, saveRow, list);
+
+  return {
+    root,
+    setCheckpoints(checkpoints) {
+      if (checkpoints.length === 0) {
+        list.textContent = "No checkpoints saved yet.";
+        return;
+      }
+
+      list.replaceChildren(
+        ...checkpoints.map((checkpoint) => {
+          const row = document.createElement("div");
+          row.className = "event-feed-entry checkpoint-entry";
+
+          const label = document.createElement("span");
+          label.textContent = `${checkpoint.name} — era ${checkpoint.era}, tick ${checkpoint.tick.toLocaleString()}`;
+
+          const restoreButton = document.createElement("button");
+          restoreButton.textContent = "Restore";
+          restoreButton.addEventListener("click", () => callbacks.onRestore(checkpoint.id));
+
+          const deleteButton = document.createElement("button");
+          deleteButton.textContent = "Delete";
+          deleteButton.addEventListener("click", () => callbacks.onDelete(checkpoint.id));
+
+          row.append(label, restoreButton, deleteButton);
+          return row;
+        }),
+      );
     },
   };
 }

@@ -11,6 +11,7 @@ import { findCreatureAt, renderWorld } from "./render/worldView.ts";
 import type { Genome } from "./sim/genome.ts";
 import { parseRunConfig } from "./sim/runConfig.ts";
 import {
+  createCheckpointsPanel,
   createControls,
   createEraSummaryPanel,
   createEventFeed,
@@ -407,12 +408,28 @@ const gameControls = createGameControlsPanel(PROTOTYPE_CHALLENGES, {
     gameRunner.continueToTerraform();
     renderGame();
   },
+  onSpeedChange: (speed) => gameRunner.setSpeed(speed),
 });
 
 const eraSummaryPanel = createEraSummaryPanel();
 const objectivesPanel = createObjectivesPanel();
+const checkpointsPanel = createCheckpointsPanel({
+  onSave: (name) => {
+    gameRunner.saveCheckpoint(name);
+    renderGame();
+  },
+  onRestore: (id) => {
+    gameRunner.restoreCheckpoint(id);
+    gameGodModePanel.setActiveTool(null);
+    renderGame();
+  },
+  onDelete: (id) => {
+    gameRunner.deleteCheckpoint(id);
+    renderGame();
+  },
+});
 
-gameSidebar.append(gameControls.root, gameGodModePanel.root, objectivesPanel.root, eraSummaryPanel.root);
+gameSidebar.append(gameControls.root, gameGodModePanel.root, objectivesPanel.root, eraSummaryPanel.root, checkpointsPanel.root);
 
 gameCanvas.addEventListener("click", (event) => {
   if (!gameRunner.activeTool) return;
@@ -450,4 +467,16 @@ function renderGame(): void {
   gameControls.setTerraformError(gameRunner.lastTerraformError);
   eraSummaryPanel.setSummary(gameRunner.lastEraSummary);
   objectivesPanel.setChallenge(gameRunner.objectives(), gameRunner.challengeStatus());
+  checkpointsPanel.setCheckpoints(gameRunner.listCheckpoints());
 }
+
+function gameFrame(): void {
+  gameRunner.stepEraAdvance();
+  renderGame();
+}
+
+// Same "keep advancing regardless of tab focus" reasoning as the classic sandbox's frame() loop
+// above — a player mid-era-advance who switches to the Classic tab shouldn't come back to find
+// it paused.
+renderGame();
+setInterval(gameFrame, 16);
