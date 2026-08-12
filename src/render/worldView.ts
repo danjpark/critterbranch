@@ -4,6 +4,7 @@ import type { TerrainGrid } from "../sim/terrain.ts";
 import { clamp01, lerp, torDelta } from "../sim/util.ts";
 import type { Params } from "../params.ts";
 import { cachedGenotypeColor, type ColorOptions, FOOD_B_COLOR, FOOD_R_COLOR } from "./color.ts";
+import { CONTOUR_LINE_COLOR, elevationBand, type ElevationBand, terrainCellColor } from "./terrainPalette.ts";
 
 export interface RenderOptions {
   colorOptions: ColorOptions;
@@ -56,34 +57,57 @@ function getTerrainLayer(
 }
 
 /**
- * Grayscale shaded relief with at most a faint fertility tint — terrain is background, never
- * competes with creature hue. Low-passability cells also darken toward a rocky brown,
- * independent of elevation — a barrier stamp only ever touches passability (never elevation), so
- * without this a hand-drawn barrier would be completely invisible on the map.
+ * Ink-on-parchment terrain in discrete elevation bands (lowland/hill/mountain) with contour lines
+ * at band boundaries — a map-editor-style readable relief rather than a smooth gradient. Terrain
+ * still stays background, never competing with creature hue (see render/terrainPalette.ts); a
+ * barrier stamp's passability change (independent of elevation) still darkens a cell so a
+ * hand-drawn barrier remains visible regardless of band.
  */
 function paintTerrain(ctx: CanvasRenderingContext2D, terrain: TerrainGrid, params: Params, scaleX: number, scaleY: number): void {
   const cellW = params.gridCellSize * scaleX;
   const cellH = params.gridCellSize * scaleY;
   const roughness = Math.max(params.terrainRoughness, 1e-6);
 
+  const bands = new Array<ElevationBand>(terrain.cols * terrain.rows);
   for (let y = 0; y < terrain.rows; y++) {
     for (let x = 0; x < terrain.cols; x++) {
       const idx = y * terrain.cols + x;
-      const elevationNorm = clamp01(terrain.elevation[idx] / roughness);
-      const fertility = terrain.fertility[idx];
-      const blockedness = 1 - terrain.passability[idx];
-
-      const base = lerp(0.32, 0.82, elevationNorm);
-      const tint = fertility * 0.05;
-      const darken = blockedness * 0.35;
-      const r = clamp01(base - tint * 0.7 - darken * 0.1);
-      const g = clamp01(base + tint - darken * 0.25);
-      const b = clamp01(base - tint * 0.4 - darken * 0.3);
-
-      ctx.fillStyle = `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`;
+      bands[idx] = elevationBand(terrain.elevation[idx], roughness);
+      ctx.fillStyle = terrainCellColor(terrain.elevation[idx], terrain.fertility[idx], terrain.passability[idx], roughness);
       ctx.fillRect(x * cellW, y * cellH, cellW + 0.6, cellH + 0.6);
     }
   }
+
+  paintElevationContours(ctx, terrain, bands, cellW, cellH);
+}
+
+/** Thin ink lines wherever two adjacent cells fall into different elevation bands — the visual
+ * cue that reads as "contour lines" on a hand-drawn map. Skips the wraparound seam (last column
+ * to first, last row to first) so the torus edge doesn't draw a distracting full-width line. */
+function paintElevationContours(ctx: CanvasRenderingContext2D, terrain: TerrainGrid, bands: ElevationBand[], cellW: number, cellH: number): void {
+  ctx.strokeStyle = CONTOUR_LINE_COLOR;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+
+  for (let y = 0; y < terrain.rows; y++) {
+    for (let x = 0; x < terrain.cols; x++) {
+      const idx = y * terrain.cols + x;
+      const band = bands[idx];
+
+      if (x < terrain.cols - 1 && bands[idx + 1] !== band) {
+        const lineX = (x + 1) * cellW;
+        ctx.moveTo(lineX, y * cellH);
+        ctx.lineTo(lineX, (y + 1) * cellH);
+      }
+      if (y < terrain.rows - 1 && bands[idx + terrain.cols] !== band) {
+        const lineY = (y + 1) * cellH;
+        ctx.moveTo(x * cellW, lineY);
+        ctx.lineTo((x + 1) * cellW, lineY);
+      }
+    }
+  }
+
+  ctx.stroke();
 }
 
 /** Food keeps a fixed, distinct visual language: small squares in fixed R/B colors, sized by true abundance. */
