@@ -576,3 +576,111 @@ layer" objectives would eventually read from. Only the four new counters themsel
 changes, since they must be written from inside the tick loop; everything that aggregates or
 classifies from them stays on the `game/` side of the boundary, so `sim/` still never imports from
 `game/`.
+
+## Addendum 6 — food system redesign, part A: persistent fruit trees replace the R/B grid
+
+Design note, written before implementation, same process as Addendum 5. Motivation (Dan, after
+playtesting M2): reduce two food types the player has to spread around down to one, and set up
+predation as a real population-control mechanism (part B, sequenced separately — deliberately, "one
+system at a time" the same way every other milestone here has been). This addendum is part A only:
+fruit trees. Predation/meat is its own follow-up addendum once this lands and plays well.
+
+**This removes Axis 1 (diet) entirely, for as long as part A stands alone.** With only one food
+type, `dietPref` has nothing left to trade off against — the gene, `gainPerUnit`'s specialization
+curve, its `GENE_WEIGHTS` entry, the diet axis-isolation calibration, `standardObjectives.ts`'s
+`createDietarySpecialistObjective`/`createDietaryGeneralistObjective` (and the "Picky Eaters"
+challenge built entirely on the specialist one), and M2's `SpeciesProfile.diet`/dietary capability
+labels are all removed in part A, not left around half-working. Dan chose "trees first, then
+predation" knowing this gap exists; part B reinstates a diet axis reshaped around fruit vs. meat
+preference, on the genes that are actually meaningful again at that point.
+
+**Tree lifecycle**, per Dan's own description: a tree is planted (sapling), takes
+`treeMaturityTicks` to mature, then produces fruit; each tick a mature tree has a chance to die,
+scaled by local crowdedness (nearby tree density — self-thinning, a real forest-ecology effect);
+eating a tree's fruit has a small chance (`saplingChance`) of planting a new sapling nearby
+(`saplingSpreadRadius`) — seed dispersal via feeding.
+
+**Architecture:**
+- `World.fruit: Float64Array` replaces `r`/`b`/`capacityR`/`capacityB` — one dense per-cell channel,
+  so `creature.ts`'s hot per-tick sense/eat loop stays close to its current shape (one array instead
+  of two, no `rGain`/`bGain` branch — intake is just `min(world.fruit[idx], intakeRate)`, always
+  eaten, no specialization curve since there's nothing to specialize between).
+- New `sim/trees.ts`: `FruitTree { id, x, y, plantedTick, maturedTick: number | null }` (an array,
+  parallel in spirit to `Creature[]`) + `stepTrees(trees, world, terrain, rng, params, tick)` —
+  advances maturity, regrows each mature tree's fruit into its own `world.fruit` cell (replacing
+  today's uniform `regrowFood`) up to a per-tree capacity, and applies crowdedness-scaled death.
+  `trySeedSapling(trees, x, y, rng, params, allocateId, tick)` is called from creature.ts's eat step.
+- Crowdedness death is the one real performance risk (naive all-pairs distance is O(trees²) every
+  tick) — bucket trees by the existing `gridCellSize` grid (same spatial resolution `World`/
+  `TerrainGrid` already use) so a neighbor count is a small local scan, not a full pass, and only
+  run the death check on a coarser cadence (a new `treeCrowdingCheckIntervalTicks`, same pattern as
+  `consumptionDecayIntervalTicks`) rather than every tick for every tree.
+- **Correction, caught during implementation:** an earlier draft of this addendum had world
+  generation seed one uniform population of trees. That silently collapses Axis 2 (foraging
+  strategy) too — its commuter-vs-camper trade-off needs "a few large, rich, widely-separated
+  patches and many small, poor, densely scattered ones" (SPEC.md's own Axis 2 section), which was
+  never actually about the R/B food-TYPE split, just food-patch geometry that happened to live in
+  the same generation code. World generation now seeds two groups —`richTreeCount` (few,
+  full-capacity, individually placed) and `poorTreeCount` (more numerous, capacity scaled down by
+  `patchBimodality`) — both via independent uniform-random placement rather than explicit spatial
+  clustering, specifically so `patchBimodality=0` makes the two groups genuinely statistically
+  indistinguishable (same capacity, same placement distribution) for the neutral-control
+  axis-isolation test. `foodMode: "gradient"` (the other existing generation mode) has no obvious
+  tree analog and is dropped along with `FoodMode` — flag this to Dan if he was relying on it, but
+  nothing in the current UI/scenarios exposes switching it.
+- New `TreeParams` params group replaces the food-patch fields of `WorldParams`
+  (`richPatchCount/Radius/Capacity`, `poorPatchCount/Radius/Capacity`, `baseCapacity`,
+  `ambientFoodFraction`, `foodMode`): `richTreeCount`, `poorTreeCount`, `patchBimodality` (kept,
+  same meaning as before), `treeMaturityTicks`, `treeFruitCapacity`, `treeFruitRegrowthRate`,
+  `saplingChance`, `saplingSpreadRadius`, `crowdingRadius`, `baseDeathChancePerCheck`,
+  `crowdingDeathMultiplier`,
+  `treeCrowdingCheckIntervalTicks`.
+- God-mode: "Drop food R"/"Drop food B" brushes collapse into one "Plant tree" brush
+  (`intervention.ts`'s `DropFoodParams` loses `foodType`).
+- Determinism unchanged in kind: tree lifecycle (which sapling attempts succeed, which mature trees
+  die) is driven by the same shared `RNG` everything else uses.
+
+**Predation groundwork, documented now per Dan's request but NOT implemented until part B:** a
+predation attempt's success will start as odds weighted by the predator's and prey's relative size
+and speed — no new gene needed initially, reusing genes that already exist. But Dan wants room to
+later split this into dedicated `attackPower` and `escapePower` genes that only *correlate* with
+size/speed rather than being identical to them (e.g. a small creature could evolve low attack but
+very high escape). So the combat resolution function should be written now, when part B starts,
+against named seams — `effectiveAttackPower(genome)` / `effectiveEvasionPower(genome)` — that are
+thin wrappers over size/speed at first, so swapping their internals for real genes later doesn't
+touch any call site. Outcomes: kill, or escape (prey evades, no kill) — a third "outsmarting"
+dimension was floated and explicitly deferred, per Dan: "introduces more dimensions I'm not ready to
+deal with." Also worth carrying into part B's own design note: the original SPEC.md already warned
+predation "destabilizes population dynamics badly and can collapse a run to zero" (Optional Axis 4) —
+part B's design should address that directly, not discover it by watching a run collapse.
+
+**Implementation status (2026-08-12): built, real bugs found and fixed, one known gap left open
+deliberately rather than declared fixed.** Three real bugs surfaced during implementation, not
+just design refinements:
+1. Uncapped sapling growth trivially outpaced death pressure, growing the tree population without
+   bound and blowing a 5,000-tick determinism test's runtime from seconds to a 60s+ timeout. Fixed
+   with a hard `maxTreeCount` cap — the actual population-control backstop; crowding death is
+   flavor on top of it, not a substitute.
+2. `stepTrees` regrew every tree toward one shared `treeFruitCapacity` ceiling regardless of
+   whether it was planted rich or poor, silently erasing the bimodal capacity split after the
+   first regrowth tick. Fixed by giving `FruitTree` its own `capacity` field.
+3. Poor-tree cluster placement sampled a uniform *distance* with a uniform *angle*, which is
+   inherently radially peaked at the cluster center no matter how large the radius — so scaling
+   radius toward "collapsed" at `patchBimodality=0` never actually converged to uniform placement,
+   and the neutral-control test started detecting phantom speciation events. Fixed by making
+   `patchBimodality` a per-tree mixing *probability* (clustered vs. a fresh independent uniform
+   draw) instead of a continuously-scaled radius — this collapses exactly at 0, not asymptotically.
+
+**Known gap, left as `it.skip` with tracking comments, not silently "fixed":** point-source trees
+are a genuinely weaker disruptive-selection geometry for Axis 2 (foraging) than the old Gaussian
+patches were — a single tree, however "rich," has no footprint the way a patch spanning dozens of
+cells did. `axisIsolation.test.ts`'s "foraging axis in isolation" (and the two golden scenarios
+that depend on the same mechanism) don't reliably reproduce a clean split within reasonable ticks
+under the *isolated* single-axis test conditions (patchBimodality maxed, nursing zeroed, one exact
+seed) even after real tuning attempts (richTreeCount swept 40→8→4, rich/poor capacity contrast
+sharpened, cluster tightness increased). This needs the same kind of dedicated empirical tuning
+Addendum 3's original axis-isolation calibration took — not a quick parameter guess. **Important
+context, live-verified, so this isn't read as worse than it is:** under normal (non-isolated)
+default-params play, real sympatric speciation happens readily and looks healthy (three splits
+observed live within the first ~9,200 ticks of an ordinary run) — the gap is specifically the
+isolated-axis diagnostic tests, not the core "living, splitting tree" experience.

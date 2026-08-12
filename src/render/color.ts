@@ -30,15 +30,19 @@ function lifeHistoryAxisPosition(genome: Genome): number {
 
 /**
  * Fill color for a creature: a pure function of its genome, per the spec's color-encoding rules.
- * Hue = diet x foraging-strategy angle. Chroma = divergence from the founding centroid.
- * Lightness = life-history position. Converted through OkLCh so equal gene distance reads as
- * (roughly) equal visual distance, unlike raw sRGB channels.
+ * Hue = foraging-strategy position. Chroma = divergence from the founding centroid. Lightness =
+ * life-history position. Converted through OkLCh so equal gene distance reads as (roughly) equal
+ * visual distance, unlike raw sRGB channels.
+ *
+ * Hue used to be a 2D angle (diet x foraging, via atan2) before SPEC.md Addendum 6 removed the
+ * diet axis (dietPref/two food types) entirely — food is fruit-trees-only until predation
+ * reinstates a real diet trade-off. Mapping hue from foraging alone is an interim measure, not a
+ * redesign of the color scheme; revisit once part B (predation) gives diet real meaning again.
  */
 export function genotypeColor(genome: Genome, foundingCentroid: Genome, options: ColorOptions): string {
-  const dietAxis = normalizeGene("dietPref", genome.dietPref) * 2 - 1;
   const foragingAxis = foragingAxisPosition(genome);
 
-  let hueRad = Math.atan2(foragingAxis, dietAxis);
+  let hueRad = foragingAxis * Math.PI;
   if (options.deuteranopiaSafe) {
     hueRad = restrictToBlueOrangeArc(hueRad);
   }
@@ -93,8 +97,7 @@ export function okLchToCssRgb(L: number, C: number, hueRad: number): string {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-export const FOOD_R_COLOR = "#d9503d";
-export const FOOD_B_COLOR = "#3d7dd9";
+export const FRUIT_COLOR = "#4a9d3d";
 
 // A creature's genome never changes after birth (mutation only produces a new genome for its
 // children), and foundingCentroid is fixed for a SimState's lifetime — so its color is fixed

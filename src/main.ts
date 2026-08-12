@@ -109,10 +109,10 @@ const scatterCtx = scatterCanvas.getContext("2d")!;
 
 const runner = new SimRunner(12345);
 let activeView: ViewName = "world";
-let scatterXGene: keyof Genome = "dietPref";
+let scatterXGene: keyof Genome = "speed";
 let scatterYGene: keyof Genome = "senseRadius";
 let showCompetitionHeatmap = false;
-let traitChartGene: keyof Genome = "dietPref";
+let traitChartGene: keyof Genome = "speed";
 
 function setActiveView(view: ViewName): void {
   activeView = view;

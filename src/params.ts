@@ -5,8 +5,6 @@
  * dependency.
  */
 
-export type FoodMode = "patchy" | "gradient";
-
 export interface Params {
   // World geometry
   worldWidth: number;
@@ -20,23 +18,67 @@ export interface Params {
   baseEnergyCapacity: number;
   maxAge: number;
 
-  // Axis 1 — diet
-  maxGain: number;
-  specializationExponent: number;
+  // Foraging (energy from eating fruit — see sim/trees.ts for where the fruit comes from)
+  fruitGainPerUnit: number;
   intakeRate: number;
 
-  // Food / terrain patches (axis 2 — foraging strategy)
-  foodMode: FoodMode;
+  // Fruit trees (axis 2 — foraging strategy). The commuter-vs-camper trade-off needs bimodal food
+  // geometry (SPEC.md: "a few large, rich, widely-separated patches and many small, poor, densely
+  // scattered ones") — that geometry has nothing to do with the old R/B food-TYPE split it used to
+  // share a home with, so it survives here even though the diet axis (Addendum 6) doesn't.
+  //
+  // First attempt placed both groups as independent uniform-random points, no explicit
+  // clustering — that made patchBimodality=0 collapse cleanly, but empirically produced no
+  // detectable foraging-axis pressure at all: a single point-source tree has no "footprint" the
+  // way an old Gaussian patch did, so raw density alone (more poor trees than rich, same
+  // placement distribution) wasn't enough of a geometric contrast for senseRadius/wanderPersistence
+  // to pay off differently. Poor trees are now placed in explicit small clusters instead — a real
+  // "dense local field to sweep" a camper can actually exploit. The cluster radius itself is what
+  // interpolates with patchBimodality (tight cluster at 1, effectively map-wide/uncorrelated with
+  // its cluster center at 0), which is what keeps the neutral-control collapse property: at
+  // bimodality=0 a "cluster" is spread so wide it's statistically indistinguishable from
+  // independent uniform placement.
+  /** How many rich (high-capacity) trees the world starts with. */
+  richTreeCount: number;
+  /** How many poor (low-capacity) trees the world starts with, total across all clusters. */
+  poorTreeCount: number;
+  /** How many clusters poorTreeCount is split across. */
+  poorClusterCount: number;
+  /** How tight a cluster is at patchBimodality=1 — interpolated toward map-wide (uncorrelated) as
+   * patchBimodality drops to 0. */
+  poorClusterRadius: number;
+  /** 0 = poor trees are just as capacious AND just as loosely placed as rich ones (axis
+   * collapses); 1 = maximally different — same knob, same effect, as the old patchBimodality. */
   patchBimodality: number;
-  richPatchCount: number;
-  poorPatchCount: number;
-  richPatchRadius: number;
-  poorPatchRadius: number;
-  richPatchCapacity: number;
-  poorPatchCapacity: number;
-  baseCapacity: number;
-  ambientFoodFraction: number;
-  regrowthRate: number;
+  /** Ticks a sapling takes to become a fruit-producing mature tree. */
+  treeMaturityTicks: number;
+  /** Max fruit a single rich tree's cell can hold — a poor tree's is this interpolated down by
+   * patchBimodality (see initTrees). */
+  treeFruitCapacity: number;
+  /** Fraction of treeFruitCapacity a mature tree regrows per tick (same shape as the old uniform
+   * regrowthRate, now applied per-tree instead of per-cell). */
+  treeFruitRegrowthRate: number;
+  /** Odds that eating a tree's fruit plants a new sapling nearby. */
+  saplingChance: number;
+  /** How far from the eaten tree a new sapling can land. */
+  saplingSpreadRadius: number;
+  /** Hard cap on total tree count — sapling creation stops once hit. Necessary because sapling
+   * growth trivially outpaces crowding/base death at default rates (found via a real timeout: an
+   * uncapped population blew stepTrees's O(trees)-per-tick cost past all reason within a few
+   * thousand ticks) — this is the actual population-control backstop, crowding death is flavor
+   * on top of it, not a substitute for it. */
+  maxTreeCount: number;
+  /** Radius used to count neighboring trees for crowdedness (self-thinning) death pressure. */
+  crowdingRadius: number;
+  /** A mature tree's death odds per crowding check with zero neighbors — natural turnover even in
+   * sparse areas, not just a crowding penalty. */
+  baseDeathChancePerCheck: number;
+  /** Each neighboring tree within crowdingRadius multiplies death odds by (1 + this) — self-
+   * thinning: a tree deep in a dense stand dies much faster than an isolated one. */
+  crowdingDeathMultiplier: number;
+  /** Crowding death is an O(neighbors) check per tree — batched onto this cadence (same pattern as
+   * consumptionDecayIntervalTicks) rather than every tick for every tree. */
+  treeCrowdingCheckIntervalTicks: number;
 
   // Axis 3 — life history / temporal food cycling
   regrowthCyclePeriod: number;
@@ -115,21 +157,32 @@ export const DEFAULT_PARAMS: Params = {
   baseEnergyCapacity: 20,
   maxAge: 2000,
 
-  maxGain: 2,
-  specializationExponent: 2,
+  fruitGainPerUnit: 2,
   intakeRate: 0.5,
 
-  foodMode: "patchy",
+  // Initial values are a starting estimate, not yet play-tuned — expect these to move once trees
+  // are actually watched growing/dying/spreading in a real run, the same way nursingRatePerTick
+  // was tuned down from an initial 0.015 to 0.004 after observing its effect (SPEC.md Addendum 4).
+  // Bumped well above a naive "same tree count as old patch count" guess: individual point-source
+  // trees cover far less ground than the old Gaussian patches did (a patch's footprint spanned
+  // dozens of cells; a tree occupies one), so matching the old system's spatial food coverage
+  // needs many more of them — found empirically when the foraging-axis golden scenario stopped
+  // producing any disruptive pressure at the original lower counts.
+  richTreeCount: 4,
+  poorTreeCount: 200,
+  poorClusterCount: 25,
+  poorClusterRadius: 4,
   patchBimodality: 1.0,
-  richPatchCount: 4,
-  poorPatchCount: 10,
-  richPatchRadius: 3,
-  poorPatchRadius: 1.5,
-  richPatchCapacity: 1.2,
-  poorPatchCapacity: 0.6,
-  baseCapacity: 0.3,
-  ambientFoodFraction: 0,
-  regrowthRate: 0.05,
+  treeMaturityTicks: 300,
+  treeFruitCapacity: 3.0,
+  treeFruitRegrowthRate: 0.05,
+  saplingChance: 0.02,
+  saplingSpreadRadius: 12,
+  maxTreeCount: 350,
+  crowdingRadius: 20,
+  baseDeathChancePerCheck: 0.01,
+  crowdingDeathMultiplier: 0.15,
+  treeCrowdingCheckIntervalTicks: 20,
 
   regrowthCyclePeriod: 2000,
   regrowthCycleAmplitude: 0,
@@ -173,17 +226,21 @@ export interface WorldParams {
   worldWidth: number;
   worldHeight: number;
   gridCellSize: number;
-  foodMode: FoodMode;
+  richTreeCount: number;
+  poorTreeCount: number;
+  poorClusterCount: number;
+  poorClusterRadius: number;
   patchBimodality: number;
-  richPatchCount: number;
-  poorPatchCount: number;
-  richPatchRadius: number;
-  poorPatchRadius: number;
-  richPatchCapacity: number;
-  poorPatchCapacity: number;
-  baseCapacity: number;
-  ambientFoodFraction: number;
-  regrowthRate: number;
+  treeMaturityTicks: number;
+  treeFruitCapacity: number;
+  treeFruitRegrowthRate: number;
+  saplingChance: number;
+  saplingSpreadRadius: number;
+  maxTreeCount: number;
+  crowdingRadius: number;
+  baseDeathChancePerCheck: number;
+  crowdingDeathMultiplier: number;
+  treeCrowdingCheckIntervalTicks: number;
   regrowthCyclePeriod: number;
   regrowthCycleAmplitude: number;
 }
@@ -194,8 +251,7 @@ export interface EvolutionParams {
   senseCost: number;
   baseEnergyCapacity: number;
   maxAge: number;
-  maxGain: number;
-  specializationExponent: number;
+  fruitGainPerUnit: number;
   intakeRate: number;
   foundingPopulationSize: number;
 }
@@ -250,17 +306,21 @@ export function groupParams(p: Params): RunParams {
       worldWidth: p.worldWidth,
       worldHeight: p.worldHeight,
       gridCellSize: p.gridCellSize,
-      foodMode: p.foodMode,
+      richTreeCount: p.richTreeCount,
+      poorTreeCount: p.poorTreeCount,
+      poorClusterCount: p.poorClusterCount,
+      poorClusterRadius: p.poorClusterRadius,
       patchBimodality: p.patchBimodality,
-      richPatchCount: p.richPatchCount,
-      poorPatchCount: p.poorPatchCount,
-      richPatchRadius: p.richPatchRadius,
-      poorPatchRadius: p.poorPatchRadius,
-      richPatchCapacity: p.richPatchCapacity,
-      poorPatchCapacity: p.poorPatchCapacity,
-      baseCapacity: p.baseCapacity,
-      ambientFoodFraction: p.ambientFoodFraction,
-      regrowthRate: p.regrowthRate,
+      treeMaturityTicks: p.treeMaturityTicks,
+      treeFruitCapacity: p.treeFruitCapacity,
+      treeFruitRegrowthRate: p.treeFruitRegrowthRate,
+      saplingChance: p.saplingChance,
+      saplingSpreadRadius: p.saplingSpreadRadius,
+      maxTreeCount: p.maxTreeCount,
+      crowdingRadius: p.crowdingRadius,
+      baseDeathChancePerCheck: p.baseDeathChancePerCheck,
+      crowdingDeathMultiplier: p.crowdingDeathMultiplier,
+      treeCrowdingCheckIntervalTicks: p.treeCrowdingCheckIntervalTicks,
       regrowthCyclePeriod: p.regrowthCyclePeriod,
       regrowthCycleAmplitude: p.regrowthCycleAmplitude,
     },
@@ -270,8 +330,7 @@ export function groupParams(p: Params): RunParams {
       senseCost: p.senseCost,
       baseEnergyCapacity: p.baseEnergyCapacity,
       maxAge: p.maxAge,
-      maxGain: p.maxGain,
-      specializationExponent: p.specializationExponent,
+      fruitGainPerUnit: p.fruitGainPerUnit,
       intakeRate: p.intakeRate,
       foundingPopulationSize: p.foundingPopulationSize,
     },

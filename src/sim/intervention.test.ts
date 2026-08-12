@@ -87,23 +87,25 @@ describe("barrierStamp", () => {
   });
 });
 
-describe("dropFood", () => {
-  it("increases both capacity and current amount near the target point", () => {
+describe("plantTree", () => {
+  it("adds count new mature trees near the target point, with fruit filled at their cells", () => {
     const { state, rng } = createSimState(1, DEFAULT_PARAMS);
     const params = DEFAULT_PARAMS;
     const x = params.worldWidth / 2;
     const y = params.worldHeight / 2;
-    const gx = Math.floor(x / params.gridCellSize);
-    const gy = Math.floor(y / params.gridCellSize);
-    const idx = gy * state.evolution.world.cols + gx;
+    const before = state.evolution.trees.trees.length;
 
-    const beforeCapacity = state.evolution.world.capacityR[idx];
-    const beforeAmount = state.evolution.world.r[idx];
+    applyIntervention(state.evolution, rng, params, { tick: 0, tool: "plantTree", params: { x, y, radius: 8, count: 5 } });
 
-    applyIntervention(state.evolution, rng, params, { tick: 0, tool: "dropFood", params: { x, y, radius: 8, foodType: 0, density: 5 } });
-
-    expect(state.evolution.world.capacityR[idx]).toBeGreaterThan(beforeCapacity);
-    expect(state.evolution.world.r[idx]).toBeGreaterThan(beforeAmount);
+    expect(state.evolution.trees.trees.length).toBe(before + 5);
+    const planted = state.evolution.trees.trees.slice(before);
+    for (const tree of planted) {
+      expect(tree.maturedTick).toBe(0);
+      const gx = Math.floor(tree.x / params.gridCellSize);
+      const gy = Math.floor(tree.y / params.gridCellSize);
+      const idx = gy * state.evolution.world.cols + gx;
+      expect(state.evolution.world.fruit[idx]).toBeCloseTo(params.treeFruitCapacity * state.evolution.terrain.fertility[idx]);
+    }
   });
 });
 
@@ -117,7 +119,7 @@ describe("drought / bloom", () => {
     const gy = Math.floor(y / params.gridCellSize);
     const idx = gy * state.evolution.world.cols + gx;
 
-    state.evolution.world.r[idx] = 0;
+    state.evolution.world.fruit[idx] = 0;
     applyIntervention(state.evolution, rng, params, { tick: 0, tool: "drought", params: { x, y, radius: 8, multiplier: 0, durationTicks: 50 } });
 
     processRegrowthOverrides(state.evolution, 0);

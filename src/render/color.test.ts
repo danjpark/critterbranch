@@ -57,7 +57,7 @@ describe("genotypeColor", () => {
     };
 
     const centroidSpread = channelSpread(genotypeColor(centroid, centroid, DEFAULT_COLOR_OPTIONS));
-    const divergentGenome: Genome = { ...centroid, dietPref: 0, speed: 3.0, senseRadius: 0, wanderPersistence: 1 };
+    const divergentGenome: Genome = { ...centroid, speed: 3.0, senseRadius: 0, wanderPersistence: 1 };
     const divergentSpread = channelSpread(genotypeColor(divergentGenome, centroid, DEFAULT_COLOR_OPTIONS));
 
     expect(centroidSpread).toBeLessThan(divergentSpread);
@@ -66,7 +66,7 @@ describe("genotypeColor", () => {
   it("changes output when deuteranopiaSafe is toggled for a genome with a strong hue signal", () => {
     const rng = new RNG(5);
     const centroid = randomGenome(rng);
-    const genome: Genome = { ...centroid, dietPref: 1, speed: 0.2, senseRadius: 20, wanderPersistence: 0 };
+    const genome: Genome = { ...centroid, speed: 0.2, senseRadius: 20, wanderPersistence: 0 };
 
     const normal = genotypeColor(genome, centroid, { ...DEFAULT_COLOR_OPTIONS, deuteranopiaSafe: false });
     const safe = genotypeColor(genome, centroid, { ...DEFAULT_COLOR_OPTIONS, deuteranopiaSafe: true });
@@ -86,7 +86,7 @@ describe("cachedGenotypeColor", () => {
 
   it("picks up a changed option even for a previously-cached creature", () => {
     const rng = new RNG(9);
-    const genome: Genome = { ...randomGenome(rng), dietPref: 1, speed: 0.2, senseRadius: 20, wanderPersistence: 0 };
+    const genome: Genome = { ...randomGenome(rng), speed: 0.2, senseRadius: 20, wanderPersistence: 0 };
     const centroid = randomGenome(rng);
     const creature = createCreature({ id: 2, parentId: null, lineageId: 0, genome, x: 0, y: 0, energy: 1, birthTick: 0, rng });
 

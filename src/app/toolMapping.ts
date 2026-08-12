@@ -58,10 +58,8 @@ export function resolveToolApplication(
       return { kind: "apply", tool: "raiseTerrain", params: { x, y, radius: brush.radius, strength: brush.strength * 2 } };
     case "lowerTerrain":
       return { kind: "apply", tool: "lowerTerrain", params: { x, y, radius: brush.radius, strength: brush.strength * 2 } };
-    case "dropFoodR":
-      return { kind: "apply", tool: "dropFood", params: { x, y, radius: brush.radius, foodType: 0, density: brush.strength * 4 } };
-    case "dropFoodB":
-      return { kind: "apply", tool: "dropFood", params: { x, y, radius: brush.radius, foodType: 1, density: brush.strength * 4 } };
+    case "plantTree":
+      return { kind: "apply", tool: "plantTree", params: { x, y, radius: brush.radius, count: brush.seedCount } };
     case "drought":
       return {
         kind: "apply",

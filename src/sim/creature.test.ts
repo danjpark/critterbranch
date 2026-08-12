@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createCreature, energyCapacity, gainPerUnit, isReadyToReproduce, metabolicCost, reproduce } from "./creature.ts";
+import { createCreature, energyCapacity, isReadyToReproduce, metabolicCost, reproduce } from "./creature.ts";
 import { GENE_RANGES, randomGenome, type Genome } from "./genome.ts";
 import { RNG } from "./rng.ts";
 import { DEFAULT_PARAMS } from "../params.ts";
@@ -36,29 +36,8 @@ describe("metabolicCost", () => {
   });
 });
 
-describe("gainPerUnit", () => {
-  it("gives the maximum gain to a perfectly-matched specialist", () => {
-    const params = DEFAULT_PARAMS;
-    expect(gainPerUnit(0, 0, params)).toBeCloseTo(params.maxGain);
-    expect(gainPerUnit(1, 1, params)).toBeCloseTo(params.maxGain);
-  });
-
-  it("gives zero gain for the opposite food type", () => {
-    const params = DEFAULT_PARAMS;
-    expect(gainPerUnit(0, 1, params)).toBeCloseTo(0);
-    expect(gainPerUnit(1, 0, params)).toBeCloseTo(0);
-  });
-
-  it("penalizes a generalist below the average of the two specialists when specializationExponent > 1", () => {
-    // This is the mechanism the whole diet axis depends on (see SPEC.md Axis 1) — assert it
-    // directly rather than only observing it indirectly through population-level bimodality.
-    const params = { ...DEFAULT_PARAMS, specializationExponent: 2 };
-    const generalistGain = gainPerUnit(0.5, 0, params);
-    const rSpecialistGain = gainPerUnit(0, 0, params);
-    const bSpecialistGain = gainPerUnit(1, 1, params);
-    expect(generalistGain).toBeLessThan((rSpecialistGain + bSpecialistGain) / 2);
-  });
-});
+// gainPerUnit's tests lived here — removed along with the function itself (SPEC.md Addendum 6):
+// there's only one food type now, so there's no specialization curve to test.
 
 describe("isReadyToReproduce / reproduce", () => {
   it("is not ready below its reproThreshold fraction of capacity", () => {

@@ -10,7 +10,7 @@ export interface TerraformBudgetState {
 export const TERRAFORM_COSTS: Record<Intervention["tool"], number> = {
   raiseTerrain: 5,
   lowerTerrain: 5,
-  dropFood: 8,
+  plantTree: 8,
   drought: 10,
   bloom: 10,
   barrierStamp: 10,

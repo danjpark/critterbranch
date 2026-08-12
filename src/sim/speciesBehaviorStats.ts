@@ -5,14 +5,10 @@
  * periodic pass rather than every tick, pruned once a species' trace becomes negligible (catches
  * extinct species instead of leaving an ever-growing tail of all-but-zero entries).
  *
- * Diet is tracked here as two non-spatial running totals (R/B), separate from ConsumptionGrid's
- * per-cell totals — SpeciesProfile only ever needs a species' aggregate diet *composition*, not
- * where on the map it was eating, so this avoids doubling ConsumptionGrid's per-cell memory cost
- * for data nothing reads spatially.
+ * Used to also track diet (R/B food-type share) here, removed by SPEC.md Addendum 6 along with
+ * the diet trade-off axis itself — see game/observability/speciesProfile.ts's history for that.
  */
 export interface SpeciesBehaviorAccumulator {
-  dietR: number;
-  dietB: number;
   births: number;
   deaths: number;
   /** Sum of `creature.age` at the moment of death, across every death recorded — divide by
@@ -25,7 +21,7 @@ export interface SpeciesBehaviorStats {
 }
 
 function zeroAccumulator(): SpeciesBehaviorAccumulator {
-  return { dietR: 0, dietB: 0, births: 0, deaths: 0, sumAgeAtDeath: 0 };
+  return { births: 0, deaths: 0, sumAgeAtDeath: 0 };
 }
 
 export function initSpeciesBehaviorStats(): SpeciesBehaviorStats {
@@ -47,13 +43,6 @@ function getOrCreate(stats: SpeciesBehaviorStats, lineageId: number): SpeciesBeh
   return acc;
 }
 
-export function recordDiet(stats: SpeciesBehaviorStats, lineageId: number, foodType: 0 | 1, amount: number): void {
-  if (amount <= 0) return;
-  const acc = getOrCreate(stats, lineageId);
-  if (foodType === 0) acc.dietR += amount;
-  else acc.dietB += amount;
-}
-
 export function recordBirth(stats: SpeciesBehaviorStats, lineageId: number): void {
   getOrCreate(stats, lineageId).births += 1;
 }
@@ -73,18 +62,10 @@ const PRUNE_THRESHOLD = 1e-4;
  * have elapsed since the last decay pass — see sim.ts, batched the same way decayConsumption is. */
 export function decaySpeciesBehaviorStats(stats: SpeciesBehaviorStats, retention: number): void {
   for (const [speciesId, acc] of stats.bySpecies) {
-    acc.dietR *= retention;
-    acc.dietB *= retention;
     acc.births *= retention;
     acc.deaths *= retention;
     acc.sumAgeAtDeath *= retention;
-    if (
-      acc.dietR < PRUNE_THRESHOLD &&
-      acc.dietB < PRUNE_THRESHOLD &&
-      acc.births < PRUNE_THRESHOLD &&
-      acc.deaths < PRUNE_THRESHOLD &&
-      acc.sumAgeAtDeath < PRUNE_THRESHOLD
-    ) {
+    if (acc.births < PRUNE_THRESHOLD && acc.deaths < PRUNE_THRESHOLD && acc.sumAgeAtDeath < PRUNE_THRESHOLD) {
       stats.bySpecies.delete(speciesId);
     }
   }

@@ -20,72 +20,11 @@ export function createBiodiversityObjective(minSpecies = 4): GameObjective {
   };
 }
 
-/**
- * dietPref (a gene already aggregated per-species as Species.centroid) is the existing biology
- * that determines realized diet: gainPerUnit() in sim/creature.ts pays off food type R at
- * (1-dietPref)^k and food type B at dietPref^k, so a centroid near 0 or 1 means a species is
- * realistically extracting most of its calories from a single food type. Using the centroid
- * directly — rather than building new per-species consumption-by-food-type tracking — is the
- * "smallest possible observation extension" the roadmap calls for at this milestone; real
- * calorie-share tracking is Milestone 2's SpeciesProfile.
- */
-function mostDietSpecializedLivingSpecies(
-  context: GameEvaluationContext,
-  minPopulation: number,
-): { speciesId: number; distanceFromBalanced: number } | null {
-  let best: { speciesId: number; distanceFromBalanced: number } | null = null;
-  for (const species of context.sim.state.observations.taxonomy.species.values()) {
-    if (species.extinctTick !== null || species.memberCount < minPopulation) continue;
-    const distanceFromBalanced = Math.abs(species.centroid.dietPref - 0.5);
-    if (!best || distanceFromBalanced > best.distanceFromBalanced) {
-      best = { speciesId: species.id, distanceFromBalanced };
-    }
-  }
-  return best;
-}
-
-/** Produce a species whose diet strongly favors one food type over the other. */
-export function createDietarySpecialistObjective(minPopulation = 20, threshold = 0.3): GameObjective {
-  return {
-    id: "dietary-specialist",
-    description: "Produce a species whose diet strongly favors one food type.",
-    evaluate(context: GameEvaluationContext): ObjectiveProgress {
-      const best = mostDietSpecializedLivingSpecies(context, minPopulation);
-      const complete = best !== null && best.distanceFromBalanced >= threshold;
-      return {
-        complete,
-        currentValue: best?.distanceFromBalanced ?? 0,
-        targetValue: threshold,
-        message: complete ? `Species ${best!.speciesId} specializes in one food type.` : undefined,
-      };
-    },
-  };
-}
-
-/** Produce a species that draws roughly balanced calories from both food types. */
-export function createDietaryGeneralistObjective(minPopulation = 20, threshold = 0.15): GameObjective {
-  return {
-    id: "dietary-generalist",
-    description: "Produce a species whose diet draws roughly evenly from both food types.",
-    evaluate(context: GameEvaluationContext): ObjectiveProgress {
-      let best: { speciesId: number; distanceFromBalanced: number } | null = null;
-      for (const species of context.sim.state.observations.taxonomy.species.values()) {
-        if (species.extinctTick !== null || species.memberCount < minPopulation) continue;
-        const distanceFromBalanced = Math.abs(species.centroid.dietPref - 0.5);
-        if (!best || distanceFromBalanced < best.distanceFromBalanced) {
-          best = { speciesId: species.id, distanceFromBalanced };
-        }
-      }
-      const complete = best !== null && best.distanceFromBalanced <= threshold;
-      return {
-        complete,
-        currentValue: best?.distanceFromBalanced ?? Infinity,
-        targetValue: threshold,
-        message: complete ? `Species ${best!.speciesId} generalizes across both food types.` : undefined,
-      };
-    },
-  };
-}
+// createDietarySpecialistObjective/createDietaryGeneralistObjective lived here until SPEC.md
+// Addendum 6 removed the diet trade-off axis (dietPref, two food types) entirely in favor of
+// single-food-type fruit trees — "dietary specialist/generalist" has no meaning without a second
+// food source to specialize against. Reinstate once part B (predation/meat) gives diet real
+// meaning again, reshaped around fruit-vs-meat preference rather than R-vs-B.
 
 /** Cause a geography-driven (allopatric) speciation event — a barrier separating two populations. */
 export function createGeographicSpeciationObjective(): GameObjective {

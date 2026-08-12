@@ -51,8 +51,8 @@ describe("updateTaxonomy", () => {
   });
 
   it("splits into two species when two well-separated, spatially-overlapping clusters exist (sympatric)", () => {
-    const dietA = Array.from({ length: 10 }, (_, i) => makeCreature(i, makeGenome({ dietPref: 0.02 }), 50, 50));
-    const dietB = Array.from({ length: 10 }, (_, i) => makeCreature(i + 100, makeGenome({ dietPref: 0.98 }), 52, 50));
+    const dietA = Array.from({ length: 10 }, (_, i) => makeCreature(i, makeGenome({ offspringInvestment: 0.02 }), 50, 50));
+    const dietB = Array.from({ length: 10 }, (_, i) => makeCreature(i + 100, makeGenome({ offspringInvestment: 0.98 }), 52, 50));
     const members = [...dietA, ...dietB];
     const taxonomy = initTaxonomy(members, 0);
     // Flat terrain: no barrier anywhere, so any split found here can't be allopatric.
@@ -67,13 +67,13 @@ describe("updateTaxonomy", () => {
     expect(events[0].type).toBe("speciation");
     if (events[0].type === "speciation") {
       expect(events[0].event.mechanism).toBe("sympatric");
-      expect(events[0].event.dominantDivergentGene).toBe("dietPref");
+      expect(events[0].event.dominantDivergentGene).toBe("offspringInvestment");
 
       // The event carries the raw evidence its mechanism tag was inferred from, not just the
       // label -- enough to independently see *why* this got called sympatric: no barrier, and
       // plenty of founders on both sides (so not a drift/founder-effect signature either).
       const { evidence } = events[0].event;
-      expect(evidence.dominantDivergentGene).toBe("dietPref");
+      expect(evidence.dominantDivergentGene).toBe("offspringInvestment");
       expect(evidence.founderCount).toBe(10);
       expect(evidence.geneticSeparation).toBeGreaterThan(DEFAULT_PARAMS.speciationThreshold);
       expect(evidence.minimumBarrierPassability).toBeGreaterThanOrEqual(DEFAULT_PARAMS.allopatricPassabilityThreshold);
@@ -81,7 +81,7 @@ describe("updateTaxonomy", () => {
     expect(taxonomy.species.size).toBe(2);
     // The species registry carries the same evidence, not just the transient event.
     const spinoffSpecies = Array.from(taxonomy.species.values()).find((s) => s.id !== 0);
-    expect(spinoffSpecies?.originEvidence?.dominantDivergentGene).toBe("dietPref");
+    expect(spinoffSpecies?.originEvidence?.dominantDivergentGene).toBe("offspringInvestment");
   });
 
   it("tags a split as allopatric when a low-passability barrier separates the clusters", () => {
@@ -98,8 +98,8 @@ describe("updateTaxonomy", () => {
     // Positioned close enough to the wall (x=100) that it's genuinely on their shortest path —
     // worldWidth is 200, so x=20/x=180 would actually be *closer* via wraparound (40 apart) than
     // through this wall (160 apart), which would make the wall irrelevant to them on a true torus.
-    const left = Array.from({ length: 10 }, (_, i) => makeCreature(i, makeGenome({ dietPref: 0.02, speed: 0.3 }), 70, 100));
-    const right = Array.from({ length: 10 }, (_, i) => makeCreature(i + 100, makeGenome({ dietPref: 0.98, speed: 0.3 }), 130, 100));
+    const left = Array.from({ length: 10 }, (_, i) => makeCreature(i, makeGenome({ offspringInvestment: 0.02, speed: 0.3 }), 70, 100));
+    const right = Array.from({ length: 10 }, (_, i) => makeCreature(i + 100, makeGenome({ offspringInvestment: 0.98, speed: 0.3 }), 130, 100));
     state.evolution.creatures = [...left, ...right];
     const taxonomy = initTaxonomy(state.evolution.creatures, 0);
 
@@ -145,8 +145,8 @@ describe("updateTaxonomy", () => {
 
 describe("speciation persistence/hysteresis", () => {
   it("a split that appears for one pass and disappears never becomes a species", () => {
-    const dietA = Array.from({ length: 10 }, (_, i) => makeCreature(i, makeGenome({ dietPref: 0.02 }), 50, 50));
-    const dietB = Array.from({ length: 10 }, (_, i) => makeCreature(i + 100, makeGenome({ dietPref: 0.98 }), 52, 50));
+    const dietA = Array.from({ length: 10 }, (_, i) => makeCreature(i, makeGenome({ offspringInvestment: 0.02 }), 50, 50));
+    const dietB = Array.from({ length: 10 }, (_, i) => makeCreature(i + 100, makeGenome({ offspringInvestment: 0.98 }), 52, 50));
     const bimodal = [...dietA, ...dietB];
     const tight = Array.from({ length: 20 }, (_, i) => makeCreature(i, makeGenome({}), 50, 50));
     const terrain = generateTerrain(new RNG(1), { ...DEFAULT_PARAMS, terrainHillCount: 0 }, 50, 50);
@@ -164,8 +164,8 @@ describe("speciation persistence/hysteresis", () => {
   });
 
   it("a pending candidate that never gets re-confirmed times out and is dropped, not left pending forever", () => {
-    const dietA = Array.from({ length: 10 }, (_, i) => makeCreature(i, makeGenome({ dietPref: 0.02 }), 50, 50));
-    const dietB = Array.from({ length: 10 }, (_, i) => makeCreature(i + 100, makeGenome({ dietPref: 0.98 }), 52, 50));
+    const dietA = Array.from({ length: 10 }, (_, i) => makeCreature(i, makeGenome({ offspringInvestment: 0.02 }), 50, 50));
+    const dietB = Array.from({ length: 10 }, (_, i) => makeCreature(i + 100, makeGenome({ offspringInvestment: 0.98 }), 52, 50));
     const bimodal = [...dietA, ...dietB];
     const tight = Array.from({ length: 20 }, (_, i) => makeCreature(i, makeGenome({}), 50, 50));
     const terrain = generateTerrain(new RNG(1), { ...DEFAULT_PARAMS, terrainHillCount: 0 }, 50, 50);
@@ -202,12 +202,12 @@ describe("Phase 4 milestone: hand-raised barrier produces a detected, logged all
     applyIntervention(state.evolution, rng, params, {
       tick: 0,
       tool: "seedFounders",
-      params: { x: 70, y: 100, spreadRadius: 15, count: 15, genome: makeGenome({ dietPref: 0.05, speed: 0.4 }) },
+      params: { x: 70, y: 100, spreadRadius: 15, count: 15, genome: makeGenome({ offspringInvestment: 0.05, speed: 0.4 }) },
     });
     applyIntervention(state.evolution, rng, params, {
       tick: 0,
       tool: "seedFounders",
-      params: { x: 130, y: 100, spreadRadius: 15, count: 15, genome: makeGenome({ dietPref: 0.95, speed: 0.4 }) },
+      params: { x: 130, y: 100, spreadRadius: 15, count: 15, genome: makeGenome({ offspringInvestment: 0.95, speed: 0.4 }) },
     });
 
     let foundAllopatricSplit = false;

@@ -22,32 +22,30 @@ describe("mutate", () => {
     for (let i = 0; i < 500; i++) {
       genome = mutate({ ...genome, mutationRate: 0.2 }, rng);
     }
-    expect(genome.dietPref).toBeGreaterThanOrEqual(0);
-    expect(genome.dietPref).toBeLessThanOrEqual(1);
     expect(genome.speed).toBeGreaterThanOrEqual(0.2);
     expect(genome.speed).toBeLessThanOrEqual(3.0);
   });
 });
 
 describe("sampleTraits", () => {
-  function withDietPref(value: number): Genome {
+  function withWanderPersistence(value: number): Genome {
     const rng = new RNG(1);
-    return { ...randomGenome(rng), dietPref: value };
+    return { ...randomGenome(rng), wanderPersistence: value };
   }
 
   it("reports zero std when every individual shares the same value for a gene", () => {
-    const genomes = [withDietPref(0.5), withDietPref(0.5), withDietPref(0.5)];
+    const genomes = [withWanderPersistence(0.5), withWanderPersistence(0.5), withWanderPersistence(0.5)];
     const sample = sampleTraits(genomes, 100);
     expect(sample.tick).toBe(100);
-    expect(sample.mean.dietPref).toBeCloseTo(0.5);
-    expect(sample.std.dietPref).toBeCloseTo(0);
+    expect(sample.mean.wanderPersistence).toBeCloseTo(0.5);
+    expect(sample.std.wanderPersistence).toBeCloseTo(0);
   });
 
   it("computes the population std, not the sample (n-1) std", () => {
     // Two clusters at 0.2 and 0.8: mean 0.5, population variance = mean((x-0.5)^2) = 0.09, std = 0.3.
-    const genomes = [withDietPref(0.2), withDietPref(0.2), withDietPref(0.8), withDietPref(0.8)];
+    const genomes = [withWanderPersistence(0.2), withWanderPersistence(0.2), withWanderPersistence(0.8), withWanderPersistence(0.8)];
     const sample = sampleTraits(genomes, 0);
-    expect(sample.mean.dietPref).toBeCloseTo(0.5);
-    expect(sample.std.dietPref).toBeCloseTo(0.3);
+    expect(sample.mean.wanderPersistence).toBeCloseTo(0.5);
+    expect(sample.std.wanderPersistence).toBeCloseTo(0.3);
   });
 });

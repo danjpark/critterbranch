@@ -2,6 +2,7 @@ import { createCreature, energyCapacity } from "./creature.ts";
 import { type Genome, randomGenome } from "./genome.ts";
 import type { RNG } from "./rng.ts";
 import type { EvolutionState } from "./sim.ts";
+import { cellIndexAt } from "./trees.ts";
 import { clamp, clamp01, lerp, torDelta, wrap } from "./util.ts";
 import type { Params } from "../params.ts";
 
@@ -23,12 +24,11 @@ export interface BarrierStampParams {
   formationTicks: number;
 }
 
-export interface DropFoodParams {
+export interface PlantTreeParams {
   x: number;
   y: number;
   radius: number;
-  foodType: 0 | 1;
-  density: number;
+  count: number;
 }
 
 export interface DroughtBloomParams {
@@ -59,7 +59,7 @@ export type Intervention =
   | { tick: number; tool: "raiseTerrain"; params: RaiseLowerTerrainParams }
   | { tick: number; tool: "lowerTerrain"; params: RaiseLowerTerrainParams }
   | { tick: number; tool: "barrierStamp"; params: BarrierStampParams }
-  | { tick: number; tool: "dropFood"; params: DropFoodParams }
+  | { tick: number; tool: "plantTree"; params: PlantTreeParams }
   | { tick: number; tool: "drought"; params: DroughtBloomParams }
   | { tick: number; tool: "bloom"; params: DroughtBloomParams }
   | { tick: number; tool: "meteor"; params: MeteorParams }
@@ -177,17 +177,17 @@ function applyBarrierStamp(state: EvolutionState, params: Params, p: BarrierStam
   });
 }
 
-function applyDropFood(state: EvolutionState, params: Params, p: DropFoodParams): void {
-  const { indices, distances } = cellsWithinRadius(state.world.cols, state.world.rows, params.gridCellSize, p.x, p.y, p.radius);
-  const gridRadius = p.radius / params.gridCellSize;
-  const capacityArr = p.foodType === 0 ? state.world.capacityR : state.world.capacityB;
-  const currentArr = p.foodType === 0 ? state.world.r : state.world.b;
-
-  for (let i = 0; i < indices.length; i++) {
-    const idx = indices[i];
-    const added = p.density * gaussianFalloff(distances[i], gridRadius);
-    capacityArr[idx] += added;
-    currentArr[idx] = Math.min(capacityArr[idx], currentArr[idx] + added);
+/** Plants `count` new, already-mature trees scattered within `radius` of (x, y) — the god-mode
+ * replacement for the old two-food-type "drop food" brush (see SPEC.md Addendum 6). */
+function applyPlantTree(state: EvolutionState, params: Params, rng: RNG, p: PlantTreeParams, currentTick: number): void {
+  for (let i = 0; i < p.count; i++) {
+    const angle = rng.nextRange(0, Math.PI * 2);
+    const dist = rng.nextRange(0, p.radius);
+    const x = wrap(p.x + Math.cos(angle) * dist, params.worldWidth);
+    const y = wrap(p.y + Math.sin(angle) * dist, params.worldHeight);
+    state.trees.trees.push({ id: state.trees.nextId++, x, y, plantedTick: currentTick, maturedTick: currentTick, capacity: params.treeFruitCapacity });
+    const idx = cellIndexAt(x, y, params, state.world);
+    state.world.fruit[idx] = params.treeFruitCapacity * state.terrain.fertility[idx];
   }
 }
 
@@ -277,8 +277,8 @@ export function applyIntervention(state: EvolutionState, rng: RNG, params: Param
     case "barrierStamp":
       applyBarrierStamp(state, params, intervention.params, intervention.tick);
       return;
-    case "dropFood":
-      applyDropFood(state, params, intervention.params);
+    case "plantTree":
+      applyPlantTree(state, params, rng, intervention.params, intervention.tick);
       return;
     case "drought":
     case "bloom":

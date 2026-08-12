@@ -40,13 +40,9 @@ describe("consumption grid", () => {
 });
 
 describe("species behavior stats", () => {
-  it("accumulates diet, and tracks distanceTraveled on living creatures, as the sim runs", () => {
+  it("tracks distanceTraveled on living creatures as the sim runs", () => {
     const { state, rng } = createSimState(7, DEFAULT_PARAMS);
     for (let i = 0; i < 200; i++) tick(state, rng, DEFAULT_PARAMS);
-
-    const founderAcc = state.observations.speciesBehavior.bySpecies.get(0);
-    expect(founderAcc).toBeDefined();
-    expect(founderAcc!.dietR + founderAcc!.dietB).toBeGreaterThan(0);
 
     expect(state.evolution.creatures.length).toBeGreaterThan(0);
     expect(state.evolution.creatures.some((c) => c.distanceTraveled > 0)).toBe(true);

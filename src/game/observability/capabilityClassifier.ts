@@ -1,9 +1,6 @@
 import type { PopulationBaseline, SpeciesProfile } from "./speciesProfile.ts";
 
 export type CapabilityLabel =
-  | "dietary-generalist"
-  | "dietary-specialist-r"
-  | "dietary-specialist-b"
   | "highland-adapted"
   | "lowland-adapted"
   | "fast-mover"
@@ -27,20 +24,18 @@ export interface Capability {
   evidence: string;
 }
 
-// A species with this many living members or more counts as "well-sampled" (confidence 1).
-// Anchored a bit above standardObjectives.ts's existing minPopulation=20 diet-objective gate,
-// which already treats 20 as enough population to trust a dietPref-centroid reading.
+// A species with this many living members or more counts as "well-sampled" (confidence 1) —
+// somewhat arbitrary, picked as a round number comfortably above the population sizes small
+// founder-effect splits tend to produce.
 const CONFIDENCE_SATURATION_MEMBER_COUNT = 30;
 
 function memberConfidence(memberCount: number): number {
   return Math.min(1, memberCount / CONFIDENCE_SATURATION_MEMBER_COUNT);
 }
 
-// Matches standardObjectives.ts's existing createDietaryGeneralistObjective/
-// createDietarySpecialistObjective thresholds (0.15 / 0.3) exactly, so a species that clears the
-// game's own generalist/specialist objective is guaranteed to also carry the matching label here.
-const DIET_GENERALIST_THRESHOLD = 0.15;
-const DIET_SPECIALIST_THRESHOLD = 0.3;
+// Used to also have dietary-generalist/specialist-r/specialist-b labels here — removed by
+// SPEC.md Addendum 6 along with the diet trade-off axis itself (one food type now, fruit trees).
+// Reinstate once part B (predation/meat) gives diet real meaning again.
 
 const HIGHLAND_MOUNTAIN_SHARE = 0.3;
 const LOWLAND_SHARE = 0.7;
@@ -58,26 +53,6 @@ const VOLATILITY_FRAGILE = 0.4;
 export function classifySpecies(profile: SpeciesProfile, baseline: PopulationBaseline): Capability[] {
   const confidence = memberConfidence(profile.memberCount);
   const capabilities: Capability[] = [];
-
-  const dietDistance = Math.abs(profile.diet.rShare - 0.5);
-  if (profile.diet.totalConsumed > 1e-6) {
-    if (dietDistance <= DIET_GENERALIST_THRESHOLD) {
-      capabilities.push({
-        label: "dietary-generalist",
-        displayName: "Dietary Generalist",
-        confidence,
-        evidence: `Draws ${(profile.diet.rShare * 100).toFixed(0)}% of intake from food R, ${((1 - profile.diet.rShare) * 100).toFixed(0)}% from food B.`,
-      });
-    } else if (dietDistance >= DIET_SPECIALIST_THRESHOLD) {
-      const favorsR = profile.diet.rShare > 0.5;
-      capabilities.push({
-        label: favorsR ? "dietary-specialist-r" : "dietary-specialist-b",
-        displayName: favorsR ? "Dietary Specialist (R)" : "Dietary Specialist (B)",
-        confidence,
-        evidence: `Draws ${(Math.max(profile.diet.rShare, 1 - profile.diet.rShare) * 100).toFixed(0)}% of intake from a single food type.`,
-      });
-    }
-  }
 
   if (profile.habitat.mountainShare >= HIGHLAND_MOUNTAIN_SHARE) {
     capabilities.push({

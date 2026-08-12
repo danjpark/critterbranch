@@ -3,8 +3,8 @@ import { recordConsumption } from "./consumption.ts";
 import { mutate, type Genome } from "./genome.ts";
 import type { Params } from "../params.ts";
 import type { RNG } from "./rng.ts";
-import { recordDiet, type SpeciesBehaviorStats } from "./speciesBehaviorStats.ts";
 import type { TerrainGrid } from "./terrain.ts";
+import { trySeedSapling, type TreeState } from "./trees.ts";
 import { torDelta, torDist, wrap, lerp } from "./util.ts";
 import type { World } from "./world.ts";
 
@@ -73,27 +73,13 @@ export function metabolicCost(genome: Genome, params: Params): number {
   );
 }
 
-/** Energy yield per unit of food type `f` (0 = R, 1 = B) for a given diet preference. */
-export function gainPerUnit(dietPref: number, foodType: 0 | 1, params: Params): number {
-  return params.maxGain * Math.pow(1 - Math.abs(dietPref - foodType), params.specializationExponent);
-}
-
 interface SenseResult {
   x: number;
   y: number;
   score: number;
 }
 
-/** rGain/bGain are passed in rather than recomputed here — they only depend on dietPref, not position. */
-function senseFood(
-  creature: Creature,
-  world: World,
-  params: Params,
-  worldWidth: number,
-  worldHeight: number,
-  rGain: number,
-  bGain: number,
-): SenseResult | null {
+function senseFood(creature: Creature, world: World, params: Params, worldWidth: number, worldHeight: number): SenseResult | null {
   const cellSize = params.gridCellSize;
   const cx = Math.floor(creature.x / cellSize);
   const cy = Math.floor(creature.y / cellSize);
@@ -110,14 +96,9 @@ function senseFood(
       const dist = torDist(creature.x, creature.y, cellCenterX, cellCenterY, worldWidth, worldHeight);
       if (dist > creature.genome.senseRadius) continue;
 
-      const rAmt = world.r[idx];
-      const bAmt = world.b[idx];
-      if (rAmt > 1e-3) {
-        const score = (rAmt * rGain) / (dist + 1);
-        if (!best || score > best.score) best = { x: cellCenterX, y: cellCenterY, score };
-      }
-      if (bAmt > 1e-3) {
-        const score = (bAmt * bGain) / (dist + 1);
+      const amt = world.fruit[idx];
+      if (amt > 1e-3) {
+        const score = amt / (dist + 1);
         if (!best || score > best.score) best = { x: cellCenterX, y: cellCenterY, score };
       }
     }
@@ -130,17 +111,16 @@ export function stepCreature(
   creature: Creature,
   world: World,
   terrain: TerrainGrid,
+  treeState: TreeState,
   rng: RNG,
   params: Params,
+  tick: number,
   consumptionGrid: ConsumptionGrid | null = null,
-  behaviorStats: SpeciesBehaviorStats | null = null,
 ): void {
   const worldWidth = world.cols * params.gridCellSize;
   const worldHeight = world.rows * params.gridCellSize;
-  const rGain = gainPerUnit(creature.genome.dietPref, 0, params);
-  const bGain = gainPerUnit(creature.genome.dietPref, 1, params);
 
-  const target = senseFood(creature, world, params, worldWidth, worldHeight, rGain, bGain);
+  const target = senseFood(creature, world, params, worldWidth, worldHeight);
   if (target) {
     const dx = torDelta(target.x, creature.x, worldWidth);
     const dy = torDelta(target.y, creature.y, worldHeight);
@@ -167,19 +147,13 @@ export function stepCreature(
   const idx =
     wrap(Math.floor(creature.y / params.gridCellSize), world.rows) * world.cols +
     wrap(Math.floor(creature.x / params.gridCellSize), world.cols);
-  const rTake = Math.min(world.r[idx], params.intakeRate);
-  const bTake = Math.min(world.b[idx], params.intakeRate);
+  const take = Math.min(world.fruit[idx], params.intakeRate);
 
-  if (rTake * rGain >= bTake * bGain && rTake > 0) {
-    world.r[idx] -= rTake;
-    creature.energy += rTake * rGain;
-    if (consumptionGrid) recordConsumption(consumptionGrid, creature.lineageId, idx, rTake);
-    if (behaviorStats) recordDiet(behaviorStats, creature.lineageId, 0, rTake);
-  } else if (bTake > 0) {
-    world.b[idx] -= bTake;
-    creature.energy += bTake * bGain;
-    if (consumptionGrid) recordConsumption(consumptionGrid, creature.lineageId, idx, bTake);
-    if (behaviorStats) recordDiet(behaviorStats, creature.lineageId, 1, bTake);
+  if (take > 0) {
+    world.fruit[idx] -= take;
+    creature.energy += take * params.fruitGainPerUnit;
+    if (consumptionGrid) recordConsumption(consumptionGrid, creature.lineageId, idx, take);
+    trySeedSapling(treeState, creature.x, creature.y, rng, params, tick, world);
   }
 
   creature.age += 1;

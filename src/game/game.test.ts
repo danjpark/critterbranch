@@ -82,7 +82,7 @@ describe("challenge mode determinism", () => {
       // runSimulationFromConfig's replay loop (ticks < totalTicks, matching tick()'s own
       // before-this-tick semantics), which isn't what this test is checking.
       applyTerraformCommand(game, "raiseTerrain", { x: 50, y: 50, radius: 20, strength: 0.5 });
-      applyTerraformCommand(game, "dropFood", { x: 80, y: 80, radius: 10, foodType: 0, density: 2 });
+      applyTerraformCommand(game, "plantTree", { x: 80, y: 80, radius: 10, count: 3 });
       applyTerraformCommand(game, "lowerTerrain", { x: 30, y: 30, radius: 15, strength: 0.3 });
       advanceGameEra(game);
       continueToTerraform(game);
@@ -99,7 +99,7 @@ describe("challenge mode determinism", () => {
     expect(hashState(gameA.sim.state)).toBe(hashState(gameB.sim.state));
     expect(gameA.budget).toEqual(gameB.budget);
     expect(gameA.gameState).toEqual(gameB.gameState);
-    expect(gameA.budget!.remaining).toBe(100 - 5 - 8 - 5); // raiseTerrain + dropFood + lowerTerrain costs
+    expect(gameA.budget!.remaining).toBe(100 - 5 - 8 - 5); // raiseTerrain + plantTree + lowerTerrain costs
 
     // And the underlying sim state matches an independent, config-driven replay too, exactly
     // like the sandbox test above -- proving the sim layer doesn't know or care that this was a

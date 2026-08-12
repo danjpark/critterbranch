@@ -5,23 +5,16 @@ import { createSimState } from "../../sim/sim.ts";
 import type { PopulationSample, Species } from "../../sim/taxonomy.ts";
 import { createGameState } from "../gameState.ts";
 import type { GameEvaluationContext } from "./objective.ts";
-import {
-  createBiodiversityObjective,
-  createDietaryGeneralistObjective,
-  createDietarySpecialistObjective,
-  createDisasterRecoveryObjective,
-  createGeographicSpeciationObjective,
-} from "./standardObjectives.ts";
+import { createBiodiversityObjective, createDisasterRecoveryObjective, createGeographicSpeciationObjective } from "./standardObjectives.ts";
 
-function genome(dietPref: number): Genome {
+function genome(offspringInvestment: number): Genome {
   return {
-    dietPref,
     speed: 1,
     senseRadius: 5,
     wanderPersistence: 0.5,
     size: 1,
     reproThreshold: 0.6,
-    offspringInvestment: 0.5,
+    offspringInvestment,
     nursingDuration: 0,
     mutationRate: 0.05,
   };
@@ -68,44 +61,8 @@ describe("createBiodiversityObjective", () => {
   });
 });
 
-describe("createDietarySpecialistObjective", () => {
-  it("completes when a sufficiently populous species has a skewed diet centroid", () => {
-    const ctx = context();
-    const obj = createDietarySpecialistObjective(20, 0.3);
-    ctx.sim.state.observations.taxonomy.species.set(1, species({ id: 1, centroid: genome(0.92), memberCount: 25 }));
-    expect(obj.evaluate(ctx).complete).toBe(true);
-  });
-
-  it("ignores a skewed species below the population threshold", () => {
-    const ctx = context();
-    const obj = createDietarySpecialistObjective(20, 0.3);
-    ctx.sim.state.observations.taxonomy.species.set(1, species({ id: 1, centroid: genome(0.95), memberCount: 5 }));
-    expect(obj.evaluate(ctx).complete).toBe(false);
-  });
-
-  it("does not complete for a balanced diet", () => {
-    const ctx = context();
-    const obj = createDietarySpecialistObjective(20, 0.3);
-    ctx.sim.state.observations.taxonomy.species.set(1, species({ id: 1, centroid: genome(0.5), memberCount: 25 }));
-    expect(obj.evaluate(ctx).complete).toBe(false);
-  });
-});
-
-describe("createDietaryGeneralistObjective", () => {
-  it("completes when a sufficiently populous species has a balanced diet centroid", () => {
-    const ctx = context();
-    const obj = createDietaryGeneralistObjective(20, 0.15);
-    ctx.sim.state.observations.taxonomy.species.set(1, species({ id: 1, centroid: genome(0.48), memberCount: 25 }));
-    expect(obj.evaluate(ctx).complete).toBe(true);
-  });
-
-  it("does not complete for a skewed diet", () => {
-    const ctx = context();
-    const obj = createDietaryGeneralistObjective(20, 0.15);
-    ctx.sim.state.observations.taxonomy.species.set(1, species({ id: 1, centroid: genome(0.9), memberCount: 25 }));
-    expect(obj.evaluate(ctx).complete).toBe(false);
-  });
-});
+// createDietarySpecialistObjective/createDietaryGeneralistObjective tests lived here — removed
+// along with the objectives themselves (SPEC.md Addendum 6, no diet trade-off axis left to test).
 
 describe("createGeographicSpeciationObjective", () => {
   it("completes once an allopatric speciation event has occurred", () => {
@@ -120,7 +77,7 @@ describe("createGeographicSpeciationObjective", () => {
         speciesId: 1,
         parentId: 0,
         mechanism: "allopatric",
-        dominantDivergentGene: "dietPref",
+        dominantDivergentGene: "offspringInvestment",
         founderCount: 10,
         evidence: {
           geneticSeparation: 0.5,
@@ -128,7 +85,7 @@ describe("createGeographicSpeciationObjective", () => {
           spatialSeparation: 100,
           founderCount: 10,
           divergenceDominanceRatio: 0.6,
-          dominantDivergentGene: "dietPref",
+          dominantDivergentGene: "offspringInvestment",
         },
       },
     });
@@ -145,7 +102,7 @@ describe("createGeographicSpeciationObjective", () => {
         speciesId: 1,
         parentId: 0,
         mechanism: "sympatric",
-        dominantDivergentGene: "dietPref",
+        dominantDivergentGene: "offspringInvestment",
         founderCount: 10,
         evidence: {
           geneticSeparation: 0.5,
@@ -153,7 +110,7 @@ describe("createGeographicSpeciationObjective", () => {
           spatialSeparation: 5,
           founderCount: 10,
           divergenceDominanceRatio: 0.6,
-          dominantDivergentGene: "dietPref",
+          dominantDivergentGene: "offspringInvestment",
         },
       },
     });

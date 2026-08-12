@@ -2,7 +2,6 @@ import type { RNG } from "./rng.ts";
 import { clamp } from "./util.ts";
 
 export interface Genome {
-  dietPref: number;
   speed: number;
   senseRadius: number;
   wanderPersistence: number;
@@ -17,7 +16,6 @@ export interface Genome {
 }
 
 export const GENE_KEYS = [
-  "dietPref",
   "speed",
   "senseRadius",
   "wanderPersistence",
@@ -29,7 +27,6 @@ export const GENE_KEYS = [
 ] as const satisfies readonly (keyof Genome)[];
 
 export const GENE_RANGES: Record<keyof Genome, [number, number]> = {
-  dietPref: [0, 1],
   speed: [0.2, 3.0],
   senseRadius: [0, 20],
   wanderPersistence: [0, 1],
@@ -64,7 +61,6 @@ export function mutate(genome: Genome, rng: RNG): Genome {
 
 /** Weights used when combining per-gene distance into one scalar (genotype-color chroma, later taxonomy). */
 export const GENE_WEIGHTS: Record<keyof Genome, number> = {
-  dietPref: 1.0,
   speed: 1.0,
   senseRadius: 1.0,
   wanderPersistence: 0.6,

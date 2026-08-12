@@ -1,4 +1,4 @@
-import { type ColorOptions, FOOD_B_COLOR, FOOD_R_COLOR, genotypeColor } from "../render/color.ts";
+import { type ColorOptions, FRUIT_COLOR, genotypeColor } from "../render/color.ts";
 import type { Creature } from "../sim/creature.ts";
 import type { GeneFlowSample } from "../sim/geneFlow.ts";
 import { GENE_KEYS, type Genome, type TraitSample } from "../sim/genome.ts";
@@ -18,8 +18,7 @@ export type GodTool =
   | "raiseTerrain"
   | "lowerTerrain"
   | "barrierStamp"
-  | "dropFoodR"
-  | "dropFoodB"
+  | "plantTree"
   | "drought"
   | "bloom"
   | "meteor"
@@ -29,8 +28,7 @@ const GOD_TOOL_LABELS: Record<GodTool, string> = {
   raiseTerrain: "Raise terrain",
   lowerTerrain: "Lower terrain",
   barrierStamp: "Barrier (click twice)",
-  dropFoodR: "Drop food R",
-  dropFoodB: "Drop food B",
+  plantTree: "Plant tree",
   drought: "Drought",
   bloom: "Bloom",
   meteor: "Meteor",
@@ -41,8 +39,7 @@ const GOD_TOOL_HINTS: Record<GodTool, string> = {
   raiseTerrain: "Click the map to raise terrain there.",
   lowerTerrain: "Click the map to lower terrain there.",
   barrierStamp: "Click one point, then another — draws a barrier between them.",
-  dropFoodR: "Click the map to add food (type R) there.",
-  dropFoodB: "Click the map to add food (type B) there.",
+  plantTree: "Click the map to plant new fruit trees there.",
   drought: "Click a region to suppress its regrowth for a while.",
   bloom: "Click a region to boost its regrowth for a while.",
   meteor: "Click to strike — kills everything in range and craters the ground. Undo below if you regret it.",
@@ -53,8 +50,7 @@ const GOD_TOOLS: GodTool[] = [
   "raiseTerrain",
   "lowerTerrain",
   "barrierStamp",
-  "dropFoodR",
-  "dropFoodB",
+  "plantTree",
   "drought",
   "bloom",
   "meteor",
@@ -413,9 +409,8 @@ export function createLegend(): HTMLElement {
   root.append(sectionTitle("Legend"));
 
   const entries: [HTMLElement, string][] = [
-    [squareSwatch(FOOD_R_COLOR), "Food, type R — square size shows how much is left there"],
-    [squareSwatch(FOOD_B_COLOR), "Food, type B — same, other food type"],
-    [dotSwatch(), "A creature — dot color encodes its genome (diet, foraging style, life history). Click one to inspect it."],
+    [squareSwatch(FRUIT_COLOR), "Fruit — square size shows how much is left there. Comes from trees, which grow, spread, and die on their own."],
+    [dotSwatch(), "A creature — dot color encodes its genome (foraging style, life history). Click one to inspect it."],
   ];
   for (const [swatch, text] of entries) {
     const row = document.createElement("div");

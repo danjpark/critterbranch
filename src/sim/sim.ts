@@ -32,7 +32,8 @@ import {
   updateTaxonomy,
 } from "./taxonomy.ts";
 import { generateTerrain, type TerrainGrid } from "./terrain.ts";
-import { generateWorld, regrowFood, type World } from "./world.ts";
+import { cloneTreeState, initTrees, stepTrees, type TreeState } from "./trees.ts";
+import { initWorld, type World } from "./world.ts";
 import { flattenParams, type Params } from "../params.ts";
 
 /** How often dense observation history gets compacted (see historyRetention.ts) — a purely
@@ -51,6 +52,7 @@ export interface EvolutionState {
   creatures: Creature[];
   world: World;
   terrain: TerrainGrid;
+  trees: TreeState;
   /** Mean genome of the founding population — fixed reference point for genotype-color chroma. */
   foundingCentroid: Genome;
   /** In-progress god-mode effects (barrier formation, crater recovery), processed once per tick. */
@@ -111,7 +113,8 @@ export function createSimState(seed: number, params: Params): SimInstance {
   const rows = Math.round(params.worldHeight / params.gridCellSize);
 
   const terrain = generateTerrain(rng, params, cols, rows);
-  const world = generateWorld(rng, params, terrain);
+  const world = initWorld(cols, rows);
+  const trees = initTrees(rng, params, terrain, world);
 
   const creatures: Creature[] = [];
   let nextId = 0;
@@ -146,6 +149,7 @@ export function createSimState(seed: number, params: Params): SimInstance {
         creatures,
         world,
         terrain,
+        trees,
         foundingCentroid,
         activeTransitions: [],
         activeRegrowthOverrides: [],
@@ -177,7 +181,7 @@ export function tick(state: SimState, rng: RNG, params: Params): void {
   // tick's.
   processActiveTransitions(evo, evo.tick);
   processRegrowthOverrides(evo, evo.tick);
-  regrowFood(evo.world, evo.terrain, evo.tick, params);
+  stepTrees(evo.trees, evo.world, evo.terrain, rng, params, evo.tick);
   if (evo.tick % params.consumptionDecayIntervalTicks === 0) {
     const retention = params.consumptionRetentionPerTick ** params.consumptionDecayIntervalTicks;
     decayConsumption(obs.consumptionGrid, retention);
@@ -188,7 +192,7 @@ export function tick(state: SimState, rng: RNG, params: Params): void {
   const allocateId = () => evo.nextId++;
 
   for (const creature of evo.creatures) {
-    stepCreature(creature, evo.world, evo.terrain, rng, params, obs.consumptionGrid, obs.speciesBehavior);
+    stepCreature(creature, evo.world, evo.terrain, evo.trees, rng, params, evo.tick, obs.consumptionGrid);
 
     if (isReadyToReproduce(creature, params)) {
       const children = reproduce(creature, rng, params, evo.tick, allocateId);
@@ -253,10 +257,7 @@ export function cloneSimState(state: SimState): SimState {
       world: {
         cols: evo.world.cols,
         rows: evo.world.rows,
-        r: evo.world.r.slice(),
-        b: evo.world.b.slice(),
-        capacityR: evo.world.capacityR.slice(),
-        capacityB: evo.world.capacityB.slice(),
+        fruit: evo.world.fruit.slice(),
         regrowthModifier: evo.world.regrowthModifier.slice(),
       },
       terrain: {
@@ -267,6 +268,7 @@ export function cloneSimState(state: SimState): SimState {
         fertility: evo.terrain.fertility.slice(),
         revision: evo.terrain.revision,
       },
+      trees: cloneTreeState(evo.trees),
       foundingCentroid: { ...evo.foundingCentroid },
       activeTransitions: evo.activeTransitions.map((t) => ({
         ...t,

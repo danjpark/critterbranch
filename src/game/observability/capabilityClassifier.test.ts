@@ -6,7 +6,6 @@ function profile(overrides: Partial<SpeciesProfile> = {}): SpeciesProfile {
   return {
     speciesId: 0,
     memberCount: 30,
-    diet: { rShare: 0.5, totalConsumed: 10 },
     habitat: { lowlandShare: 1, hillShare: 0, mountainShare: 0 },
     movement: { averageRealizedSpeed: 1 },
     reproduction: { birthsPerCapita: 0.1, deathsPerCapita: 0.1, averageLifespanAtDeath: null },
@@ -21,31 +20,9 @@ function labelsOf(profile: SpeciesProfile, baseline = neutralBaseline) {
   return classifySpecies(profile, baseline).map((c) => c.label);
 }
 
-describe("classifySpecies — diet", () => {
-  it("labels a near-balanced diet as generalist", () => {
-    expect(labelsOf(profile({ diet: { rShare: 0.45, totalConsumed: 10 } }))).toContain("dietary-generalist");
-  });
-
-  it("labels a heavily R-skewed diet as specialist-r", () => {
-    expect(labelsOf(profile({ diet: { rShare: 0.9, totalConsumed: 10 } }))).toContain("dietary-specialist-r");
-  });
-
-  it("labels a heavily B-skewed diet as specialist-b", () => {
-    expect(labelsOf(profile({ diet: { rShare: 0.1, totalConsumed: 10 } }))).toContain("dietary-specialist-b");
-  });
-
-  it("assigns no diet label in the ambiguous middle zone", () => {
-    const labels = labelsOf(profile({ diet: { rShare: 0.65, totalConsumed: 10 } }));
-    expect(labels).not.toContain("dietary-generalist");
-    expect(labels).not.toContain("dietary-specialist-r");
-    expect(labels).not.toContain("dietary-specialist-b");
-  });
-
-  it("assigns no diet label when nothing has been consumed yet", () => {
-    const labels = labelsOf(profile({ diet: { rShare: 0.5, totalConsumed: 0 } }));
-    expect(labels).not.toContain("dietary-generalist");
-  });
-});
+// "classifySpecies — diet" tests lived here — removed along with the dietary-generalist/
+// specialist-r/specialist-b labels themselves (SPEC.md Addendum 6, no diet trade-off axis left
+// to classify).
 
 describe("classifySpecies — habitat", () => {
   it("labels a species mostly found on mountain terrain as highland-adapted", () => {
@@ -99,8 +76,8 @@ describe("classifySpecies — survival", () => {
 
 describe("classifySpecies — confidence", () => {
   it("scales confidence down for a thinly-populated species", () => {
-    const thin = classifySpecies(profile({ memberCount: 3, diet: { rShare: 0.5, totalConsumed: 10 } }), neutralBaseline);
-    const wellSampled = classifySpecies(profile({ memberCount: 100, diet: { rShare: 0.5, totalConsumed: 10 } }), neutralBaseline);
+    const thin = classifySpecies(profile({ memberCount: 3, habitat: { lowlandShare: 0, hillShare: 0, mountainShare: 0.8 } }), neutralBaseline);
+    const wellSampled = classifySpecies(profile({ memberCount: 100, habitat: { lowlandShare: 0, hillShare: 0, mountainShare: 0.8 } }), neutralBaseline);
     expect(thin[0].confidence).toBeLessThan(wellSampled[0].confidence);
     expect(wellSampled[0].confidence).toBe(1);
   });
@@ -108,7 +85,6 @@ describe("classifySpecies — confidence", () => {
   it("every emitted capability carries non-empty evidence", () => {
     const capabilities = classifySpecies(
       profile({
-        diet: { rShare: 0.9, totalConsumed: 10 },
         habitat: { lowlandShare: 0, hillShare: 0, mountainShare: 0.8 },
         movement: { averageRealizedSpeed: 3 },
         reproduction: { birthsPerCapita: 0.3, deathsPerCapita: 0.1, averageLifespanAtDeath: 500 },

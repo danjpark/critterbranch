@@ -3,7 +3,7 @@ import type { SimState } from "../sim/sim.ts";
 import type { TerrainGrid } from "../sim/terrain.ts";
 import { clamp01, lerp, torDelta } from "../sim/util.ts";
 import type { Params } from "../params.ts";
-import { cachedGenotypeColor, type ColorOptions, FOOD_B_COLOR, FOOD_R_COLOR } from "./color.ts";
+import { cachedGenotypeColor, type ColorOptions, FRUIT_COLOR } from "./color.ts";
 import { CONTOUR_LINE_COLOR, elevationBand, type ElevationBand, terrainCellColor } from "./terrainPalette.ts";
 
 export interface RenderOptions {
@@ -22,7 +22,7 @@ export function renderWorld(ctx: CanvasRenderingContext2D, state: SimState, para
 
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
   ctx.drawImage(getTerrainLayer(state.evolution.terrain, params, scaleX, scaleY, canvasWidth, canvasHeight), 0, 0);
-  drawFood(ctx, state, params, scaleX, scaleY);
+  drawFruit(ctx, state, params, scaleX, scaleY);
   drawCreatures(ctx, state, options, scaleX, scaleY);
 }
 
@@ -110,28 +110,23 @@ function paintElevationContours(ctx: CanvasRenderingContext2D, terrain: TerrainG
   ctx.stroke();
 }
 
-/** Food keeps a fixed, distinct visual language: small squares in fixed R/B colors, sized by true abundance. */
-function drawFood(ctx: CanvasRenderingContext2D, state: SimState, params: Params, scaleX: number, scaleY: number): void {
+/** Fruit keeps a fixed, distinct visual language: small squares in a fixed color, sized by true abundance. */
+function drawFruit(ctx: CanvasRenderingContext2D, state: SimState, params: Params, scaleX: number, scaleY: number): void {
   const { world } = state.evolution;
   const cellW = params.gridCellSize * scaleX;
   const cellH = params.gridCellSize * scaleY;
 
-  // Size against the richest a cell can ever be (a rich patch's peak), not against each cell's
-  // own capacity. Sizing locally made a nearly-empty ambient cell (tiny capacity, but "full"
-  // relative to itself) render identically to a brimming rich patch — food looked uniform
-  // everywhere because every square was answering "how full is this spot" instead of "how much
-  // food is actually here."
-  const referenceCapacity = Math.max(params.richPatchCapacity, 1e-6);
+  // Size against a tree's max possible fruit, not each cell's own capacity — see the old R/B
+  // version of this function for why sizing locally (relative to a cell's own tiny capacity)
+  // makes near-empty cells read as visually "full."
+  const referenceCapacity = Math.max(params.treeFruitCapacity, 1e-6);
   const minVisibleAmount = referenceCapacity * 0.02;
 
+  ctx.fillStyle = FRUIT_COLOR;
   for (let y = 0; y < world.rows; y++) {
     for (let x = 0; x < world.cols; x++) {
       const idx = y * world.cols + x;
-      const rAmt = world.r[idx];
-      const bAmt = world.b[idx];
-
-      const dominantIsR = rAmt >= bAmt;
-      const amt = dominantIsR ? rAmt : bAmt;
+      const amt = world.fruit[idx];
       if (amt < minVisibleAmount) continue;
 
       const frac = clamp01(amt / referenceCapacity);
@@ -139,7 +134,6 @@ function drawFood(ctx: CanvasRenderingContext2D, state: SimState, params: Params
       const cx = x * cellW + cellW / 2;
       const cy = y * cellH + cellH / 2;
 
-      ctx.fillStyle = dominantIsR ? FOOD_R_COLOR : FOOD_B_COLOR;
       ctx.fillRect(cx - size / 2, cy - size / 2, size, size);
     }
   }

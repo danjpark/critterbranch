@@ -4,7 +4,7 @@ import { createCreature } from "../../sim/creature.ts";
 import { randomGenome, type Genome } from "../../sim/genome.ts";
 import { RNG } from "../../sim/rng.ts";
 import { createSimState, tick } from "../../sim/sim.ts";
-import { recordBirth, recordDeath, recordDiet } from "../../sim/speciesBehaviorStats.ts";
+import { recordBirth, recordDeath } from "../../sim/speciesBehaviorStats.ts";
 import type { Species } from "../../sim/taxonomy.ts";
 import { computeSpeciesProfiles, getSpeciesProfile } from "./speciesProfile.ts";
 
@@ -38,29 +38,8 @@ function creatureAt(id: number, lineageId: number, x: number, y: number, distanc
 }
 
 describe("computeSpeciesProfiles", () => {
-  it("computes diet share from decayed behavior stats, not the dietPref gene", () => {
-    const sim = createSimState(1, DEFAULT_PARAMS);
-    sim.state.observations.taxonomy.species.clear();
-    sim.state.observations.taxonomy.species.set(0, species({ id: 0, memberCount: 1 }));
-    sim.state.evolution.creatures = [creatureAt(0, 0, 0, 0, 0, 10)];
-    recordDiet(sim.state.observations.speciesBehavior, 0, 0, 3);
-    recordDiet(sim.state.observations.speciesBehavior, 0, 1, 1);
-
-    const profile = getSpeciesProfile(computeSpeciesProfiles(sim), 0)!;
-    expect(profile.diet.rShare).toBeCloseTo(0.75);
-    expect(profile.diet.totalConsumed).toBeCloseTo(4);
-  });
-
-  it("reports a neutral 0.5 diet share when no intake has been recorded", () => {
-    const sim = createSimState(1, DEFAULT_PARAMS);
-    sim.state.observations.taxonomy.species.clear();
-    sim.state.observations.taxonomy.species.set(0, species({ id: 0, memberCount: 1 }));
-    sim.state.evolution.creatures = [creatureAt(0, 0, 0, 0, 0, 10)];
-
-    const profile = getSpeciesProfile(computeSpeciesProfiles(sim), 0)!;
-    expect(profile.diet.rShare).toBe(0.5);
-    expect(profile.diet.totalConsumed).toBe(0);
-  });
+  // Diet-share tests lived here — removed along with SpeciesProfile.diet itself (SPEC.md
+  // Addendum 6, no diet trade-off axis left to measure).
 
   it("computes realized speed as distanceTraveled/age, averaged across living members", () => {
     const sim = createSimState(1, DEFAULT_PARAMS);

@@ -17,11 +17,15 @@ export function hashState(state: SimState): string {
   const speciesSnapshot = Array.from(observations.taxonomy.species.values())
     .sort((a, b) => a.id - b.id)
     .map((s) => [s.id, s.parentId, s.originTick, s.extinctTick, s.mechanism, s.memberCount, JSON.stringify(s.centroid)]);
+  const treeSnapshot = evolution.trees.trees
+    .slice()
+    .sort((a, b) => a.id - b.id)
+    .map((t) => [t.id, t.x.toFixed(6), t.y.toFixed(6), t.plantedTick, t.maturedTick]);
   const payload = JSON.stringify({
     tick: evolution.tick,
     creatures: creatureSnapshot,
-    r: Array.from(evolution.world.r),
-    b: Array.from(evolution.world.b),
+    fruit: Array.from(evolution.world.fruit),
+    trees: treeSnapshot,
     elevation: Array.from(evolution.terrain.elevation),
     passability: Array.from(evolution.terrain.passability),
     fertility: Array.from(evolution.terrain.fertility),
