@@ -3,7 +3,8 @@ import { DEFAULT_PARAMS } from "../params.ts";
 import { createRunConfig } from "../sim/runConfig.ts";
 import { runSimulationFromConfig } from "../sim/sim.ts";
 import { hashState } from "../sim/testHash.ts";
-import { advanceGameEra, continueToTerraform, createGame } from "./game.ts";
+import type { ChallengeDefinition } from "./challenges/challenge.ts";
+import { advanceGameEra, continueToTerraform, createGame, type Game } from "./game.ts";
 import type { GameEvaluationContext, GameObjective, ObjectiveProgress } from "./objectives/objective.ts";
 import { applyTerraformCommand } from "./terraform.ts";
 
@@ -60,5 +61,51 @@ describe("full headless lifecycle", () => {
     const replayed = runSimulationFromConfig(runConfig, game.sim.state.evolution.tick);
 
     expect(hashState(replayed)).toBe(hashState(game.sim.state));
+  });
+});
+
+describe("challenge mode determinism", () => {
+  it("replaying the same terraform actions against a fresh game reproduces identical sim state AND budget", () => {
+    const seed = 42;
+    const challenge: ChallengeDefinition = {
+      id: "t",
+      name: "t",
+      runConfig: createRunConfig(seed, DEFAULT_PARAMS, []),
+      objectives: [],
+      terraformBudget: 100,
+    };
+
+    function playThrough(): Game {
+      const game = createGame({ mode: "challenge", seed, params: DEFAULT_PARAMS, eraConfig: TEST_ERA_CONFIG, challenge });
+      // All three interventions recorded at tick 0, well before the era's final tick — an
+      // intervention recorded at exactly totalTicks would be excluded by
+      // runSimulationFromConfig's replay loop (ticks < totalTicks, matching tick()'s own
+      // before-this-tick semantics), which isn't what this test is checking.
+      applyTerraformCommand(game, "raiseTerrain", { x: 50, y: 50, radius: 20, strength: 0.5 });
+      applyTerraformCommand(game, "dropFood", { x: 80, y: 80, radius: 10, foodType: 0, density: 2 });
+      applyTerraformCommand(game, "lowerTerrain", { x: 30, y: 30, radius: 15, strength: 0.3 });
+      advanceGameEra(game);
+      continueToTerraform(game);
+      return game;
+    }
+
+    const gameA = playThrough();
+    const gameB = playThrough();
+
+    // Not just the raw sim state -- the game-layer bookkeeping (budget, era) that makes this a
+    // "challenge" must reconstruct identically too, since that's what M1's replay guarantee
+    // actually needs to cover for challenge mode specifically (sandbox mode has no budget to
+    // diverge on, which is why this needed its own test).
+    expect(hashState(gameA.sim.state)).toBe(hashState(gameB.sim.state));
+    expect(gameA.budget).toEqual(gameB.budget);
+    expect(gameA.gameState).toEqual(gameB.gameState);
+    expect(gameA.budget!.remaining).toBe(100 - 5 - 8 - 5); // raiseTerrain + dropFood + lowerTerrain costs
+
+    // And the underlying sim state matches an independent, config-driven replay too, exactly
+    // like the sandbox test above -- proving the sim layer doesn't know or care that this was a
+    // "challenge."
+    const runConfig = createRunConfig(gameA.sim.seed, gameA.sim.params, gameA.sim.interventionLog);
+    const replayed = runSimulationFromConfig(runConfig, gameA.sim.state.evolution.tick);
+    expect(hashState(replayed)).toBe(hashState(gameA.sim.state));
   });
 });
