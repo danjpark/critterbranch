@@ -3,6 +3,7 @@ import { recordConsumption } from "./consumption.ts";
 import { mutate, type Genome } from "./genome.ts";
 import type { Params } from "../params.ts";
 import type { RNG } from "./rng.ts";
+import { recordDiet, type SpeciesBehaviorStats } from "./speciesBehaviorStats.ts";
 import type { TerrainGrid } from "./terrain.ts";
 import { torDelta, torDist, wrap, lerp } from "./util.ts";
 import type { World } from "./world.ts";
@@ -21,6 +22,11 @@ export interface Creature {
   /** Tick at which this creature stops receiving ongoing nursing from parentId (see
    * sim/nursing.ts). Meaningless when parentId is null (founders are never nursed). */
   nursingUntilTick: number;
+  /** Cumulative straight-line distance actually traveled (world units), incremented in
+   * stepCreature's move step. Lifetime total, not windowed — game/observability's SpeciesProfile
+   * (Addendum 5) divides this by age to get a realized-speed measurement per creature, which is
+   * self-normalizing without needing any decay/reset logic here. */
+  distanceTraveled: number;
 }
 
 export interface NewCreatureOptions {
@@ -51,6 +57,7 @@ export function createCreature(options: NewCreatureOptions): Creature {
     age: 0,
     birthTick: options.birthTick,
     nursingUntilTick: options.nursingUntilTick ?? options.birthTick,
+    distanceTraveled: 0,
   };
 }
 
@@ -126,6 +133,7 @@ export function stepCreature(
   rng: RNG,
   params: Params,
   consumptionGrid: ConsumptionGrid | null = null,
+  behaviorStats: SpeciesBehaviorStats | null = null,
 ): void {
   const worldWidth = world.cols * params.gridCellSize;
   const worldHeight = world.rows * params.gridCellSize;
@@ -152,6 +160,7 @@ export function stepCreature(
   const travel = creature.genome.speed * passability;
   creature.x = wrap(creature.x + Math.cos(creature.heading) * travel, worldWidth);
   creature.y = wrap(creature.y + Math.sin(creature.heading) * travel, worldHeight);
+  creature.distanceTraveled += travel;
 
   creature.energy -= metabolicCost(creature.genome, params);
 
@@ -165,10 +174,12 @@ export function stepCreature(
     world.r[idx] -= rTake;
     creature.energy += rTake * rGain;
     if (consumptionGrid) recordConsumption(consumptionGrid, creature.lineageId, idx, rTake);
+    if (behaviorStats) recordDiet(behaviorStats, creature.lineageId, 0, rTake);
   } else if (bTake > 0) {
     world.b[idx] -= bTake;
     creature.energy += bTake * bGain;
     if (consumptionGrid) recordConsumption(consumptionGrid, creature.lineageId, idx, bTake);
+    if (behaviorStats) recordDiet(behaviorStats, creature.lineageId, 1, bTake);
   }
 
   creature.age += 1;

@@ -6,6 +6,14 @@ import { compactHistory, DEFAULT_HISTORY_RETENTION } from "./historyRetention.ts
 import { applyNursing } from "./nursing.ts";
 import type { RunConfig } from "./runConfig.ts";
 import {
+  cloneSpeciesBehaviorStats,
+  decaySpeciesBehaviorStats,
+  initSpeciesBehaviorStats,
+  recordBirth,
+  recordDeath,
+  type SpeciesBehaviorStats,
+} from "./speciesBehaviorStats.ts";
+import {
   applyIntervention,
   type FieldTransition,
   type Intervention,
@@ -70,6 +78,10 @@ export interface ObservationState {
   consumptionGrid: ConsumptionGrid;
   /** Population mean +/- std per gene over time — the trait time-series chart's data source. */
   traitHistory: TraitSample[];
+  /** Per-species decaying diet/birth/death accumulators — game/observability's SpeciesProfile
+   * (SPEC.md Addendum 5) data source for demonstrated (not genotype-proxied) diet composition and
+   * reproduction rate/lifespan. */
+  speciesBehavior: SpeciesBehaviorStats;
 }
 
 export interface SimState {
@@ -145,6 +157,7 @@ export function createSimState(seed: number, params: Params): SimInstance {
         populationHistory: [samplePopulation(taxonomy, 0)],
         consumptionGrid: initConsumptionGrid(cols, rows),
         traitHistory: creatures.length > 0 ? [sampleTraits(creatures.map((c) => c.genome), 0)] : [],
+        speciesBehavior: initSpeciesBehaviorStats(),
       },
     },
     rng,
@@ -166,21 +179,27 @@ export function tick(state: SimState, rng: RNG, params: Params): void {
   processRegrowthOverrides(evo, evo.tick);
   regrowFood(evo.world, evo.terrain, evo.tick, params);
   if (evo.tick % params.consumptionDecayIntervalTicks === 0) {
-    decayConsumption(obs.consumptionGrid, params.consumptionRetentionPerTick ** params.consumptionDecayIntervalTicks);
+    const retention = params.consumptionRetentionPerTick ** params.consumptionDecayIntervalTicks;
+    decayConsumption(obs.consumptionGrid, retention);
+    decaySpeciesBehaviorStats(obs.speciesBehavior, retention);
   }
 
   const nextGeneration: Creature[] = [];
   const allocateId = () => evo.nextId++;
 
   for (const creature of evo.creatures) {
-    stepCreature(creature, evo.world, evo.terrain, rng, params, obs.consumptionGrid);
+    stepCreature(creature, evo.world, evo.terrain, rng, params, obs.consumptionGrid, obs.speciesBehavior);
 
     if (isReadyToReproduce(creature, params)) {
-      nextGeneration.push(...reproduce(creature, rng, params, evo.tick, allocateId));
+      const children = reproduce(creature, rng, params, evo.tick, allocateId);
+      for (const child of children) recordBirth(obs.speciesBehavior, child.lineageId);
+      nextGeneration.push(...children);
     }
 
     if (creature.energy > 0 && creature.age < params.maxAge) {
       nextGeneration.push(creature);
+    } else {
+      recordDeath(obs.speciesBehavior, creature.lineageId, creature.age);
     }
   }
 
@@ -270,6 +289,7 @@ export function cloneSimState(state: SimState): SimState {
       // Samples are never mutated after being pushed (fresh objects each time, see sampleTraits),
       // so a shallow array copy sharing references is safe here too.
       traitHistory: [...obs.traitHistory],
+      speciesBehavior: cloneSpeciesBehaviorStats(obs.speciesBehavior),
     },
   };
 }

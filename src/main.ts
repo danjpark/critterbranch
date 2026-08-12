@@ -10,6 +10,8 @@ import { findBranchAt, renderTree } from "./render/treeView.ts";
 import { findCreatureAt, renderWorld } from "./render/worldView.ts";
 import type { Genome } from "./sim/genome.ts";
 import { parseRunConfig } from "./sim/runConfig.ts";
+import { classifySpecies } from "./game/observability/capabilityClassifier.ts";
+import { computeSpeciesProfiles } from "./game/observability/speciesProfile.ts";
 import {
   createCheckpointsPanel,
   createControls,
@@ -141,7 +143,7 @@ const controls = createControls({
     controls.setInspected(null);
     godModePanel.setActiveTool(null);
     godModePanel.setUndoEnabled(false);
-    treePanel.setSelectedSpecies(null, 0, runner.colorOptions, runner.sim.state.evolution.foundingCentroid);
+    treePanel.setSelectedSpecies(null, 0, runner.colorOptions, runner.sim.state.evolution.foundingCentroid, []);
     treePanel.setLineageFilterActive(false);
     render();
   },
@@ -195,7 +197,7 @@ function loadScenarioAndRefresh(parsed: unknown): void {
   controls.setInspected(null);
   godModePanel.setActiveTool(null);
   godModePanel.setUndoEnabled(false);
-  treePanel.setSelectedSpecies(null, 0, runner.colorOptions, runner.sim.state.evolution.foundingCentroid);
+  treePanel.setSelectedSpecies(null, 0, runner.colorOptions, runner.sim.state.evolution.foundingCentroid, []);
   treePanel.setLineageFilterActive(false);
   render();
 }
@@ -345,7 +347,15 @@ function render(): void {
   eventFeed.setEvents(runner.sim.state.observations.taxonomyEvents);
   geneFlowChart.render(runner.sim.state.observations.geneFlow.history);
   traitChart.render(runner.sim.state.observations.traitHistory, traitChartGene);
-  treePanel.setSelectedSpecies(runner.selectedSpecies(), runner.sim.state.evolution.tick, runner.colorOptions, runner.sim.state.evolution.foundingCentroid);
+  const selectedSpecies = runner.selectedSpecies();
+  const selectedCapabilities = selectedSpecies
+    ? (() => {
+        const { profiles, baseline } = computeSpeciesProfiles(runner.sim);
+        const profile = profiles.get(selectedSpecies.id);
+        return profile ? classifySpecies(profile, baseline) : [];
+      })()
+    : [];
+  treePanel.setSelectedSpecies(selectedSpecies, runner.sim.state.evolution.tick, runner.colorOptions, runner.sim.state.evolution.foundingCentroid, selectedCapabilities);
 
   if (runner.selectedCreatureId !== null) {
     controls.setInspected(runner.selectedCreature());

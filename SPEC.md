@@ -506,3 +506,73 @@ population dynamics) and, for the axis-isolation tests specifically, explicitly 
 `nursingRatePerTick: 0` in their shared `NEUTRAL` baseline — a true single-axis isolation test
 needs every *other* mechanism flattened, and nursing is very much another mechanism relative to
 whichever axis is under test.
+
+## Addendum 5 — Milestone 2 design note: SpeciesProfile + CapabilityClassifier
+
+This is a **design note, written before implementation**, per the game roadmap's own process
+(Milestone 1's exit gate passed 2026-08-12 — graphics flagged as wanting but not blocking, deferred
+to Milestone 7 — and Dan greenlit starting Milestone 2). It documents the plan Dan signed off on so
+implementation can be checked against it afterward, the same way Addenda 1-4 record decisions before
+or alongside the code that implements them.
+
+**The core rule this milestone exists to enforce: Genome != Capability.** Today a `Species` (
+`sim/taxonomy.ts`) carries exactly one behavioral aggregate — `centroid`, a running mean of its
+living members' *genomes*. Milestone 1's objectives (`game/objectives/standardObjectives.ts`) used
+`centroid.dietPref` as a diet-specialization stand-in, with an explicit code comment deferring real
+calorie-share tracking to this milestone. A `CapabilityClassifier` must describe *demonstrated
+ecological behavior* — what a species actually eats, where it actually lives, how far it actually
+moves — not a re-labeling of its genes. A species whose `dietPref` gene sits at 0.5 but that has, in
+practice, only ever found food type R growing near it is a dietary specialist in every way that
+matters to the player, and the classifier needs to say so.
+
+**Why most of this needs new `sim/` instrumentation, not just `game/`-layer aggregation:** the
+`Creature` type (`sim/creature.ts`) retains no history — position, energy, and age are overwritten
+every tick, nothing about *what happened* survives past the tick it happened in. The one exception
+is `ConsumptionGrid` (`sim/consumption.ts`, built for Phase 6's competition heatmap), which already
+tracks per-species cumulative food consumed per cell, decayed every `consumptionDecayIntervalTicks`
+— but it sums food types R and B together, so it can't answer a diet-*composition* question, only a
+diet-*volume* one.
+
+**SpeciesProfile — one running aggregate object per species, not a time series.** Modeled on how
+`centroid` itself already works: continuously updated in place at the existing taxonomy pass
+(`updateTaxonomy`, every `taxonomyIntervalTicks`, default 100), decayed the same way
+`ConsumptionGrid` decays, so the profile reflects a species' *recent* demonstrated behavior and can
+visibly shift if a species' realized ecology changes after a split — rather than an ever-growing
+history (that's what `populationHistory`/`traitHistory` are already for, and `historyRetention.ts`'s
+generic `compactHistory<T>` remains the tool of choice if a bounded history is ever needed here).
+
+All five dimensions, approved for a single first pass rather than a narrower slice:
+
+| Dimension | New `sim/` instrumentation | What it measures |
+|---|---|---|
+| Diet | Split `recordConsumption` into separate R/B running totals per species (same cadence/decay as today's combined total) | realized food-type share, replacing the `dietPref` genotype proxy |
+| Habitat | None — sample each live creature's terrain elevation band (lowland/hill/mountain, the bands `render/terrainPalette.ts` already defines) during `updateTaxonomy`'s existing per-species iteration | terrain-band occupancy histogram |
+| Movement | Add a `distanceTraveled` accumulator to `Creature`, incremented in `stepCreature`'s move step | realized movement per tick vs. population baseline, not the `speed` gene |
+| Reproduction | Tally births and deaths (+ sum of age-at-death) per species per sampling window, incremented at creature creation/removal | births-per-capita, average realized lifespan — the observable half of the r/K question the nursing mechanic (Addendum 4) exists to let evolve |
+| Survival | None — already available | reuses `populationHistory` volatility/recovery, the same logic `standardObjectives.ts`'s disaster-recovery objective already computes |
+
+All four new counters are pure, deterministic tallies keyed off existing tick/event points — no new
+randomness, no new genes, no change to any existing gene's meaning or weight. This keeps them within
+the rigor bar the roadmap's team model sets for anything touching the core tick loop, and mirrors
+`consumption.ts`'s existing pattern closely enough that it's an extension of a precedent, not a new
+one.
+
+**CapabilityClassifier** reads a `SpeciesProfile` and emits labels, each with a confidence (scaled
+by the species' `memberCount` — small populations yield low-confidence labels, matching how a real
+field biologist would hedge on a thin sample) and evidence (the specific aggregate values that
+produced the label, for a UI tooltip). Initial label set, one pair per dimension above: Dietary
+Generalist / Specialist(R) / Specialist(B); Highland-Adapted / Lowland-Adapted; Fast-mover /
+Sedentary; r-strategist / K-strategist; Resilient / Fragile. This set is expected to grow — nothing
+about the classifier's shape is specific to these five pairs — but it is not meant to anticipate
+Milestone 6's amphibious speciation or Milestone 9's flight; those get their own labels once the
+underlying phenotype/performance layers (Milestones 3-5) that would make them meaningful actually
+exist.
+
+**Where the code lives:** `SpeciesProfile` and `CapabilityClassifier` themselves belong in
+`src/game/` (a new `observability/` subdirectory, alongside the existing `objectives/`) — they only
+need read access to sim-exposed types (`Species`, the extended `ConsumptionGrid`, `populationHistory`
+), matching `objective.ts`'s own existing comment anticipating a "future SpeciesProfile/capability
+layer" objectives would eventually read from. Only the four new counters themselves are `sim/`
+changes, since they must be written from inside the tick loop; everything that aggregates or
+classifies from them stays on the `game/` side of the boundary, so `sim/` still never imports from
+`game/`.

@@ -39,6 +39,29 @@ describe("consumption grid", () => {
   });
 });
 
+describe("species behavior stats", () => {
+  it("accumulates diet, and tracks distanceTraveled on living creatures, as the sim runs", () => {
+    const { state, rng } = createSimState(7, DEFAULT_PARAMS);
+    for (let i = 0; i < 200; i++) tick(state, rng, DEFAULT_PARAMS);
+
+    const founderAcc = state.observations.speciesBehavior.bySpecies.get(0);
+    expect(founderAcc).toBeDefined();
+    expect(founderAcc!.dietR + founderAcc!.dietB).toBeGreaterThan(0);
+
+    expect(state.evolution.creatures.length).toBeGreaterThan(0);
+    expect(state.evolution.creatures.some((c) => c.distanceTraveled > 0)).toBe(true);
+  });
+
+  it("records births as the population grows, and deaths once creatures start aging out", () => {
+    const { state, rng } = createSimState(3, DEFAULT_PARAMS);
+    for (let i = 0; i < 500; i++) tick(state, rng, DEFAULT_PARAMS);
+
+    const founderAcc = state.observations.speciesBehavior.bySpecies.get(0);
+    expect(founderAcc).toBeDefined();
+    expect(founderAcc!.births).toBeGreaterThan(0);
+  });
+});
+
 describe("observation history compaction", () => {
   it("bounds populationHistory/traitHistory on a long run instead of growing every sample forever", () => {
     // Actually simulating far enough for compaction to matter (100k+ ticks) would be far too slow

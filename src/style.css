@@ -167,6 +167,29 @@ button.active {
   background: linear-gradient(135deg, #d94f8a, #4a9dd9);
 }
 
+.capability-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.capability-chip {
+  background: #2a2e35;
+  border: 1px solid #3a3f47;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.75rem;
+  color: #c4c8ce;
+  cursor: default;
+}
+
+.capability-empty {
+  font-size: 0.78rem;
+  color: #9aa0aa;
+  margin-top: 0.5rem;
+}
+
 .godmode-hint {
   font-size: 0.78rem;
   color: #9aa0aa;

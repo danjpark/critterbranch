@@ -8,6 +8,7 @@ import type { ChallengeStatus } from "../game/challengeRuntime.ts";
 import type { EraSummary } from "../game/eraSummary.ts";
 import type { GameMode, GamePhase } from "../game/gameState.ts";
 import type { GameObjective } from "../game/objectives/objective.ts";
+import type { Capability } from "../game/observability/capabilityClassifier.ts";
 
 export type SpeedSetting = 1 | 10 | 100 | 1000 | "max";
 
@@ -654,7 +655,13 @@ export interface TreePanelCallbacks {
 
 export interface TreePanelHandle {
   root: HTMLElement;
-  setSelectedSpecies: (species: Species | null, currentTick: number, colorOptions: ColorOptions, foundingCentroid: Genome) => void;
+  setSelectedSpecies: (
+    species: Species | null,
+    currentTick: number,
+    colorOptions: ColorOptions,
+    foundingCentroid: Genome,
+    capabilities: Capability[],
+  ) => void;
   setLineageFilterActive: (active: boolean) => void;
 }
 
@@ -705,7 +712,7 @@ export function createTreePanel(callbacks: TreePanelCallbacks): TreePanelHandle 
 
   return {
     root,
-    setSelectedSpecies(species, currentTick, colorOptions, foundingCentroid) {
+    setSelectedSpecies(species, currentTick, colorOptions, foundingCentroid, capabilities) {
       filterButton.disabled = species === null;
       if (!species) {
         cardBody.textContent = "Click a branch in the tree to inspect it.";
@@ -747,7 +754,24 @@ export function createTreePanel(callbacks: TreePanelCallbacks): TreePanelHandle 
         table.appendChild(tr);
       }
 
-      cardBody.replaceChildren(swatchRow, table);
+      const capabilitiesSection = document.createElement("div");
+      capabilitiesSection.className = "capability-list";
+      if (capabilities.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "capability-empty";
+        empty.textContent = "No demonstrated capabilities detected yet — needs more observed behavior.";
+        capabilitiesSection.appendChild(empty);
+      } else {
+        for (const capability of capabilities) {
+          const chip = document.createElement("span");
+          chip.className = "capability-chip";
+          chip.title = capability.evidence;
+          chip.textContent = `${capability.displayName} (${Math.round(capability.confidence * 100)}%)`;
+          capabilitiesSection.appendChild(chip);
+        }
+      }
+
+      cardBody.replaceChildren(swatchRow, table, capabilitiesSection);
     },
     setLineageFilterActive(active) {
       clearButton.disabled = !active;
