@@ -3,6 +3,11 @@ import type { Creature } from "../sim/creature.ts";
 import type { GeneFlowSample } from "../sim/geneFlow.ts";
 import { GENE_KEYS, type Genome, type TraitSample } from "../sim/genome.ts";
 import type { Species, SpeciationMechanism, TaxonomyEvent } from "../sim/taxonomy.ts";
+import type { ChallengeDefinition } from "../game/challenges/challenge.ts";
+import type { ChallengeStatus } from "../game/challengeRuntime.ts";
+import type { EraSummary } from "../game/eraSummary.ts";
+import type { GameMode, GamePhase } from "../game/gameState.ts";
+import type { GameObjective } from "../game/objectives/objective.ts";
 
 export type SpeedSetting = 1 | 10 | 100 | 1000 | "max";
 
@@ -244,7 +249,7 @@ export interface GodModeHandle {
   setUndoEnabled: (enabled: boolean) => void;
 }
 
-export function createGodModePanel(callbacks: GodModeCallbacks): GodModeHandle {
+export function createGodModePanel(callbacks: GodModeCallbacks, showUndo = true): GodModeHandle {
   const root = document.createElement("div");
   root.className = "panel godmode";
   root.append(sectionTitle("God mode"));
@@ -307,7 +312,8 @@ export function createGodModePanel(callbacks: GodModeCallbacks): GodModeHandle {
   undoRow.className = "row";
   undoRow.appendChild(undoButton);
 
-  root.append(hint, toolRow, radiusRow.row, strengthRow.row, durationRow.row, seedCountRow, undoRow);
+  root.append(hint, toolRow, radiusRow.row, strengthRow.row, durationRow.row, seedCountRow);
+  if (showUndo) root.appendChild(undoRow);
 
   return {
     root,
@@ -745,6 +751,201 @@ export function createTreePanel(callbacks: TreePanelCallbacks): TreePanelHandle 
     },
     setLineageFilterActive(active) {
       clearButton.disabled = !active;
+    },
+  };
+}
+
+const GAME_PHASE_LABELS: Record<GamePhase, string> = {
+  terraform: "Terraform — act now",
+  evolution: "Evolution running…",
+  discovery: "Discovery — review the era",
+};
+
+export interface GameControlsCallbacks {
+  onRestart: (seed: number, mode: GameMode, challengeId: string | null) => void;
+  onAdvanceEra: () => void;
+  onContinue: () => void;
+}
+
+export interface GameControlsHandle {
+  root: HTMLElement;
+  setStatus: (era: number, phase: GamePhase, tick: number, population: number, livingSpeciesCount: number) => void;
+  setBudget: (remaining: number | null) => void;
+  setAdvanceEnabled: (enabled: boolean) => void;
+  setContinueEnabled: (enabled: boolean) => void;
+  setTerraformError: (message: string | null) => void;
+}
+
+/** Mode/seed/era-advancement controls for Game Mode — the terraform -> evolution -> discovery
+ * loop (see src/game/), distinct from the classic sandbox's continuous play/pause/speed controls. */
+export function createGameControlsPanel(challenges: ChallengeDefinition[], callbacks: GameControlsCallbacks): GameControlsHandle {
+  const root = document.createElement("div");
+  root.className = "panel controls";
+  root.append(sectionTitle("Game"));
+
+  const modeSelect = document.createElement("select");
+  const sandboxOption = document.createElement("option");
+  sandboxOption.value = "sandbox";
+  sandboxOption.textContent = "Sandbox";
+  modeSelect.appendChild(sandboxOption);
+  for (const challenge of challenges) {
+    const option = document.createElement("option");
+    option.value = challenge.id;
+    option.textContent = `Challenge: ${challenge.name}`;
+    modeSelect.appendChild(option);
+  }
+  const modeRow = document.createElement("div");
+  modeRow.className = "row";
+  modeRow.appendChild(modeSelect);
+
+  const seedInput = document.createElement("input");
+  seedInput.type = "number";
+  seedInput.value = "12345";
+  seedInput.className = "seed-input";
+  const restartButton = document.createElement("button");
+  restartButton.textContent = "Restart";
+  restartButton.addEventListener("click", () => {
+    const value = modeSelect.value;
+    const mode: GameMode = value === "sandbox" ? "sandbox" : "challenge";
+    callbacks.onRestart(Number(seedInput.value) || 0, mode, mode === "challenge" ? value : null);
+  });
+  const seedRow = document.createElement("div");
+  seedRow.className = "row";
+  seedRow.append(seedInput, restartButton);
+
+  const advanceButton = document.createElement("button");
+  advanceButton.textContent = "Advance Era";
+  advanceButton.addEventListener("click", callbacks.onAdvanceEra);
+  const continueButton = document.createElement("button");
+  continueButton.textContent = "Continue to terraform";
+  continueButton.disabled = true;
+  continueButton.addEventListener("click", callbacks.onContinue);
+  const actionRow = document.createElement("div");
+  actionRow.className = "row";
+  actionRow.append(advanceButton, continueButton);
+
+  const status = document.createElement("div");
+  status.className = "status";
+  const budgetStatus = document.createElement("div");
+  budgetStatus.className = "status";
+  const errorLine = document.createElement("div");
+  errorLine.className = "godmode-hint game-error";
+
+  root.append(sectionTitle("Mode"), modeRow, sectionTitle("Seed"), seedRow, actionRow, status, budgetStatus, errorLine);
+
+  return {
+    root,
+    setStatus(era, phase, tick, population, livingSpeciesCount) {
+      status.textContent = `Era ${era} — ${GAME_PHASE_LABELS[phase]} — tick ${tick.toLocaleString()} — population ${population.toLocaleString()} — ${livingSpeciesCount} species`;
+    },
+    setBudget(remaining) {
+      budgetStatus.textContent = remaining === null ? "Terraform points: unlimited (sandbox)" : `Terraform points: ${remaining}`;
+    },
+    setAdvanceEnabled(enabled) {
+      advanceButton.disabled = !enabled;
+    },
+    setContinueEnabled(enabled) {
+      continueButton.disabled = !enabled;
+    },
+    setTerraformError(message) {
+      errorLine.textContent = message ?? "";
+    },
+  };
+}
+
+export interface EraSummaryHandle {
+  root: HTMLElement;
+  setSummary: (summary: EraSummary | null) => void;
+}
+
+export function createEraSummaryPanel(): EraSummaryHandle {
+  const root = document.createElement("div");
+  root.className = "panel";
+  root.append(sectionTitle("Era summary"));
+
+  const body = document.createElement("div");
+  body.className = "inspector-body";
+  body.textContent = "Advance an era to see what changed.";
+  root.appendChild(body);
+
+  return {
+    root,
+    setSummary(summary) {
+      if (!summary) {
+        body.textContent = "Advance an era to see what changed.";
+        return;
+      }
+
+      const { before, after, delta, notableTraitShifts } = summary;
+      const lines: string[] = [
+        `Era ${after.era} complete (tick ${before.tick.toLocaleString()} → ${after.tick.toLocaleString()})`,
+        `Population: ${before.totalPopulation.toLocaleString()} → ${after.totalPopulation.toLocaleString()} (${delta.populationChange >= 0 ? "+" : ""}${delta.populationChange.toLocaleString()})`,
+        `Species: ${delta.livingSpeciesCountBefore} → ${delta.livingSpeciesCountAfter}`,
+      ];
+      if (delta.newSpeciesIds.length > 0) lines.push(`New species: ${delta.newSpeciesIds.join(", ")}`);
+      if (delta.extinctSpeciesIds.length > 0) lines.push(`Extinct: ${delta.extinctSpeciesIds.join(", ")}`);
+      if (notableTraitShifts.length > 0) {
+        lines.push("Major trait changes:");
+        for (const shift of notableTraitShifts.slice(0, 5)) {
+          const pct = (shift.fractionChange * 100).toFixed(0);
+          lines.push(`  ${shift.gene}: ${shift.fractionChange >= 0 ? "+" : ""}${pct}%`);
+        }
+      }
+
+      body.replaceChildren(
+        ...lines.map((line) => {
+          const el = document.createElement("div");
+          el.textContent = line;
+          return el;
+        }),
+      );
+    },
+  };
+}
+
+export interface ObjectivesHandle {
+  root: HTMLElement;
+  setChallenge: (objectives: GameObjective[], status: ChallengeStatus | null) => void;
+}
+
+export function createObjectivesPanel(): ObjectivesHandle {
+  const root = document.createElement("div");
+  root.className = "panel";
+  root.append(sectionTitle("Objectives"));
+
+  const body = document.createElement("div");
+  body.className = "inspector-body";
+  body.textContent = "Sandbox mode has no objectives — free play.";
+  root.appendChild(body);
+
+  return {
+    root,
+    setChallenge(objectives, status) {
+      if (objectives.length === 0 || !status) {
+        body.textContent = "Sandbox mode has no objectives — free play.";
+        return;
+      }
+
+      const list = document.createElement("div");
+      for (const objective of objectives) {
+        const progress = status.objectiveProgress.get(objective.id);
+        const row = document.createElement("div");
+        row.className = "legend-row";
+        row.textContent = `${progress?.complete ? "[x]" : "[ ]"} ${objective.description}`;
+        list.appendChild(row);
+      }
+      if (status.allObjectivesComplete) {
+        const banner = document.createElement("div");
+        banner.className = "game-win-banner";
+        banner.textContent = "Challenge complete!";
+        list.appendChild(banner);
+      } else if (status.eraLimitReached) {
+        const banner = document.createElement("div");
+        banner.className = "godmode-hint";
+        banner.textContent = "Era limit reached — challenge over.";
+        list.appendChild(banner);
+      }
+      body.replaceChildren(list);
     },
   };
 }

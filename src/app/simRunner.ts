@@ -6,25 +6,13 @@ import { createRunConfig, type RunConfig } from "../sim/runConfig.ts";
 import { applyInterventionNow, cloneSimState, createSimState, tick, type SimInstance, type SimState } from "../sim/sim.ts";
 import { collectDescendantIds, type SpeciationMechanism, type Species } from "../sim/taxonomy.ts";
 import type { GodTool, SpeedSetting } from "../ui/controls.ts";
+import { type BrushSettings, DEFAULT_BRUSH, resolveToolApplication } from "./toolMapping.ts";
+
+export type { BrushSettings } from "./toolMapping.ts";
 
 const ALL_MECHANISMS: SpeciationMechanism[] = ["founder-population", "allopatric", "sympatric", "founder"];
 
 const MAX_SPEED_BUDGET_MS = 40;
-
-/** Shared brush knobs; each tool reinterprets radius/strength/duration for its own purpose (see applyToolAtPoint). */
-export interface BrushSettings {
-  radius: number;
-  strength: number;
-  durationTicks: number;
-  seedCount: number;
-}
-
-const DEFAULT_BRUSH: BrushSettings = {
-  radius: 15,
-  strength: 0.5,
-  durationTicks: 0,
-  seedCount: 20,
-};
 
 /** How a creature's genome maps to a fill color — see render/color.ts's genotypeColor(), which is
  * the only thing that actually interprets these. Defined here (app layer, alongside
@@ -218,52 +206,15 @@ export class SimRunner {
     const tool = this.activeTool;
     if (!tool) return;
 
-    if (tool === "barrierStamp") {
-      if (!this.barrierDragStart) {
-        this.barrierDragStart = { x, y };
-        return;
-      }
-      const start = this.barrierDragStart;
-      this.barrierDragStart = null;
-      this.apply("barrierStamp", {
-        x1: start.x,
-        y1: start.y,
-        x2: x,
-        y2: y,
-        width: this.brush.radius,
-        targetPassability: 1 - this.brush.strength,
-        formationTicks: this.brush.durationTicks,
-      });
+    const resolved = resolveToolApplication(tool, x, y, this.brush, this.barrierDragStart);
+    if (resolved.kind === "awaitingSecondPoint") {
+      this.barrierDragStart = { x, y };
       return;
     }
+    this.barrierDragStart = null;
 
-    switch (tool) {
-      case "raiseTerrain":
-        this.apply("raiseTerrain", { x, y, radius: this.brush.radius, strength: this.brush.strength * 2 });
-        return;
-      case "lowerTerrain":
-        this.apply("lowerTerrain", { x, y, radius: this.brush.radius, strength: this.brush.strength * 2 });
-        return;
-      case "dropFoodR":
-        this.apply("dropFood", { x, y, radius: this.brush.radius, foodType: 0, density: this.brush.strength * 4 });
-        return;
-      case "dropFoodB":
-        this.apply("dropFood", { x, y, radius: this.brush.radius, foodType: 1, density: this.brush.strength * 4 });
-        return;
-      case "drought":
-        this.apply("drought", { x, y, radius: this.brush.radius, multiplier: 1 - this.brush.strength, durationTicks: Math.max(this.brush.durationTicks, 1) });
-        return;
-      case "bloom":
-        this.apply("bloom", { x, y, radius: this.brush.radius, multiplier: 1 + this.brush.strength * 4, durationTicks: Math.max(this.brush.durationTicks, 1) });
-        return;
-      case "meteor":
-        this.meteorCheckpoint = this.createCheckpoint();
-        this.apply("meteor", { x, y, radius: this.brush.radius, craterRecoveryTicks: this.brush.durationTicks });
-        return;
-      case "seedFounders":
-        this.apply("seedFounders", { x, y, spreadRadius: Math.max(this.brush.radius / 4, 1), count: this.brush.seedCount, genome: "random" as const });
-        return;
-    }
+    if (resolved.tool === "meteor") this.meteorCheckpoint = this.createCheckpoint();
+    this.apply(resolved.tool, resolved.params);
   }
 
   canUndoMeteor(): boolean {

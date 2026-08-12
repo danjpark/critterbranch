@@ -1,5 +1,8 @@
 import "./style.css";
+import { GameRunner } from "./app/gameRunner.ts";
 import { SimRunner } from "./app/simRunner.ts";
+import { PROTOTYPE_CHALLENGES } from "./game/challenges/prototypeChallenges.ts";
+import type { ColorOptions } from "./render/color.ts";
 import { renderMuller } from "./render/mullerView.ts";
 import { renderCompetitionHeatmap } from "./render/overlays.ts";
 import { findPointAt, renderScatter } from "./render/scatterView.ts";
@@ -9,10 +12,13 @@ import type { Genome } from "./sim/genome.ts";
 import { parseRunConfig } from "./sim/runConfig.ts";
 import {
   createControls,
+  createEraSummaryPanel,
   createEventFeed,
+  createGameControlsPanel,
   createGeneFlowChart,
   createGodModePanel,
   createLegend,
+  createObjectivesPanel,
   createScatterPanel,
   createScenarioPanel,
   createTraitChart,
@@ -21,9 +27,37 @@ import {
 
 const CANVAS_SIZE = 640;
 type ViewName = "world" | "tree" | "muller" | "scatter";
+type AppMode = "classic" | "game";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = "";
+
+const appModeTabRow = document.createElement("div");
+appModeTabRow.className = "row mode-tabs";
+const classicModeButton = document.createElement("button");
+classicModeButton.textContent = "Classic Sandbox";
+classicModeButton.classList.add("active");
+classicModeButton.addEventListener("click", () => setAppMode("classic"));
+const gameModeButton = document.createElement("button");
+gameModeButton.textContent = "Game";
+gameModeButton.addEventListener("click", () => setAppMode("game"));
+appModeTabRow.append(classicModeButton, gameModeButton);
+app.appendChild(appModeTabRow);
+
+const classicRoot = document.createElement("div");
+classicRoot.className = "app-mode-root";
+const gameRoot = document.createElement("div");
+gameRoot.className = "app-mode-root";
+gameRoot.style.display = "none";
+app.append(classicRoot, gameRoot);
+
+function setAppMode(mode: AppMode): void {
+  classicModeButton.classList.toggle("active", mode === "classic");
+  gameModeButton.classList.toggle("active", mode === "game");
+  classicRoot.style.display = mode === "classic" ? "flex" : "none";
+  gameRoot.style.display = mode === "game" ? "flex" : "none";
+  if (mode === "game") renderGame();
+}
 
 const canvasArea = document.createElement("div");
 canvasArea.className = "canvas-area";
@@ -63,7 +97,7 @@ canvasArea.append(tabRow, worldCanvas, treeCanvas, mullerCanvas, scatterCanvas);
 const sidebar = document.createElement("div");
 sidebar.className = "sidebar";
 
-app.append(canvasArea, sidebar);
+classicRoot.append(canvasArea, sidebar);
 
 const worldCtx = worldCanvas.getContext("2d")!;
 const treeCtx = treeCanvas.getContext("2d")!;
@@ -326,3 +360,94 @@ function frame(): void {
 // or otherwise non-visible tab, and this loop should keep advancing regardless of tab focus.
 render();
 setInterval(frame, 16);
+
+// --- Game Mode: the terraform -> advance era -> discovery loop (src/game/), a separate
+// interaction model from the classic sandbox's continuous play/pause/speed loop above. Shares
+// nothing at runtime with `runner` — see app/gameRunner.ts's class doc for why.
+
+const GAME_COLOR_OPTIONS: ColorOptions = { deuteranopiaSafe: false, divergenceScale: 0.35 };
+
+const gameCanvas = makeCanvas();
+const gameCtx = gameCanvas.getContext("2d")!;
+const gameCanvasArea = document.createElement("div");
+gameCanvasArea.className = "canvas-area";
+gameCanvasArea.appendChild(gameCanvas);
+
+const gameSidebar = document.createElement("div");
+gameSidebar.className = "sidebar";
+
+gameRoot.append(gameCanvasArea, gameSidebar);
+
+let gameRunner = new GameRunner("sandbox", 12345);
+
+const gameGodModePanel = createGodModePanel(
+  {
+    onToolSelect: (tool) => gameRunner.setActiveTool(tool),
+    onRadiusChange: (radius) => (gameRunner.brush.radius = radius),
+    onStrengthChange: (strength) => (gameRunner.brush.strength = strength),
+    onDurationChange: (durationTicks) => (gameRunner.brush.durationTicks = durationTicks),
+    onSeedCountChange: (count) => (gameRunner.brush.seedCount = count),
+    onUndoMeteor: () => {},
+  },
+  false, // Game Mode has no meteor-undo checkpoint machinery — see gameRunner.ts.
+);
+
+const gameControls = createGameControlsPanel(PROTOTYPE_CHALLENGES, {
+  onRestart: (seed, mode, challengeId) => {
+    const challenge = challengeId ? PROTOTYPE_CHALLENGES.find((c) => c.id === challengeId) : undefined;
+    gameRunner = new GameRunner(mode, seed, challenge);
+    gameGodModePanel.setActiveTool(null);
+    renderGame();
+  },
+  onAdvanceEra: () => {
+    gameRunner.advanceEra();
+    renderGame();
+  },
+  onContinue: () => {
+    gameRunner.continueToTerraform();
+    renderGame();
+  },
+});
+
+const eraSummaryPanel = createEraSummaryPanel();
+const objectivesPanel = createObjectivesPanel();
+
+gameSidebar.append(gameControls.root, gameGodModePanel.root, objectivesPanel.root, eraSummaryPanel.root);
+
+gameCanvas.addEventListener("click", (event) => {
+  if (!gameRunner.activeTool) return;
+  const rect = gameCanvas.getBoundingClientRect();
+  const canvasX = ((event.clientX - rect.left) / rect.width) * gameCanvas.width;
+  const canvasY = ((event.clientY - rect.top) / rect.height) * gameCanvas.height;
+  const scaleX = gameCanvas.width / gameRunner.game.sim.params.worldWidth;
+  const scaleY = gameCanvas.height / gameRunner.game.sim.params.worldHeight;
+  gameRunner.useToolAt(canvasX / scaleX, canvasY / scaleY);
+  renderGame();
+});
+
+function renderGame(): void {
+  const { game } = gameRunner;
+  renderWorld(gameCtx, game.sim.state, game.sim.params, {
+    colorOptions: GAME_COLOR_OPTIONS,
+    selectedCreatureId: null,
+    lineageFilter: null,
+  });
+
+  let livingSpeciesCount = 0;
+  for (const species of game.sim.state.observations.taxonomy.species.values()) {
+    if (species.extinctTick === null) livingSpeciesCount++;
+  }
+  gameControls.setStatus(
+    game.gameState.era,
+    game.gameState.phase,
+    game.sim.state.evolution.tick,
+    game.sim.state.evolution.creatures.length,
+    livingSpeciesCount,
+  );
+  gameControls.setBudget(game.budget?.remaining ?? null);
+  gameControls.setAdvanceEnabled(gameRunner.canAdvanceEra());
+  gameControls.setContinueEnabled(gameRunner.canContinueToTerraform());
+  gameControls.setTerraformError(gameRunner.lastTerraformError);
+  eraSummaryPanel.setSummary(gameRunner.lastEraSummary);
+  objectivesPanel.setChallenge(gameRunner.objectives(), gameRunner.challengeStatus());
+}

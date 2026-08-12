@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PARAMS } from "../params.ts";
 import { createRunConfig } from "../sim/runConfig.ts";
-import { applyInterventionNow, runSimulationFromConfig } from "../sim/sim.ts";
+import { runSimulationFromConfig } from "../sim/sim.ts";
 import { hashState } from "../sim/testHash.ts";
-import { advanceGameEra, createGame } from "./game.ts";
+import { advanceGameEra, continueToTerraform, createGame } from "./game.ts";
 import type { GameEvaluationContext, GameObjective, ObjectiveProgress } from "./objectives/objective.ts";
+import { applyTerraformCommand } from "./terraform.ts";
 
 const TEST_ERA_CONFIG = { ticksPerEra: 150 };
 
@@ -32,25 +33,28 @@ describe("createGame", () => {
 });
 
 describe("full headless lifecycle", () => {
-  it("terraform -> advance era -> evaluate objective -> serialize -> replay deterministically", () => {
+  it("terraform -> advance era -> discovery -> evaluate objective -> continue -> serialize -> replay deterministically", () => {
     const game = createGame({ mode: "sandbox", seed: 7, params: DEFAULT_PARAMS, eraConfig: TEST_ERA_CONFIG });
 
-    // Terraform phase: apply a god-mode intervention, the way live play will eventually route
-    // through the game layer (Milestone 1's terraform command layer).
-    applyInterventionNow(game.sim, game.sim.params, "raiseTerrain", {
+    const result = applyTerraformCommand(game, "raiseTerrain", {
       x: DEFAULT_PARAMS.worldWidth / 2,
       y: DEFAULT_PARAMS.worldHeight / 2,
       radius: 20,
       strength: 0.5,
     });
+    expect(result).toEqual({ ok: true });
 
-    advanceGameEra(game);
+    const summary = advanceGameEra(game);
 
     expect(game.gameState.era).toBe(1);
-    expect(game.gameState.phase).toBe("terraform");
+    expect(game.gameState.phase).toBe("discovery");
+    expect(summary.after.tick).toBe(TEST_ERA_CONFIG.ticksPerEra);
 
     const progress = survivedOneEra.evaluate({ sim: game.sim, gameState: game.gameState });
     expect(progress.complete).toBe(true);
+
+    continueToTerraform(game);
+    expect(game.gameState.phase).toBe("terraform");
 
     const runConfig = createRunConfig(game.sim.seed, game.sim.params, game.sim.interventionLog);
     const replayed = runSimulationFromConfig(runConfig, game.sim.state.evolution.tick);
