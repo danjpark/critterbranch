@@ -108,18 +108,17 @@ describe("GameRunner", () => {
     const runner = new GameRunner("sandbox", 1);
     expect(runner.eraProgress()).toBeNull();
 
-    runner.setSpeed(500);
+    runner.setSpeed(100);
     runner.advanceEra();
     expect(runner.eraProgress()).toBe(0);
 
     runner.stepEraAdvance();
-    expect(runner.eraProgress()).toBeCloseTo(500 / 2000);
+    expect(runner.eraProgress()).toBeCloseTo(100 / 2000);
 
-    // Three more calls reaches exactly 2000/2000 and finalizes within that same call — progress
-    // never lingers at a visible "1", it goes straight from <1 to null (no longer advancing).
-    runner.stepEraAdvance();
-    runner.stepEraAdvance();
-    runner.stepEraAdvance();
+    // Nineteen more calls reaches exactly 2000/2000 and finalizes within that same call —
+    // progress never lingers at a visible "1", it goes straight from <1 to null (no longer
+    // advancing).
+    for (let i = 0; i < 19; i++) runner.stepEraAdvance();
     expect(runner.isAdvancingEra()).toBe(false);
     expect(runner.eraProgress()).toBeNull();
   });
