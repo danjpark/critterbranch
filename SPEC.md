@@ -1108,3 +1108,75 @@ model — sampling fruit-colored pixels on the rendered canvas and checking thei
 surroundings found real fruit squares sitting directly adjacent to water-toned terrain (11 of 40
 sampled fruit clusters had water-toned neighbors). The Island Hopper challenge loads with correct
 budget (180) and objective text, and an era advanced cleanly under it with zero console errors.
+
+## Addendum 11 — Milestone 5 design note: the real genotype→phenotype→performance pipeline
+
+Design note, written before implementation. Unlike M2-M4, this milestone has no player-visible
+gameplay change at all — the roadmap's own ticket ("full genotype → phenotype → performance →
+behavior → SpeciesProfile → Capability pipeline") describes an architecture to consolidate, not a
+new mechanic to design, and there's no real product fork here for Dan to weigh in on: every value
+this milestone computes is byte-identical to what the code already computed before it, just
+relocated to one seam instead of two. Confirmed by re-reading Addenda 9/10's own deferral notes
+before starting — both explicitly named this as "the pipeline that would actually consume a
+phenotype trait like [swimEfficiency]" (M6's job), not a milestone that adds one itself.
+
+### What's actually inconsistent today
+
+M3 gave movement a real seam: `movementEfficiency(phenotype, environment)`, phenotype from
+`derivePhenotype(genome)`. Predation never got the same treatment — `sim/predation.ts` still has its
+own `effectiveAttackPower(genome) = genome.size` / `effectiveEvasionPower(genome) = genome.speed`,
+reading `Genome` directly, with `resolvePredation` computing the contest formula
+(`attackPower / (attackPower + evasionPower)`) inline rather than through a named performance
+function. Two "how good am I at X" computations, one seam, one still ad hoc — exactly the gap
+Addendum 9's Phenotype doc comment flagged when it said M5 would "grow this... without touching
+movementEfficiency's call site again."
+
+### Concrete design
+
+**`Phenotype` grows two fields**: `attackPower`, `evasionPower`, alongside the existing `speed`,
+`size`. `derivePhenotype(genome)` computes all four — still a pure pass-through
+(`attackPower: genome.size, evasionPower: genome.speed`), same values as today's separate
+functions, just consolidated into the one seam everything reads from.
+
+**A second named performance function joins `movementEfficiency`**: `combatSuccessProbability
+(attacker: Phenotype, defender: Phenotype): number`, extracting the contest-success formula that
+already lived inline in `resolvePredation`. Same shape as `movementEfficiency` — pure, phenotype-in
+probability/distance-out, no RNG inside it (the roll itself stays where it already was, at the
+behavior layer in `resolvePredation`, exactly like `movementEfficiency`'s caller is the one that
+turns a rate into an actual position update).
+
+**`predation.ts`'s `effectiveAttackPower`/`effectiveEvasionPower` are removed**, not deprecated —
+`resolvePredation` calls `derivePhenotype(predator.genome)`/`derivePhenotype(prey.genome)` and reads
+`.attackPower`/`.evasionPower` off the result, same as `creature.ts`'s move step already does for
+`.speed`. No caching added — `derivePhenotype` is a handful of property reads, and profiling
+concerns here would be premature optimization for a function this cheap; if that ever changes it's
+a call-site detail, not a reason to complicate the seam's contract now.
+
+### Deliberately out of scope for this pass
+
+No new genes, no environmental/developmental modifiers on phenotype (genotype still maps to
+phenotype deterministically and 1:1 — Phenotype is not yet doing anything Genome couldn't already
+tell you), no swim-specific trait. `SpeciesProfile`/`CapabilityClassifier` are untouched — they
+already read real demonstrated behavior off decayed accumulators and live creature state, never off
+Genome or Phenotype directly, which is the exact "Genome != Capability" principle they were built
+around in M2; this milestone doesn't change that relationship, it just makes the layer BELOW
+behavior (phenotype → performance) as consistent as the layer above it already is. The actual new
+derived trait this pipeline exists to eventually carry (a real `swimEfficiency` or similar) is M6's
+job, once amphibious speciation gives it something to select on.
+
+**Implementation status (2026-08-13): built exactly as designed, confirmed genuinely
+behavior-neutral — the one milestone this session where that was the actual success criterion.**
+
+`Phenotype` gained `attackPower`/`evasionPower`; `derivePhenotype` computes all four fields;
+`combatSuccessProbability(attacker, defender)` replaced the inline contest formula in
+`resolvePredation`; `predation.ts`'s standalone `effectiveAttackPower`/`effectiveEvasionPower` were
+deleted outright, not deprecated. Full suite green (292 passed, up from 289 — 3 new phenotype tests,
+zero other test needed touching, since every other test that exercises predation was already
+asserting on OUTCOMES, not on which function computed them). Typecheck clean. Benchmark run under
+the identical seed (12345) produced the EXACT SAME final population at every founding size checked
+(27/119/122/104) as the pre-M5 benchmark run — about as strong a confirmation of byte-identical
+behavior as a benchmark can give, since population trajectories are extremely sensitive to any
+change in the RNG-consuming combat math. Live-verified in browser: Apex Predator challenge loaded
+with correct budget and objective text, an era advanced cleanly under active predation with zero
+console errors. Unlike every other milestone this session, no scenario seeds needed re-tuning —
+expected, since nothing about population dynamics actually changed.

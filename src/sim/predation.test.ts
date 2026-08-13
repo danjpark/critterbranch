@@ -2,14 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_PARAMS } from "../params.ts";
 import { createCreature, type Creature } from "./creature.ts";
 import { randomGenome, type Genome } from "./genome.ts";
-import {
-  buildCreatureIndex,
-  effectiveAttackPower,
-  effectiveEvasionPower,
-  findBestNearbyCreature,
-  resolvePredation,
-  type PredationAttempt,
-} from "./predation.ts";
+import { buildCreatureIndex, findBestNearbyCreature, resolvePredation, type PredationAttempt } from "./predation.ts";
 import { RNG } from "./rng.ts";
 import { initSpeciesBehaviorStats } from "./speciesBehaviorStats.ts";
 import { initWorld } from "./world.ts";
@@ -24,13 +17,9 @@ function creatureAt(id: number, x: number, y: number, overrides: Partial<Genome>
   return createCreature({ id, parentId: null, lineageId: 0, genome: testGenome(overrides), x, y, energy, birthTick: 0, rng });
 }
 
-describe("effectiveAttackPower / effectiveEvasionPower", () => {
-  it("are thin wrappers over size and speed respectively", () => {
-    const genome = testGenome({ size: 1.7, speed: 2.3 });
-    expect(effectiveAttackPower(genome)).toBe(1.7);
-    expect(effectiveEvasionPower(genome)).toBe(2.3);
-  });
-});
+// attackPower/evasionPower are derived in sim/phenotype.ts (SPEC.md Addendum 11) — see
+// phenotype.test.ts's "derives attackPower from size and evasionPower from speed" for that
+// coverage. resolvePredation's own tests below exercise the combined contest through it.
 
 describe("buildCreatureIndex / findBestNearbyCreature", () => {
   it("finds the highest-scoring creature within radius, excluding self", () => {

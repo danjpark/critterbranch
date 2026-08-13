@@ -1,26 +1,12 @@
 import type { Creature } from "./creature.ts";
-import { specializationFactor, type Genome } from "./genome.ts";
+import { specializationFactor } from "./genome.ts";
 import type { Params } from "../params.ts";
+import { combatSuccessProbability, derivePhenotype } from "./phenotype.ts";
 import type { RNG } from "./rng.ts";
 import { recordDeath, recordDiet, type SpeciesBehaviorStats } from "./speciesBehaviorStats.ts";
 import { cellIndexAt } from "./trees.ts";
 import { torDist, wrap } from "./util.ts";
 import type { World } from "./world.ts";
-
-/**
- * A creature's combat stats — thin wrapper seams over existing genes, not inlined math, per
- * Dan's explicit request: he wants room to later split these into dedicated `attackPower`/
- * `escapePower` genes that only *correlate* with size/speed rather than being identical to them
- * (e.g. a small creature could evolve low attack but very high escape). Swapping these functions'
- * internals for real genes later shouldn't require touching any call site. See SPEC.md Addendum 7.
- */
-export function effectiveAttackPower(genome: Genome): number {
-  return genome.size;
-}
-
-export function effectiveEvasionPower(genome: Genome): number {
-  return genome.speed;
-}
 
 /** Grid-bucketed index of every living creature, rebuilt once per tick before the main
  * per-creature loop — same pattern as trees.ts's crowding-neighbor lookup, needed so prey-sensing
@@ -139,9 +125,7 @@ export function resolvePredation(
     const prey = byId.get(attempt.preyId);
     if (!predator || !prey) continue;
 
-    const attackPower = effectiveAttackPower(predator.genome);
-    const evasionPower = effectiveEvasionPower(prey.genome);
-    const successProb = attackPower / (attackPower + evasionPower);
+    const successProb = combatSuccessProbability(derivePhenotype(predator.genome), derivePhenotype(prey.genome));
 
     if (rng.next() < successProb) {
       // How much of the prey's energy the predator actually converts — a pure carnivore
