@@ -13,7 +13,7 @@ export const RUN_CONFIG_SCHEMA_VERSION = 2;
 /** Bump on any change to simulation semantics that could affect replay of an existing file (new
  * gene, changed formula, etc.) — not every commit, just ones a reproducibility-conscious user
  * would want visible when comparing an old exported run against a newer build of the app. */
-export const ENGINE_VERSION = "0.7.0";
+export const ENGINE_VERSION = "0.8.0";
 /** Marks a RunConfig migrated from the pre-versioning `{seed, interventionLog}` scenario shape,
  * which never recorded its actual params — see parseRunConfig. Distinct from
  * RUN_CONFIG_SCHEMA_VERSION 1+ so a migrated file is visibly distinguishable from a genuinely

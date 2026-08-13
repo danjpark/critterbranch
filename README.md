@@ -40,24 +40,44 @@ One call to `tick()` (`src/sim/sim.ts`), in order:
 
 1. Advance any in-progress god-mode effects (a barrier still forming, a crater still recovering).
 2. Recompute regrowth-rate overrides from active drought/bloom effects.
-3. Regrow food across the world grid (reads terrain fertility live, so a recovering crater
-   actually affects regrowth going forward).
-4. Periodically decay the competition-heatmap consumption grid (batched every
-   `consumptionDecayIntervalTicks`, not every tick — an O(cells)-per-species pass is too expensive
-   to run at full frequency against a population-sized simulation).
-5. Step every creature: sense food, steer, move, pay metabolism, eat.
-6. Reproduce creatures that crossed their energy threshold; cull the dead and the aged-out.
-7. Apply ongoing parental care (nursing) — a parent transfers energy to each still-dependent child.
-8. Update the gene-flow meter (every tick, so it catches every region crossing).
-9. Periodically (every `taxonomyIntervalTicks`) run a taxonomy pass: detect species splits and
-   extinctions, sample population/trait history.
-10. Periodically (every 5,000 ticks) compact dense observation history — see
+3. Advance every fruit tree (`src/sim/trees.ts`): sapling maturity, fruit regrowth into its own
+   cell (reading terrain fertility live, so a recovering crater actually affects regrowth going
+   forward), and — on a coarser cadence (`treeCrowdingCheckIntervalTicks`) — crowdedness-scaled
+   death. Food is a persistent, spatial entity population, not a uniform grid regrow; see
+   [`SPEC.md` Addendum 6](SPEC.md).
+4. Periodically decay the competition-heatmap consumption grid and the species-behavior
+   accumulators (batched every `consumptionDecayIntervalTicks`, not every tick — an
+   O(cells)-per-species pass is too expensive to run at full frequency against a
+   population-sized simulation).
+5. Build a grid-bucketed spatial index of every living creature (`src/sim/predation.ts`) — needed
+   so prey-sensing is O(local density) per creature instead of an O(n²) all-pairs scan.
+6. Step every creature: sense fruit *and* nearby creatures as potential prey (scored by the same
+   mechanism, whichever wins steers the creature that tick — see genome.ts's `carnivory` and
+   `gainPerUnit`), steer, move, pay metabolism, then either eat fruit at the landing cell or —
+   if it ended within `attackRange` of the prey it was steering toward and isn't on attack
+   cooldown — queue a predation attempt (resolved later, not synchronously; see step 8).
+7. Reproduce creatures that crossed their energy threshold; cull the dead and the aged-out into
+   `nextGeneration`.
+8. Resolve every queued predation attempt against `nextGeneration`, in order: a successful attack
+   removes the prey and credits the predator's energy (scaled by its own carnivory
+   specialization); re-checks both sides are still alive at resolution time, since an earlier
+   attempt this same tick may have already killed the same prey, or the predator may have died of
+   its own starvation before its attack could land. See `src/sim/predation.ts`'s `resolvePredation`
+   doc comment for why this is a separate pass rather than resolved synchronously inside step 6.
+9. Apply ongoing parental care (nursing) — a parent transfers energy to each still-dependent child.
+10. Update the gene-flow meter (every tick, so it catches every region crossing).
+11. Periodically (every `taxonomyIntervalTicks`) run a taxonomy pass: detect species splits and
+    extinctions, sample population/trait history.
+12. Periodically (every 5,000 ticks) compact dense observation history — see
     [History retention](#history-retention) below.
 
-Steps 1–3, 5–7 operate on `SimState.evolution` (core state: creatures, world, terrain). Steps 8–10
-operate on `SimState.observations` (derived analytics: taxonomy, gene flow, population/trait
-history, the consumption grid) — nothing in `evolution` ever depends on `observations`, which is
-what lets a new visualization get added without touching creature/world mechanics at all.
+Steps 1–3, 6–9 operate on `SimState.evolution` (core state: creatures, trees, world, terrain).
+Steps 4, 10–12 operate on `SimState.observations` (derived analytics: taxonomy, gene flow,
+population/trait history, the consumption grid) — nothing in `evolution` ever depends on
+`observations`, which is what lets a new visualization get added without touching creature/world
+mechanics at all. Steps 5 and 8 are the one exception to that split: prey-sensing needs a fresh
+per-tick spatial index of `evolution.creatures` (not persisted state), and predation resolution
+writes back into `evolution.creatures` itself (a kill is a real state change, not an observation).
 
 ## Determinism contract
 
@@ -119,6 +139,9 @@ npm run typecheck   # tsc for src/, AND tsconfig.scripts.json for scripts/ — b
 npm run build       # production build (GitHub Pages — see vite.config.ts's `base`)
 npm run sim         # scripts/run-headless.ts — quick headless run printing population/gene means
 npm run benchmark   # scripts/benchmark.ts — deterministic performance baseline, see SPEC.md
+npm run regen-examples  # scripts/regen-examples.ts — rebuild public/scenarios/*.json against the
+                         # current build's DEFAULT_PARAMS and verify each still demonstrates what
+                         # it's named for; re-run after any change to core sim dynamics
 ```
 
 ## History retention

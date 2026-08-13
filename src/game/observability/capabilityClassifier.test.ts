@@ -6,6 +6,7 @@ function profile(overrides: Partial<SpeciesProfile> = {}): SpeciesProfile {
   return {
     speciesId: 0,
     memberCount: 30,
+    diet: { meatShare: 0.5, totalConsumed: 10 },
     habitat: { lowlandShare: 1, hillShare: 0, mountainShare: 0 },
     movement: { averageRealizedSpeed: 1 },
     reproduction: { birthsPerCapita: 0.1, deathsPerCapita: 0.1, averageLifespanAtDeath: null },
@@ -20,9 +21,31 @@ function labelsOf(profile: SpeciesProfile, baseline = neutralBaseline) {
   return classifySpecies(profile, baseline).map((c) => c.label);
 }
 
-// "classifySpecies — diet" tests lived here — removed along with the dietary-generalist/
-// specialist-r/specialist-b labels themselves (SPEC.md Addendum 6, no diet trade-off axis left
-// to classify).
+describe("classifySpecies — diet", () => {
+  it("labels a near-balanced diet as omnivore", () => {
+    expect(labelsOf(profile({ diet: { meatShare: 0.45, totalConsumed: 10 } }))).toContain("omnivore");
+  });
+
+  it("labels a heavily meat-skewed diet as carnivore", () => {
+    expect(labelsOf(profile({ diet: { meatShare: 0.9, totalConsumed: 10 } }))).toContain("carnivore");
+  });
+
+  it("labels a heavily fruit-skewed diet as herbivore", () => {
+    expect(labelsOf(profile({ diet: { meatShare: 0.1, totalConsumed: 10 } }))).toContain("herbivore");
+  });
+
+  it("assigns no diet label in the ambiguous middle zone", () => {
+    const labels = labelsOf(profile({ diet: { meatShare: 0.65, totalConsumed: 10 } }));
+    expect(labels).not.toContain("omnivore");
+    expect(labels).not.toContain("carnivore");
+    expect(labels).not.toContain("herbivore");
+  });
+
+  it("assigns no diet label when nothing has been consumed yet", () => {
+    const labels = labelsOf(profile({ diet: { meatShare: 0.5, totalConsumed: 0 } }));
+    expect(labels).not.toContain("omnivore");
+  });
+});
 
 describe("classifySpecies — habitat", () => {
   it("labels a species mostly found on mountain terrain as highland-adapted", () => {
@@ -85,6 +108,7 @@ describe("classifySpecies — confidence", () => {
   it("every emitted capability carries non-empty evidence", () => {
     const capabilities = classifySpecies(
       profile({
+        diet: { meatShare: 0.9, totalConsumed: 10 },
         habitat: { lowlandShare: 0, hillShare: 0, mountainShare: 0.8 },
         movement: { averageRealizedSpeed: 3 },
         reproduction: { birthsPerCapita: 0.3, deathsPerCapita: 0.1, averageLifespanAtDeath: 500 },

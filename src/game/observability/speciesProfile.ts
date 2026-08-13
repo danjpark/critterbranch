@@ -15,10 +15,17 @@ import type { Params } from "../../params.ts";
  * (speciesBehavior birth/death totals, Creature.distanceTraveled) are what carry the "recent
  * behavior, decayed" property; this function is a pure read over them.
  *
- * Used to also have a `diet` dimension (food-type R/B share) — removed by SPEC.md Addendum 6
- * along with the diet trade-off axis itself (one food type now, fruit trees). Reinstate once part
- * B (predation/meat) gives diet real meaning again.
+ * Used to have a `diet` dimension (food-type R/B share), removed by Addendum 6 along with the old
+ * diet axis, and back per Addendum 7 reshaped around fruit vs. meat.
  */
+export interface DietProfile {
+  /** Fraction of this species' decayed food intake that came from meat (kills), in [0, 1]. 0.5 if
+   * the species hasn't recorded any intake yet (no evidence either way). */
+  meatShare: number;
+  /** Decayed total intake (fruit + meat) — how much evidence meatShare is actually based on. */
+  totalConsumed: number;
+}
+
 export interface HabitatProfile {
   lowlandShare: number;
   hillShare: number;
@@ -51,6 +58,7 @@ export interface SurvivalProfile {
 export interface SpeciesProfile {
   speciesId: number;
   memberCount: number;
+  diet: DietProfile;
   habitat: HabitatProfile;
   movement: MovementProfile;
   reproduction: ReproductionProfile;
@@ -67,6 +75,13 @@ export interface PopulationBaseline {
 export interface SpeciesProfileSet {
   profiles: Map<number, SpeciesProfile>;
   baseline: PopulationBaseline;
+}
+
+function dietProfile(stats: SpeciesBehaviorStats, speciesId: number): DietProfile {
+  const acc = stats.bySpecies.get(speciesId);
+  const totalConsumed = acc ? acc.dietFruit + acc.dietMeat : 0;
+  const meatShare = acc && totalConsumed > 1e-9 ? acc.dietMeat / totalConsumed : 0.5;
+  return { meatShare, totalConsumed };
 }
 
 function habitatProfile(members: Creature[], terrain: TerrainGrid, params: Params): HabitatProfile {
@@ -159,6 +174,7 @@ export function computeSpeciesProfiles(sim: SimInstance): SpeciesProfileSet {
     profiles.set(species.id, {
       speciesId: species.id,
       memberCount: species.memberCount,
+      diet: dietProfile(observations.speciesBehavior, species.id),
       habitat: habitatProfile(members, evolution.terrain, params),
       movement,
       reproduction,

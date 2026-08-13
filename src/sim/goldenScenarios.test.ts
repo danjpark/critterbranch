@@ -44,10 +44,10 @@ describe("golden scenario: neutral control", () => {
 // (predation/meat) gives diet real meaning again.
 
 describe("golden scenario: foraging-axis disruption", () => {
-  // SKIPPED, not passing — see axisIsolation.test.ts's "foraging axis in isolation" (same
-  // underlying cause: SPEC.md Addendum 6's point-source trees are a weaker disruptive geometry
-  // than the old Gaussian patches were, needs dedicated re-tuning).
-  it.skip(
+  // Was failing/skipped — see axisIsolation.test.ts's "foraging axis in isolation" for what was
+  // wrong and what actually fixed it (Addendum 7's attackCooldownTicks, not a foraging-specific
+  // change).
+  it(
     "produces a persistent foraging-driven split when patchBimodality is maxed and the other axes are flat",
     () => {
       const config = createRunConfig(2, { ...DEFAULT_PARAMS, ...NEUTRAL, patchBimodality: 1.0 }, []);
@@ -133,18 +133,21 @@ describe("golden scenario: founder effect", () => {
 });
 
 describe("golden scenario: extinction and radiation", () => {
-  // SKIPPED, not passing — this scenario needs the population to have already speciated into
-  // regional lineages by tick 3000 (so the meteor can wipe one out entirely); under
-  // DEFAULT_PARAMS with SPEC.md Addendum 6's weaker tree-based disruptive geometry (see
-  // axisIsolation.test.ts's "foraging axis in isolation"), the founding population is still one
-  // undifferentiated species covering the whole map at that point, so nothing goes extinct.
-  it.skip(
+  it(
     "a mass-extinction event (meteor) produces an extinction, and the survivors eventually radiate into a new lineage",
     () => {
-      const config = createRunConfig(42, DEFAULT_PARAMS, [
-        { tick: 3000, tool: "meteor", params: { x: 100, y: 100, radius: 60, craterRecoveryTicks: 800 } },
+      // This scenario needs the population to have already speciated into regional lineages
+      // BEFORE the meteor hits (so it can wipe one out entirely, not just cull a fraction of one
+      // still-undifferentiated species). SPEC.md Addendum 6's tree-based food geometry has a
+      // slower/more seed-dependent speciation timeline than the old Gaussian patches did — seed
+      // 42's population was still a single undifferentiated species at tick 3000 (confirmed
+      // directly: still one species at tick 12,000 too). Seed 1 reliably speciates by ~tick 6,000
+      // under DEFAULT_PARAMS; tick 7,000 (checked directly) gives the split time to establish
+      // before the meteor lands.
+      const config = createRunConfig(1, DEFAULT_PARAMS, [
+        { tick: 7000, tool: "meteor", params: { x: 100, y: 100, radius: 60, craterRecoveryTicks: 800 } },
       ]);
-      const state = runSimulationFromConfig(config, 25_000);
+      const state = runSimulationFromConfig(config, 27_000);
 
       expect(state.evolution.creatures.length).toBeGreaterThan(0);
 

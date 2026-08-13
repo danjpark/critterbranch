@@ -1,11 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PARAMS } from "../../params.ts";
+import { createCreature } from "../../sim/creature.ts";
 import type { Genome } from "../../sim/genome.ts";
+import { RNG } from "../../sim/rng.ts";
 import { createSimState } from "../../sim/sim.ts";
+import { recordDiet } from "../../sim/speciesBehaviorStats.ts";
 import type { PopulationSample, Species } from "../../sim/taxonomy.ts";
 import { createGameState } from "../gameState.ts";
 import type { GameEvaluationContext } from "./objective.ts";
-import { createBiodiversityObjective, createDisasterRecoveryObjective, createGeographicSpeciationObjective } from "./standardObjectives.ts";
+import {
+  createApexPredatorObjective,
+  createBiodiversityObjective,
+  createDietaryGeneralistObjective,
+  createDietarySpecialistObjective,
+  createDisasterRecoveryObjective,
+  createGeographicSpeciationObjective,
+} from "./standardObjectives.ts";
 
 function genome(offspringInvestment: number): Genome {
   return {
@@ -40,7 +50,23 @@ function species(overrides: Partial<Species> & Pick<Species, "id">): Species {
 function context(): GameEvaluationContext {
   const sim = createSimState(1, DEFAULT_PARAMS);
   sim.state.observations.taxonomy.species.clear();
+  sim.state.evolution.creatures = [];
   return { sim, gameState: createGameState("sandbox") };
+}
+
+/** Seeds a living species with `memberCount` creatures and a decayed diet-share history —
+ * mirrors what computeSpeciesProfiles actually reads (taxonomy.species + evolution.creatures
+ * grouped by lineageId + speciesBehavior), not a genotype proxy. */
+function seedSpeciesWithDiet(ctx: GameEvaluationContext, speciesId: number, memberCount: number, fruitAmount: number, meatAmount: number): void {
+  ctx.sim.state.observations.taxonomy.species.set(speciesId, species({ id: speciesId, memberCount }));
+  const rng = new RNG(1);
+  for (let i = 0; i < memberCount; i++) {
+    ctx.sim.state.evolution.creatures.push(
+      createCreature({ id: speciesId * 1000 + i, parentId: null, lineageId: speciesId, genome: genome(0.5), x: 0, y: 0, energy: 10, birthTick: 0, rng }),
+    );
+  }
+  if (fruitAmount > 0) recordDiet(ctx.sim.state.observations.speciesBehavior, speciesId, 0, fruitAmount);
+  if (meatAmount > 0) recordDiet(ctx.sim.state.observations.speciesBehavior, speciesId, 1, meatAmount);
 }
 
 describe("createBiodiversityObjective", () => {
@@ -62,8 +88,74 @@ describe("createBiodiversityObjective", () => {
   });
 });
 
-// createDietarySpecialistObjective/createDietaryGeneralistObjective tests lived here — removed
-// along with the objectives themselves (SPEC.md Addendum 6, no diet trade-off axis left to test).
+describe("createDietarySpecialistObjective", () => {
+  it("completes when a sufficiently populous species has a skewed demonstrated diet", () => {
+    const ctx = context();
+    const obj = createDietarySpecialistObjective(20, 0.3);
+    seedSpeciesWithDiet(ctx, 1, 25, 1, 9); // meatShare = 0.9
+    expect(obj.evaluate(ctx).complete).toBe(true);
+  });
+
+  it("ignores a skewed species below the population threshold", () => {
+    const ctx = context();
+    const obj = createDietarySpecialistObjective(20, 0.3);
+    seedSpeciesWithDiet(ctx, 1, 5, 0.5, 9.5); // well below minPopulation
+    expect(obj.evaluate(ctx).complete).toBe(false);
+  });
+
+  it("does not complete for a balanced diet", () => {
+    const ctx = context();
+    const obj = createDietarySpecialistObjective(20, 0.3);
+    seedSpeciesWithDiet(ctx, 1, 25, 5, 5); // meatShare = 0.5
+    expect(obj.evaluate(ctx).complete).toBe(false);
+  });
+
+  it("ignores a species with no recorded diet evidence yet", () => {
+    const ctx = context();
+    const obj = createDietarySpecialistObjective(20, 0.3);
+    ctx.sim.state.observations.taxonomy.species.set(1, species({ id: 1, memberCount: 25 }));
+    expect(obj.evaluate(ctx).complete).toBe(false);
+  });
+});
+
+describe("createDietaryGeneralistObjective", () => {
+  it("completes when a sufficiently populous species has a balanced demonstrated diet", () => {
+    const ctx = context();
+    const obj = createDietaryGeneralistObjective(20, 0.15);
+    seedSpeciesWithDiet(ctx, 1, 25, 5.2, 4.8); // meatShare = 0.48
+    expect(obj.evaluate(ctx).complete).toBe(true);
+  });
+
+  it("does not complete for a skewed diet", () => {
+    const ctx = context();
+    const obj = createDietaryGeneralistObjective(20, 0.15);
+    seedSpeciesWithDiet(ctx, 1, 25, 1, 9); // meatShare = 0.9
+    expect(obj.evaluate(ctx).complete).toBe(false);
+  });
+});
+
+describe("createApexPredatorObjective", () => {
+  it("completes when a sufficiently populous species draws most of its diet from meat", () => {
+    const ctx = context();
+    const obj = createApexPredatorObjective(20, 0.7);
+    seedSpeciesWithDiet(ctx, 1, 25, 1, 9); // meatShare = 0.9
+    expect(obj.evaluate(ctx).complete).toBe(true);
+  });
+
+  it("does not complete below the meat-share threshold", () => {
+    const ctx = context();
+    const obj = createApexPredatorObjective(20, 0.7);
+    seedSpeciesWithDiet(ctx, 1, 25, 5, 5); // meatShare = 0.5
+    expect(obj.evaluate(ctx).complete).toBe(false);
+  });
+
+  it("does not complete below the population threshold even at 100% meat", () => {
+    const ctx = context();
+    const obj = createApexPredatorObjective(20, 0.7);
+    seedSpeciesWithDiet(ctx, 1, 5, 0, 10); // meatShare = 1.0, but too few members
+    expect(obj.evaluate(ctx).complete).toBe(false);
+  });
+});
 
 describe("createGeographicSpeciationObjective", () => {
   it("completes once an allopatric speciation event has occurred", () => {

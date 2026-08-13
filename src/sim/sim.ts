@@ -198,7 +198,7 @@ export function tick(state: SimState, rng: RNG, params: Params): void {
   const predationAttempts: PredationAttempt[] = [];
 
   for (const creature of evo.creatures) {
-    const attempt = stepCreature(creature, evo.world, evo.terrain, evo.trees, creatureIndex, rng, params, evo.tick, obs.consumptionGrid);
+    const attempt = stepCreature(creature, evo.world, evo.terrain, evo.trees, creatureIndex, rng, params, evo.tick, obs.consumptionGrid, obs.speciesBehavior);
     if (attempt) predationAttempts.push(attempt);
 
     if (isReadyToReproduce(creature, params)) {

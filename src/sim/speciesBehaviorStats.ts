@@ -5,8 +5,8 @@
  * periodic pass rather than every tick, pruned once a species' trace becomes negligible (catches
  * extinct species instead of leaving an ever-growing tail of all-but-zero entries).
  *
- * Used to also track diet (R/B food-type share) here, removed by SPEC.md Addendum 6 along with
- * the diet trade-off axis itself — see game/observability/speciesProfile.ts's history for that.
+ * Diet tracking (dietFruit/dietMeat) was here, removed by Addendum 6 when the diet axis went
+ * away, and is back per Addendum 7 reshaped around fruit vs. meat instead of the old R/B split.
  */
 export interface SpeciesBehaviorAccumulator {
   births: number;
@@ -14,6 +14,12 @@ export interface SpeciesBehaviorAccumulator {
   /** Sum of `creature.age` at the moment of death, across every death recorded — divide by
    * `deaths` for a decayed-average realized lifespan. */
   sumAgeAtDeath: number;
+  /** Decayed total fruit consumed. */
+  dietFruit: number;
+  /** Decayed total meat consumed (a predator's actual energy gain from a kill — see
+   * sim/predation.ts's resolvePredation — not the prey's raw energy, since a poorly-specialized
+   * attacker converts only a fraction of it). */
+  dietMeat: number;
 }
 
 export interface SpeciesBehaviorStats {
@@ -21,7 +27,7 @@ export interface SpeciesBehaviorStats {
 }
 
 function zeroAccumulator(): SpeciesBehaviorAccumulator {
-  return { births: 0, deaths: 0, sumAgeAtDeath: 0 };
+  return { births: 0, deaths: 0, sumAgeAtDeath: 0, dietFruit: 0, dietMeat: 0 };
 }
 
 export function initSpeciesBehaviorStats(): SpeciesBehaviorStats {
@@ -53,6 +59,14 @@ export function recordDeath(stats: SpeciesBehaviorStats, lineageId: number, ageA
   acc.sumAgeAtDeath += ageAtDeath;
 }
 
+/** `foodType`: 0 = fruit, 1 = meat — same convention as genome.ts's gainPerUnit. */
+export function recordDiet(stats: SpeciesBehaviorStats, lineageId: number, foodType: 0 | 1, amount: number): void {
+  if (amount <= 0) return;
+  const acc = getOrCreate(stats, lineageId);
+  if (foodType === 0) acc.dietFruit += amount;
+  else acc.dietMeat += amount;
+}
+
 // Matches consumption.ts's PRUNE_THRESHOLD/rationale exactly — below this, every field's
 // remaining trace is imperceptible, so keeping the entry only wastes memory on long-extinct
 // species.
@@ -65,7 +79,15 @@ export function decaySpeciesBehaviorStats(stats: SpeciesBehaviorStats, retention
     acc.births *= retention;
     acc.deaths *= retention;
     acc.sumAgeAtDeath *= retention;
-    if (acc.births < PRUNE_THRESHOLD && acc.deaths < PRUNE_THRESHOLD && acc.sumAgeAtDeath < PRUNE_THRESHOLD) {
+    acc.dietFruit *= retention;
+    acc.dietMeat *= retention;
+    if (
+      acc.births < PRUNE_THRESHOLD &&
+      acc.deaths < PRUNE_THRESHOLD &&
+      acc.sumAgeAtDeath < PRUNE_THRESHOLD &&
+      acc.dietFruit < PRUNE_THRESHOLD &&
+      acc.dietMeat < PRUNE_THRESHOLD
+    ) {
       stats.bySpecies.delete(speciesId);
     }
   }

@@ -671,19 +671,21 @@ just design refinements:
    `patchBimodality` a per-tree mixing *probability* (clustered vs. a fresh independent uniform
    draw) instead of a continuously-scaled radius — this collapses exactly at 0, not asymptotically.
 
-**Known gap, left as `it.skip` with tracking comments, not silently "fixed":** point-source trees
-are a genuinely weaker disruptive-selection geometry for Axis 2 (foraging) than the old Gaussian
-patches were — a single tree, however "rich," has no footprint the way a patch spanning dozens of
-cells did. `axisIsolation.test.ts`'s "foraging axis in isolation" (and the two golden scenarios
-that depend on the same mechanism) don't reliably reproduce a clean split within reasonable ticks
-under the *isolated* single-axis test conditions (patchBimodality maxed, nursing zeroed, one exact
-seed) even after real tuning attempts (richTreeCount swept 40→8→4, rich/poor capacity contrast
-sharpened, cluster tightness increased). This needs the same kind of dedicated empirical tuning
-Addendum 3's original axis-isolation calibration took — not a quick parameter guess. **Important
-context, live-verified, so this isn't read as worse than it is:** under normal (non-isolated)
-default-params play, real sympatric speciation happens readily and looks healthy (three splits
-observed live within the first ~9,200 ticks of an ordinary run) — the gap is specifically the
-isolated-axis diagnostic tests, not the core "living, splitting tree" experience.
+**Gap since resolved (2026-08-12, same day as Addendum 7's predation work) — recorded here for
+history, not left open.** Point-source trees are a genuinely weaker disruptive-selection geometry
+for Axis 2 (foraging) than the old Gaussian patches were — a single tree, however "rich," has no
+footprint the way a patch spanning dozens of cells did. `axisIsolation.test.ts`'s "foraging axis in
+isolation" (and two golden scenarios depending on the same mechanism) didn't reliably reproduce a
+clean split within reasonable ticks under the *isolated* single-axis test conditions, even after
+real tuning attempts scoped to this addendum alone (richTreeCount swept 40→8→4, rich/poor capacity
+contrast sharpened, cluster tightness increased). What actually fixed it turned out to live outside
+this addendum entirely: Addendum 7's `attackCooldownTicks` fix (built for predation population
+stability, an unrelated bug) also stabilized population dynamics broadly enough for this axis's
+comparatively weak signal to reliably surface again. All three tests un-skipped and passing; a
+third golden scenario ("extinction and radiation") needed its own fix on top — seed 42 never
+speciated at all under the new geometry even by tick 12,000 (confirmed directly), so it was
+switched to seed 1 (reliably speciates by ~tick 6,000) with the meteor moved from tick 3,000 to
+7,000, giving the split time to establish before the meteor needs a regional lineage to wipe out.
 
 ## Addendum 7 — food redesign part B: predation and meat
 
@@ -769,3 +771,43 @@ written, so that draw was silently inert until now. Fixed the same way those tes
 Full test suite green (243 passed, 3 pre-existing skips from Addendum 6 unrelated to this work),
 typecheck clean, no performance regression, live-verified in-browser across 25,000+ ticks with real
 speciation/extinction events and zero console errors.
+
+## Addendum 8 — closing the open threads before Milestone 3
+
+Before moving on to Milestone 3, Dan asked for a "creative director + engineering director" pass:
+step back, audit the codebase for everything the food redesign (Addenda 6-7) left unfinished or
+inconsistent, prioritize it, and clear the list — rather than carrying staleness forward into a new
+milestone. Eight items were identified and all were completed, in the agreed order:
+
+**Tier 1 — infra/consistency (staleness that would mislead, not break anything today):**
+`README.md`'s tick lifecycle rewritten for the actual 12-step `tick()` (trees, creature spatial
+index, predation queue/resolve phases); `public/scenarios/*.json` example scenarios regenerated
+against current `DEFAULT_PARAMS` via a new permanent `scripts/regen-examples.ts` (they still loaded
+under the old patch-based economy via `mergeRunParams`'s graceful fallback, but silently no longer
+demonstrated their own premise); `distanceTraveled`/`attackCooldownUntilTick` added to
+`testHash.ts`'s determinism snapshot (previously invisible to divergence detection);
+`scripts/explore-axis.ts` updated with a `predation` axis-isolation entry and a stale comment fix.
+
+**Tier 2 — the foraging-axis tuning gap:** Addendum 6 left `axisIsolation.test.ts`'s
+foraging-in-isolation diagnostic `it.skip`, unresolved after several rounds of patch-geometry
+tuning. Turned out not to be a foraging-tuning problem at all — it was the same population
+instability the Addendum 7 attack-cooldown bug caused, just manifesting as noise in a different
+test. Fixing that bug (already done for Addendum 7) fixed this for free; removed the skips.
+
+**Tier 3 — reinstating what Addendum 7 explicitly deferred:** M2's diet dimension is back in
+`SpeciesProfile`/`CapabilityClassifier` (`DietProfile.meatShare`, `omnivore`/`herbivore`/`carnivore`
+labels at the same thresholds the old R/B version used); predation's death/diet events already flow
+into the existing generic species-card/event-feed UI with no new code needed (verified, not
+assumed); `createDietarySpecialistObjective`/`createDietaryGeneralistObjective` reinstated reading
+**real demonstrated diet share** from `SpeciesProfile` (not the old genotype-centroid proxy — a
+deliberate upgrade, consistent with the "Genome != Capability" principle that layer was built
+around) and the **Picky Eaters** challenge came back with them; a new
+`createApexPredatorObjective(minPopulation, meatShareThreshold)` and matching **Apex Predator**
+challenge were added — both gated by `MIN_DIET_EVIDENCE` so a species with no recorded intake yet
+can't false-positive complete an objective. Test coverage added in
+`standardObjectives.test.ts` for all three objectives, including the population and evidence gates.
+
+**Verification:** typecheck clean, full suite green (262 passed), benchmark unchanged, and a live
+in-browser run confirmed the full pipeline end-to-end — selected the Picky Eaters challenge, ran an
+era, watched the objective flip to complete as the founder population's carnivory swung sharply
+toward one diet extreme, zero console errors.

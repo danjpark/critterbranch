@@ -12,6 +12,8 @@ export function hashState(state: SimState): string {
     c.y.toFixed(6),
     c.energy.toFixed(6),
     c.age,
+    c.distanceTraveled.toFixed(6),
+    c.attackCooldownUntilTick,
     JSON.stringify(c.genome),
   ]);
   const speciesSnapshot = Array.from(observations.taxonomy.species.values())
@@ -20,7 +22,7 @@ export function hashState(state: SimState): string {
   const treeSnapshot = evolution.trees.trees
     .slice()
     .sort((a, b) => a.id - b.id)
-    .map((t) => [t.id, t.x.toFixed(6), t.y.toFixed(6), t.plantedTick, t.maturedTick]);
+    .map((t) => [t.id, t.x.toFixed(6), t.y.toFixed(6), t.plantedTick, t.maturedTick, t.capacity.toFixed(6)]);
   const payload = JSON.stringify({
     tick: evolution.tick,
     creatures: creatureSnapshot,

@@ -1,6 +1,9 @@
 import type { PopulationBaseline, SpeciesProfile } from "./speciesProfile.ts";
 
 export type CapabilityLabel =
+  | "omnivore"
+  | "herbivore"
+  | "carnivore"
   | "highland-adapted"
   | "lowland-adapted"
   | "fast-mover"
@@ -33,9 +36,11 @@ function memberConfidence(memberCount: number): number {
   return Math.min(1, memberCount / CONFIDENCE_SATURATION_MEMBER_COUNT);
 }
 
-// Used to also have dietary-generalist/specialist-r/specialist-b labels here — removed by
-// SPEC.md Addendum 6 along with the diet trade-off axis itself (one food type now, fruit trees).
-// Reinstate once part B (predation/meat) gives diet real meaning again.
+// Matches standardObjectives.ts's createDietaryGeneralistObjective/createDietarySpecialistObjective
+// thresholds (0.15 / 0.3) exactly, so a species that clears the game's own generalist/specialist
+// objective is guaranteed to also carry the matching label here.
+const OMNIVORE_THRESHOLD = 0.15;
+const SPECIALIST_THRESHOLD = 0.3;
 
 const HIGHLAND_MOUNTAIN_SHARE = 0.3;
 const LOWLAND_SHARE = 0.7;
@@ -53,6 +58,26 @@ const VOLATILITY_FRAGILE = 0.4;
 export function classifySpecies(profile: SpeciesProfile, baseline: PopulationBaseline): Capability[] {
   const confidence = memberConfidence(profile.memberCount);
   const capabilities: Capability[] = [];
+
+  const dietDistance = Math.abs(profile.diet.meatShare - 0.5);
+  if (profile.diet.totalConsumed > 1e-6) {
+    if (dietDistance <= OMNIVORE_THRESHOLD) {
+      capabilities.push({
+        label: "omnivore",
+        displayName: "Omnivore",
+        confidence,
+        evidence: `Draws ${(profile.diet.meatShare * 100).toFixed(0)}% of intake from meat, ${((1 - profile.diet.meatShare) * 100).toFixed(0)}% from fruit.`,
+      });
+    } else if (dietDistance >= SPECIALIST_THRESHOLD) {
+      const isCarnivore = profile.diet.meatShare > 0.5;
+      capabilities.push({
+        label: isCarnivore ? "carnivore" : "herbivore",
+        displayName: isCarnivore ? "Carnivore" : "Herbivore",
+        confidence,
+        evidence: `Draws ${(Math.max(profile.diet.meatShare, 1 - profile.diet.meatShare) * 100).toFixed(0)}% of intake from ${isCarnivore ? "meat" : "fruit"}.`,
+      });
+    }
+  }
 
   if (profile.habitat.mountainShare >= HIGHLAND_MOUNTAIN_SHARE) {
     capabilities.push({

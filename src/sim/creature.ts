@@ -4,6 +4,7 @@ import { gainPerUnit, mutate, type Genome } from "./genome.ts";
 import type { Params } from "../params.ts";
 import { type CreatureIndex, findBestNearbyCreature, type PredationAttempt } from "./predation.ts";
 import type { RNG } from "./rng.ts";
+import { recordDiet, type SpeciesBehaviorStats } from "./speciesBehaviorStats.ts";
 import type { TerrainGrid } from "./terrain.ts";
 import { trySeedSapling, type TreeState } from "./trees.ts";
 import { torDelta, torDist, wrap, lerp } from "./util.ts";
@@ -164,6 +165,7 @@ export function stepCreature(
   params: Params,
   tick: number,
   consumptionGrid: ConsumptionGrid | null = null,
+  speciesBehavior: SpeciesBehaviorStats | null = null,
 ): PredationAttempt | null {
   const worldWidth = world.cols * params.gridCellSize;
   const worldHeight = world.rows * params.gridCellSize;
@@ -210,6 +212,7 @@ export function stepCreature(
     world.fruit[idx] -= take;
     creature.energy += take * gainPerUnit(creature.genome.carnivory, 0, params);
     if (consumptionGrid) recordConsumption(consumptionGrid, creature.lineageId, idx, take);
+    if (speciesBehavior) recordDiet(speciesBehavior, creature.lineageId, 0, take);
     trySeedSapling(treeState, creature.x, creature.y, rng, params, tick, world);
   }
 

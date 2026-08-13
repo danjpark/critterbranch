@@ -55,22 +55,15 @@ describe("neutral control", () => {
 // meaning again.
 
 describe("foraging axis in isolation", () => {
-  // SKIPPED, not passing: SPEC.md Addendum 6 replaced the old Gaussian food-patch geometry with
-  // point-source trees (sim/trees.ts). That's a genuine reduction in this axis's disruptive
-  // power, not a bug in any one function — a single tree, however "rich," has no footprint the
-  // way a patch spanning dozens of cells did, so senseRadius/speed/wanderPersistence don't pay off
-  // as differently as they used to. Verified directly (not just via this test): seeds 1, 2, and 3
-  // all ran clean at 8,000-20,000 ticks under DEFAULT_PARAMS + patchBimodality=1 with no
-  // persistent bimodality, across several rounds of real parameter changes (richTreeCount 40→8→4,
-  // poor/rich capacity contrast 0.3→0.15, cluster radius/count) — a real, if weak, disruptive
-  // signal was observed once (a fleeting wanderPersistence bimodal reading at tick 1000, seed 1;
-  // a persistent split WAS reached with nursingRatePerTick left nonzero, seed 2 — this axis is
-  // not dead, just weaker than the old geometry gave it and no longer strong enough alone with
-  // nursing zeroed out). This needs the same kind of dedicated empirical tuning the ORIGINAL
-  // axis-isolation calibration took (SPEC.md Addendum 3's own history) — an open follow-up, not
-  // silently declared done. golden scenario: foraging-axis disruption and golden scenario:
-  // extinction and radiation are skipped for the same underlying reason.
-  it.skip(
+  // Was failing/skipped for a while after SPEC.md Addendum 6 replaced the old Gaussian food-patch
+  // geometry with point-source trees (sim/trees.ts) — a single tree, however "rich," has no
+  // footprint the way a patch spanning dozens of cells did, so senseRadius/speed/wanderPersistence
+  // didn't pay off as differently as they used to. Several rounds of real parameter tuning
+  // (richTreeCount 40→8→4, poor/rich capacity contrast 0.3→0.15, cluster tightness) didn't fix it
+  // alone. What actually resolved it: Addendum 7's attackCooldownTicks fix (added for predation
+  // population stability, not for this) also stabilized population dynamics broadly enough for
+  // this axis's comparatively weak disruptive signal to reliably surface again.
+  it(
     "produces real population-level bimodality on a foraging gene when patchBimodality is maxed and the other two axes are flat",
     () => {
       // Seed matters here: this axis's split timing is genuinely seed-dependent (seed 2 shows

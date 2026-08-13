@@ -1,23 +1,27 @@
 {
   "schemaVersion": 2,
-  "engineVersion": "0.7.0",
+  "engineVersion": "0.8.0",
   "seed": 42,
   "params": {
     "world": {
       "worldWidth": 200,
       "worldHeight": 200,
       "gridCellSize": 4,
-      "foodMode": "patchy",
+      "richTreeCount": 4,
+      "poorTreeCount": 200,
+      "poorClusterCount": 25,
+      "poorClusterRadius": 4,
       "patchBimodality": 1,
-      "richPatchCount": 4,
-      "poorPatchCount": 10,
-      "richPatchRadius": 3,
-      "poorPatchRadius": 1.5,
-      "richPatchCapacity": 1.2,
-      "poorPatchCapacity": 0.6,
-      "baseCapacity": 0.3,
-      "ambientFoodFraction": 0,
-      "regrowthRate": 0.05,
+      "treeMaturityTicks": 300,
+      "treeFruitCapacity": 3,
+      "treeFruitRegrowthRate": 0.05,
+      "saplingChance": 0.02,
+      "saplingSpreadRadius": 12,
+      "maxTreeCount": 350,
+      "crowdingRadius": 20,
+      "baseDeathChancePerCheck": 0.01,
+      "crowdingDeathMultiplier": 0.15,
+      "treeCrowdingCheckIntervalTicks": 20,
       "regrowthCyclePeriod": 2000,
       "regrowthCycleAmplitude": 0
     },
@@ -30,6 +34,8 @@
       "maxGain": 2,
       "specializationExponent": 2,
       "intakeRate": 0.5,
+      "attackRange": 3,
+      "attackCooldownTicks": 20,
       "foundingPopulationSize": 100
     },
     "reproduction": {
@@ -49,7 +55,9 @@
       "speciationThreshold": 0.28,
       "minFounders": 5,
       "founderCountThreshold": 12,
-      "allopatricPassabilityThreshold": 0.15
+      "allopatricPassabilityThreshold": 0.15,
+      "speciationConfirmationPasses": 2,
+      "speciationCandidateTimeoutPasses": 3
     },
     "observation": {
       "geneFlowWindowTicks": 200,

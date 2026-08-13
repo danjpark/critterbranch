@@ -2,7 +2,7 @@ import type { Creature } from "./creature.ts";
 import { specializationFactor, type Genome } from "./genome.ts";
 import type { Params } from "../params.ts";
 import type { RNG } from "./rng.ts";
-import { recordDeath, type SpeciesBehaviorStats } from "./speciesBehaviorStats.ts";
+import { recordDeath, recordDiet, type SpeciesBehaviorStats } from "./speciesBehaviorStats.ts";
 import { cellIndexAt } from "./trees.ts";
 import { torDist, wrap } from "./util.ts";
 import type { World } from "./world.ts";
@@ -149,9 +149,11 @@ export function resolvePredation(
       // same specialization curve fruit-eating uses (see genome.ts's specializationFactor), just
       // applied against a whole creature's energy instead of a small per-tick bite.
       const meatEfficiency = specializationFactor(predator.genome.carnivory, 1, params);
-      predator.energy += prey.energy * meatEfficiency;
+      const energyGained = prey.energy * meatEfficiency;
+      predator.energy += energyGained;
       killed.add(prey.id);
       recordDeath(speciesBehavior, prey.lineageId, prey.age);
+      recordDiet(speciesBehavior, predator.lineageId, 1, energyGained);
     }
   }
 

@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "sim": "tsx scripts/run-headless.ts",
     "benchmark": "tsx scripts/benchmark.ts",
+    "regen-examples": "tsx scripts/regen-examples.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json"
   },
