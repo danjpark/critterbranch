@@ -2,6 +2,7 @@ import { createCreature, energyCapacity } from "./creature.ts";
 import { type Genome, randomGenome } from "./genome.ts";
 import type { RNG } from "./rng.ts";
 import type { EvolutionState } from "./sim.ts";
+import { terrainDerivedFields } from "./terrain.ts";
 import { cellIndexAt } from "./trees.ts";
 import { clamp, clamp01, lerp, torDelta, wrap } from "./util.ts";
 import type { Params } from "../params.ts";
@@ -55,6 +56,12 @@ export interface SeedFoundersParams {
   genome: Genome | "random";
 }
 
+/** Global, not location-scoped — sea level is a single scalar (see SPEC.md Addendum 9), so unlike
+ * every other terrain tool this has no x/y/radius. */
+export interface SeaLevelParams {
+  strength: number;
+}
+
 export type Intervention =
   | { tick: number; tool: "raiseTerrain"; params: RaiseLowerTerrainParams }
   | { tick: number; tool: "lowerTerrain"; params: RaiseLowerTerrainParams }
@@ -63,7 +70,9 @@ export type Intervention =
   | { tick: number; tool: "drought"; params: DroughtBloomParams }
   | { tick: number; tool: "bloom"; params: DroughtBloomParams }
   | { tick: number; tool: "meteor"; params: MeteorParams }
-  | { tick: number; tool: "seedFounders"; params: SeedFoundersParams };
+  | { tick: number; tool: "seedFounders"; params: SeedFoundersParams }
+  | { tick: number; tool: "raiseSeaLevel"; params: SeaLevelParams }
+  | { tick: number; tool: "lowerSeaLevel"; params: SeaLevelParams };
 
 /** A smooth per-cell ramp from one terrain field value to another, processed once per tick. */
 export interface FieldTransition {
@@ -128,10 +137,29 @@ function applyRaiseLowerTerrain(state: EvolutionState, params: Params, p: RaiseL
   for (let i = 0; i < indices.length; i++) {
     const idx = indices[i];
     const falloff = gaussianFalloff(distances[i], gridRadius);
-    const newElevation = clamp(state.terrain.elevation[idx] + sign * p.strength * falloff, 0, 3);
+    // [-3, 3]: lowerTerrain must be able to carve new water below the old absolute-0 floor
+    // (SPEC.md Addendum 9), not just flatten toward it.
+    const newElevation = clamp(state.terrain.elevation[idx] + sign * p.strength * falloff, -3, 3);
     state.terrain.elevation[idx] = newElevation;
-    state.terrain.passability[idx] = clamp01(1 - params.passabilitySteepness * newElevation);
-    state.terrain.fertility[idx] = clamp01(1 - params.fertilitySteepness * newElevation);
+    const derived = terrainDerivedFields(newElevation, state.terrain.seaLevel, params);
+    state.terrain.passability[idx] = derived.passability;
+    state.terrain.fertility[idx] = derived.fertility;
+  }
+  state.terrain.revision++;
+}
+
+/** Raises/lowers the global waterline and recomputes passability/fertility for every cell — a
+ * rare, deliberate player action (SPEC.md Addendum 9), not a per-tick cost. `strength` is the raw
+ * UI brush value (same 0..~1 range every other terrain tool uses); scaled here against
+ * terrainRoughness (elevation's own natural scale) so one click nudges the waterline noticeably
+ * without flooding or draining the whole map in a single press. */
+function applySeaLevelChange(state: EvolutionState, params: Params, p: SeaLevelParams, sign: 1 | -1): void {
+  const delta = p.strength * params.terrainRoughness * 0.15;
+  state.terrain.seaLevel = clamp(state.terrain.seaLevel + sign * delta, -3, 3);
+  for (let i = 0; i < state.terrain.elevation.length; i++) {
+    const derived = terrainDerivedFields(state.terrain.elevation[i], state.terrain.seaLevel, params);
+    state.terrain.passability[i] = derived.passability;
+    state.terrain.fertility[i] = derived.fertility;
   }
   state.terrain.revision++;
 }
@@ -217,7 +245,7 @@ function applyMeteor(state: EvolutionState, params: Params, p: MeteorParams, cur
     const falloff = gaussianFalloff(distances[i], gridRadius);
     // Elevation drop is a permanent scar (the crater); fertility is zeroed immediately and
     // recovers back toward whatever the post-crater elevation implies, over craterRecoveryTicks.
-    state.terrain.elevation[idx] = clamp(state.terrain.elevation[idx] - 0.5 * falloff, 0, 3);
+    state.terrain.elevation[idx] = clamp(state.terrain.elevation[idx] - 0.5 * falloff, -3, 3);
     fromValues.push(0);
     state.terrain.fertility[idx] = 0;
   }
@@ -227,7 +255,7 @@ function applyMeteor(state: EvolutionState, params: Params, p: MeteorParams, cur
 
   if (p.craterRecoveryTicks <= 0) {
     for (const idx of indices) {
-      state.terrain.fertility[idx] = clamp01(1 - params.fertilitySteepness * state.terrain.elevation[idx]);
+      state.terrain.fertility[idx] = terrainDerivedFields(state.terrain.elevation[idx], state.terrain.seaLevel, params).fertility;
     }
     return;
   }
@@ -236,7 +264,7 @@ function applyMeteor(state: EvolutionState, params: Params, p: MeteorParams, cur
     field: "fertility",
     cellIndices: indices,
     fromValues,
-    toValues: indices.map((idx) => clamp01(1 - params.fertilitySteepness * state.terrain.elevation[idx])),
+    toValues: indices.map((idx) => terrainDerivedFields(state.terrain.elevation[idx], state.terrain.seaLevel, params).fertility),
     startTick: currentTick,
     durationTicks: p.craterRecoveryTicks,
   });
@@ -289,6 +317,12 @@ export function applyIntervention(state: EvolutionState, rng: RNG, params: Param
       return;
     case "seedFounders":
       applySeedFounders(state, params, rng, intervention.params, intervention.tick);
+      return;
+    case "raiseSeaLevel":
+      applySeaLevelChange(state, params, intervention.params, 1);
+      return;
+    case "lowerSeaLevel":
+      applySeaLevelChange(state, params, intervention.params, -1);
       return;
   }
 }

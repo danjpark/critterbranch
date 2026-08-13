@@ -116,6 +116,16 @@ export interface Params {
   terrainRoughness: number;
   passabilitySteepness: number;
   fertilitySteepness: number;
+  /** Target fraction of a freshly generated map that ends up underwater — the actual per-map
+   * seaLevel (an elevation-space value, lives on TerrainGrid as live, interveneable state once
+   * generated) is chosen so THIS run hits it, rather than a fixed absolute elevation threshold
+   * (found necessary empirically — see sim/terrain.ts's seaLevelForTargetWaterFraction and SPEC.md
+   * Addendum 9). */
+  seaLevelTargetWaterFraction: number;
+  /** Passability falloff per unit of depth below sea level — deliberately much steeper than
+   * passabilitySteepness so water reads as near-impassable by default (no creature can swim well
+   * until Milestone 4). See SPEC.md Addendum 9. */
+  waterPassabilitySteepness: number;
 
   // Founding population (single-founder default; multi-founder config arrives with the UI phase)
   foundingPopulationSize: number;
@@ -214,6 +224,8 @@ export const DEFAULT_PARAMS: Params = {
   terrainRoughness: 0.3,
   passabilitySteepness: 1.5,
   fertilitySteepness: 0.6,
+  seaLevelTargetWaterFraction: 0.18,
+  waterPassabilitySteepness: 10.0,
 
   foundingPopulationSize: 100,
 
@@ -290,6 +302,8 @@ export interface TerrainParams {
   terrainRoughness: number;
   passabilitySteepness: number;
   fertilitySteepness: number;
+  seaLevelTargetWaterFraction: number;
+  waterPassabilitySteepness: number;
 }
 
 export interface TaxonomyParams {
@@ -370,6 +384,8 @@ export function groupParams(p: Params): RunParams {
       terrainRoughness: p.terrainRoughness,
       passabilitySteepness: p.passabilitySteepness,
       fertilitySteepness: p.fertilitySteepness,
+      seaLevelTargetWaterFraction: p.seaLevelTargetWaterFraction,
+      waterPassabilitySteepness: p.waterPassabilitySteepness,
     },
     taxonomy: {
       taxonomyIntervalTicks: p.taxonomyIntervalTicks,

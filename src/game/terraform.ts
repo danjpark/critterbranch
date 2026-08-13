@@ -16,6 +16,9 @@ export const TERRAFORM_COSTS: Record<Intervention["tool"], number> = {
   barrierStamp: 10,
   meteor: 30,
   seedFounders: 15,
+  // Global reach (every cell, not just a brushed radius), so priced above the local terrain edits.
+  raiseSeaLevel: 12,
+  lowerSeaLevel: 12,
 };
 
 export type TerraformResult = { ok: true } | { ok: false; reason: string };

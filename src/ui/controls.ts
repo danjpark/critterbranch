@@ -22,7 +22,9 @@ export type GodTool =
   | "drought"
   | "bloom"
   | "meteor"
-  | "seedFounders";
+  | "seedFounders"
+  | "raiseSeaLevel"
+  | "lowerSeaLevel";
 
 const GOD_TOOL_LABELS: Record<GodTool, string> = {
   raiseTerrain: "Raise terrain",
@@ -33,6 +35,8 @@ const GOD_TOOL_LABELS: Record<GodTool, string> = {
   bloom: "Bloom",
   meteor: "Meteor",
   seedFounders: "Seed founders",
+  raiseSeaLevel: "Raise sea level",
+  lowerSeaLevel: "Lower sea level",
 };
 
 const GOD_TOOL_HINTS: Record<GodTool, string> = {
@@ -44,6 +48,8 @@ const GOD_TOOL_HINTS: Record<GodTool, string> = {
   bloom: "Click a region to boost its regrowth for a while.",
   meteor: "Click to strike — kills everything in range and craters the ground. Undo below if you regret it.",
   seedFounders: "Click to drop new creatures with random genomes there.",
+  raiseSeaLevel: "Click anywhere on the map to raise the global waterline — floods low-lying land everywhere, not just near the click.",
+  lowerSeaLevel: "Click anywhere on the map to lower the global waterline — drains shallow water everywhere, not just near the click.",
 };
 
 const GOD_TOOLS: GodTool[] = [
@@ -55,6 +61,8 @@ const GOD_TOOLS: GodTool[] = [
   "bloom",
   "meteor",
   "seedFounders",
+  "raiseSeaLevel",
+  "lowerSeaLevel",
 ];
 
 export interface ScenarioCallbacks {

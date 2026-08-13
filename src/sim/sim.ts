@@ -273,6 +273,7 @@ export function cloneSimState(state: SimState): SimState {
         elevation: evo.terrain.elevation.slice(),
         passability: evo.terrain.passability.slice(),
         fertility: evo.terrain.fertility.slice(),
+        seaLevel: evo.terrain.seaLevel,
         revision: evo.terrain.revision,
       },
       trees: cloneTreeState(evo.trees),

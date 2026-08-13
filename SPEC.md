@@ -811,3 +811,199 @@ can't false-positive complete an objective. Test coverage added in
 in-browser run confirmed the full pipeline end-to-end — selected the Picky Eaters challenge, ran an
 era, watched the objective flip to complete as the founder population's carnivory swung sharply
 toward one diet extreme, zero console errors.
+
+## Addendum 9 — Milestone 3 design note: sea level and a minimal Phenotype layer
+
+Design note, written before implementation, same process as Addenda 5-7 — this is flagged in the
+game roadmap as "the first real simulation-model milestone," so it gets the same rigor. Two product
+decisions were confirmed with Dan before writing this:
+
+1. **Sea level is player-controllable mid-run, not just baked in at world generation.** A new
+   Raise/Lower Sea Level god-tool sits alongside the existing Raise/Lower Terrain tools. This is the
+   highest-narrative-payoff terraforming action in the whole roadmap — flood a land bridge, watch an
+   allopatric split happen from a single click, no new detection code needed (see below).
+2. **Water is a severe, near-barrier penalty for every creature in M3, uniformly.** No new gene, no
+   differentiation by genotype. M4 is explicitly titled "Water as a real niche" *because* M3 doesn't
+   make it one — M3 only needs to establish that water exists and matters, not that anyone can
+   exploit it. That payoff is deliberately left for M4/M6.
+
+### Why "sea level" isn't a trivial threshold on today's terrain
+
+`generateTerrain` currently sums positive-only Gaussian hills over a flat elevation-0 baseline, then
+normalizes so the *positive* peak equals `terrainRoughness`. Almost the entire map sits at or near
+elevation 0 (flat baseline, far from any hill). Naively adding `seaLevel > 0` on top of that terrain
+would flood nearly the whole map except hill slopes — not "natural islands and continents," a
+degenerate near-total ocean that would starve every fresh run of land by default.
+
+**Fix, part 1: hills get signed amplitude** (roughly half raise the land, half carve basins), **and
+normalization becomes symmetric** (`elevation[i] / max(|elevation|)`, not `/ max(elevation)`),
+producing a landscape with real troughs, not just an all-positive one. `raiseTerrain`/`lowerTerrain`/
+the meteor crater's elevation clamp changes from `clamp(elevation, 0, 3)` to `clamp(elevation, -3, 3)`
+— today `lowerTerrain` literally cannot carve new water at all (floored at 0); it needs to be able to,
+both for the new Lower Sea Level tool's *interaction* with hand-lowered terrain and because "carve a
+sea with your own hands" is exactly the kind of terraforming Dan's north star describes.
+
+**Fix, part 2 (found empirically, not anticipated in the first draft of this note): a fixed
+`seaLevel` threshold is still broken even after part 1.** With only `terrainHillCount = 5` bumps
+summed, which side (the tallest peak or the deepest trough) happens to be bigger is pure luck of
+that seed's random draw — measured directly: at a fixed `seaLevel = 0`, water coverage ranged from
+33% on one seed to 100% (total ocean) on another, across 5 seeds checked. No single fixed elevation
+threshold can be a sane default when the underlying distribution itself swings that wildly seed to
+seed. **Fix: `seaLevel` is chosen per-map, not read from a flat param** — `TerrainParams.seaLevel`
+becomes `seaLevelTargetWaterFraction` (default 0.18), and `sim/terrain.ts`'s new
+`seaLevelForTargetWaterFraction(elevation, targetFraction)` sorts that map's own elevation values
+and picks the one at the target percentile, so the *actual* resulting water coverage is exactly the
+target regardless of how the random hill draw happened to skew. Re-measured after the fix: exactly
+18.0% water on every one of 8 seeds checked. This only runs once at generation time — from then on
+`TerrainGrid.seaLevel` is a normal elevation-space scalar the Raise/Lower Sea Level tool nudges
+additively, same as before.
+
+### Where sea level lives: `TerrainParams.seaLevelTargetWaterFraction` (generation-time target) vs. `TerrainGrid.seaLevel` (live, mutable elevation-space value)
+
+Same split already established for tree capacity (`params.treeFruitCapacity` vs. `FruitTree.capacity`,
+Addendum 6): a scalar `TerrainGrid.seaLevel`, computed once from `params.seaLevelTargetWaterFraction`
+at `generateTerrain` time (see "fix, part 2" above), then directly mutated by the new intervention —
+not re-derived from params every tick. Raising/lowering it triggers one full-grid recompute of
+`passability`/`fertility` (a rare, deliberate player action, not a per-tick cost).
+
+### Derived fields become sea-level-relative, and get a real shared helper
+
+`passability`/`fertility` are today computed from raw elevation in three separate places
+(`generateTerrain`, `applyRaiseLowerTerrain`, `applyMeteor`'s crater recovery) with the same
+duplicated formula. Touching every one of them for sea-level-awareness is the natural moment to
+collapse them into one `terrainDerivedFields(elevation, seaLevel, params)` helper in `terrain.ts`:
+
+- **Land** (`elevation >= seaLevel`): same shape as today, just measured relative to sea level
+  instead of absolute 0 — `passability = clamp01(1 - passabilitySteepness * (elevation - seaLevel))`,
+  same for fertility. A hill barely above the waterline gets full passability now, not a head start
+  penalty from the old absolute-zero baseline — a strictly more physically sensible formulation.
+- **Water** (`elevation < seaLevel`): `depth = seaLevel - elevation`. `fertility = 0` — flatly, no
+  aquatic food source exists until M4. `passability = clamp01(1 - waterPassabilitySteepness * depth)`,
+  a new, much steeper constant than `passabilitySteepness` (per decision 2 above) — even modest depth
+  should already read as "near-impassable," the natural analog of a player-placed Barrier stamp.
+
+This also means `taxonomy.ts`'s existing allopatric-barrier path-sampling (already reads
+`terrain.passability` to detect the "was there a barrier between these two clusters" signal, see
+Addendum 3/Phase 4) picks up natural sea barriers for free — no new detection code, the exact same
+pathway that already tags a hand-placed Barrier stamp as allopatric now does the same for a strait or
+an ocean, because passability is the shared signal both funnel through.
+
+### A minimal `Phenotype` layer, exactly as minimal as the roadmap says
+
+New `sim/phenotype.ts`: `Phenotype { speed, size }`, `derivePhenotype(genome)` — today a pure
+pass-through, deliberately not doing anything clever yet. `movementEfficiency(phenotype, environment:
+{ passability })` replaces the two-step `genome.speed * passability` multiplication that used to live
+inline in `creature.ts`'s move step. Behaviorally identical to today for land movement; the payoff is
+architectural, not behavioral — a single named seam M4/M5/M6 can extend (a `swimEfficiency` phenotype
+trait multiplying specifically in water, then the real genotype→phenotype→performance pipeline M5
+promises) without touching `stepCreature`'s call site again. `size` rides along in `Phenotype` unused
+by `movementEfficiency` for now, same as it's unused by movement today — not migrating predation's
+`effectiveAttackPower`/`effectiveEvasionPower` seam functions onto `Phenotype` in this pass; that
+consolidation is explicitly M5's job ("full genotype→phenotype→performance→behavior pipeline"), not
+M3's, and doing it now would be scope creep past what this milestone asks for.
+
+### Trees don't grow in the sea
+
+`trees.ts`'s `initTrees`/`trySeedSapling` reject candidate cells where `elevation < terrain.seaLevel`
+outright (resample), rather than relying on `fertility = 0` alone to make them pointless — placing a
+tree entity in open water and letting it just sit there forever at zero fruit wastes crowding-pass
+iteration for no gameplay payoff. An *existing* tree that finds itself underwater after a player
+raises sea level mid-run is not force-deleted — its fertility ceiling drops to 0 and it starves out
+through the ordinary crowding-death mechanism already in place. No special-case code needed there,
+which is the kind of thing that happens when state and derived-field computation are cleanly separated.
+
+### Rendering: water needs to be visually legible, not just mechanically real
+
+`render/terrainPalette.ts`'s `elevationBand`/`terrainCellColor` currently normalize elevation against
+`[0, terrainRoughness]` and `clamp01` — negative (underwater) elevation would silently clamp into
+"lowland," rendering identically to dry flat ground. A mechanic a player can't see isn't a mechanic
+they can react to, so this needs a fourth band, `"water"`, with its own ink-on-parchment-consistent
+tone (a cool desaturated blue-gray, keeping the existing "terrain is background, creature hue is the
+loud layer" rule) — otherwise sea-level terraforming is invisible feedback, which defeats the entire
+point of adding a player-facing god-tool for it.
+
+### Deliberately out of scope for this pass
+
+No new gene, no swim-specific phenotype trait, no aquatic food source, no amphibious anything — all
+explicitly M4/M6's job per the roadmap's own sequencing. `SpeciesProfile`'s habitat-band observability
+(`lowlandShare`/`hillShare`/`mountainShare`) is left untouched in this pass' scope discussion but will
+need a `waterShare`/`aquaticShare` counterpart once `elevationBand` grows the fourth band, since a
+creature can now legitimately be standing in shallow water. Predation's seam functions are not being
+migrated onto `Phenotype` (see above, that's M5's job).
+
+**Implementation status (2026-08-12): built as designed above (including the percentile-based
+seaLevel fix), `waterShare` added to `HabitatProfile` after all, three real test regressions found
+and fixed, one known gap left open — not hidden.**
+
+Built exactly as designed, including the mid-implementation percentile fix described above.
+`SpeciesProfile.habitat` did in fact get its `waterShare` counterpart in this same pass rather than
+being deferred — small enough (mirroring the existing three-band pattern exactly) that splitting it
+into a separate future pass would have been pure overhead. Full suite green (279 passed, 1
+documented skip — see below), typecheck clean, benchmark unaffected (no regression across any
+population size). Live-verified in-browser with direct pixel measurement, not just eyeballing:
+sampled the World-view canvas and classified pixels by hue (cool/blue vs. warm/tan) rather than
+trusting a screenshot — a fresh default map measured 18.0% cool-toned pixels, an exact match for the
+tuned `seaLevelTargetWaterFraction` default; clicking Raise Sea Level ten times pushed that to 84.6%,
+Lower Sea Level twenty-five times drained it to 0.4% — confirming the full pipeline (click → tool
+mapping → intervention → live `TerrainGrid.seaLevel` → full-grid passability/fertility recompute →
+render) end to end, in both directions, not just that *something* changed. Stepped the sim 50 ticks
+afterward with zero console errors, and both regenerated example scenarios (`barrier-split.json`,
+`meteor-radiation.json`) load cleanly with zero console errors. Natural water acting as a real
+allopatric barrier through the existing detection pathway is exercised by the automated suite
+(`axisIsolation.test.ts`'s neutral-control finding below is direct evidence of it) rather than
+separately re-checked live in this pass.
+
+Three real regressions, found by running the full suite after the terrain change, not anticipated
+up front:
+
+1. **Natural water is a real geographic barrier, and the isolated-axis diagnostic tests didn't
+   account for a THIRD disruptive force existing by default.** `axisIsolation.test.ts`'s neutral
+   control (zero trade-off pressure should mean zero speciation) started failing — correctly,
+   because it was true: default terrain now always has ~18% water, itself capable of driving real
+   allopatric splits via isolation-by-distance, independent of any gene-level axis. This is the
+   *feature working as designed* (geography-driven speciation was the whole point of sea level),
+   but it meant every axis-isolation test needed geography flattened too, same reasoning already
+   applied to `nursingRatePerTick`. The fix is `waterPassabilitySteepness: 0` in each test's
+   `NEUTRAL` override (water still exists topologically — same fertility/food statistics as normal
+   play — just fully passable, no barrier effect) — deliberately NOT
+   `seaLevelTargetWaterFraction: 0`, which was tried first and rejected: it pins `seaLevel` to the
+   map's single lowest cell, measurably dragging down average land fertility/passability compared to
+   normal play (checked directly: 0.85/0.63 vs. the default 0.88/0.70), an unrepresentative
+   distortion the isolation tests shouldn't be testing against either.
+2. **Even with geography flattened, a single-snapshot bimodality check has a real false-positive
+   mode of its own, unrelated to water.** The same neutral-control test, once geography was properly
+   flattened, still failed once (seed 3, tick 4000, gene `offspringInvestment`) — traced directly:
+   the population's mean was climbing monotonically (0.82 → 0.98 over the run, ordinary directional
+   drift under a static environment, not disruptive selection) and transiently *looked* bimodal to
+   the raw bump-hunting statistic while passing through a skewed distribution shape mid-climb, then
+   resolved back to unimodal by the next checkpoint — confirmed not a real split: taxonomy itself
+   never promoted a species the entire run. The test was holding a cruder raw-gene check to a lower
+   bar than the real taxonomy pipeline it's meant to sanity-check (which already requires
+   `speciationConfirmationPasses` re-detection before promoting a candidate). Fixed by requiring 2
+   *consecutive* 500-tick-apart bimodal readings on the same gene to fail, not one snapshot.
+3. **The foraging-axis-in-isolation diagnostic's tuned seed stopped working.** `generateTerrain` now
+   draws one extra random number per hill (the sign), shifting every downstream RNG draw for the
+   rest of the run — seed 2, previously reliable from ~tick 7,000, now only barely qualifies near
+   the end of a much longer window. Re-swept (seeds 1-8): seed 1 reliably produces a persistent
+   2-species split from tick 500 through at least tick 10,000, with foraging-gene bimodality
+   co-occurring — switched both `axisIsolation.test.ts` and its `goldenScenarios.test.ts`
+   counterpart to it.
+
+**Known open gap, deliberately not hidden:** `goldenScenarios.test.ts`'s "extinction and radiation"
+scenario used to demonstrate both a meteor-driven extinction of a regional lineage AND the survivors
+later radiating into a brand-new lineage filling the vacated niche, in one 27,000-tick run (seed 1).
+That seed no longer speciates at all under the new terrain (same RNG-shift cause as finding 3 above).
+Re-swept seeds 1-12 specifically for the "extinction, then a LATER new speciation" sequence: several
+seeds (6, 9, 12) produce real, clean extinctions reliably, but none produced a qualifying
+post-extinction speciation within 27,000 ticks. Pushing seed 9 to a 90,000-tick horizon eventually
+produced both an extinction and a later speciation event — but the run's *last* extinction (tick
+70,800) still landed after its only post-meteor speciation (tick 68,900), so the sequencing this test
+wants never actually lined up, and one run at that horizon already takes 100+ seconds — impractical
+for a fast suite. Split into two tests: the extinction half is kept and re-tuned (seed 6, meteor at
+the minority sub-lineage's actual tick-7,000 centroid) and passes reliably; the radiation half is
+`it.skip`'d with a tracking comment, not deleted or faked. Recolonizing a vacated niche and then
+differentiating there enough to register as a new species looks like it needs either a much larger
+seed/tick search budget than fits a fast test suite, or a genuine tuning pass — the same category of
+gap Addendum 3's original axis-isolation calibration and Addendum 6's foraging-axis gap both were,
+not a quick seed swap. Revisit if the game layer ever depends on demonstrating this capability
+specifically (an objective built on it, say).

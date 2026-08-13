@@ -2,6 +2,7 @@ import type { ConsumptionGrid } from "./consumption.ts";
 import { recordConsumption } from "./consumption.ts";
 import { gainPerUnit, mutate, type Genome } from "./genome.ts";
 import type { Params } from "../params.ts";
+import { derivePhenotype, movementEfficiency } from "./phenotype.ts";
 import { type CreatureIndex, findBestNearbyCreature, type PredationAttempt } from "./predation.ts";
 import type { RNG } from "./rng.ts";
 import { recordDiet, type SpeciesBehaviorStats } from "./speciesBehaviorStats.ts";
@@ -187,7 +188,7 @@ export function stepCreature(
   const cellY = wrap(Math.floor(creature.y / params.gridCellSize), world.rows);
   const passability = terrain.passability[cellY * world.cols + cellX];
 
-  const travel = creature.genome.speed * passability;
+  const travel = movementEfficiency(derivePhenotype(creature.genome), { passability });
   creature.x = wrap(creature.x + Math.cos(creature.heading) * travel, worldWidth);
   creature.y = wrap(creature.y + Math.sin(creature.heading) * travel, worldHeight);
   creature.distanceTraveled += travel;
@@ -213,7 +214,7 @@ export function stepCreature(
     creature.energy += take * gainPerUnit(creature.genome.carnivory, 0, params);
     if (consumptionGrid) recordConsumption(consumptionGrid, creature.lineageId, idx, take);
     if (speciesBehavior) recordDiet(speciesBehavior, creature.lineageId, 0, take);
-    trySeedSapling(treeState, creature.x, creature.y, rng, params, tick, world);
+    trySeedSapling(treeState, creature.x, creature.y, rng, params, terrain, tick, world);
   }
 
   creature.age += 1;

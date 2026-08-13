@@ -72,8 +72,8 @@ function paintTerrain(ctx: CanvasRenderingContext2D, terrain: TerrainGrid, param
   for (let y = 0; y < terrain.rows; y++) {
     for (let x = 0; x < terrain.cols; x++) {
       const idx = y * terrain.cols + x;
-      bands[idx] = elevationBand(terrain.elevation[idx], roughness);
-      ctx.fillStyle = terrainCellColor(terrain.elevation[idx], terrain.fertility[idx], terrain.passability[idx], roughness);
+      bands[idx] = elevationBand(terrain.elevation[idx], terrain.seaLevel, roughness);
+      ctx.fillStyle = terrainCellColor(terrain.elevation[idx], terrain.seaLevel, terrain.fertility[idx], terrain.passability[idx], roughness);
       ctx.fillRect(x * cellW, y * cellH, cellW + 0.6, cellH + 0.6);
     }
   }

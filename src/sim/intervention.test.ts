@@ -29,17 +29,71 @@ describe("raiseTerrain / lowerTerrain", () => {
     expect(state.evolution.terrain.passability[idx]).toBeLessThanOrEqual(beforePassability);
   });
 
-  it("lowerTerrain decreases elevation, never below 0", () => {
+  it("lowerTerrain decreases elevation, can carve new water below the old absolute-0 floor", () => {
     const { state, rng } = createSimState(1, DEFAULT_PARAMS);
     const params = DEFAULT_PARAMS;
     const x = params.worldWidth / 2;
     const y = params.worldHeight / 2;
+    const gx = Math.floor(x / params.gridCellSize);
+    const gy = Math.floor(y / params.gridCellSize);
+    const idx = gy * state.evolution.terrain.cols + gx;
 
     for (let i = 0; i < 20; i++) {
       applyIntervention(state.evolution, rng, params, { tick: 0, tool: "lowerTerrain", params: { x, y, radius: 12, strength: 1 } });
     }
 
-    expect(Array.from(state.evolution.terrain.elevation).every((e) => e >= 0)).toBe(true);
+    expect(Array.from(state.evolution.terrain.elevation).every((e) => e >= -3 - 1e-9)).toBe(true);
+    expect(state.evolution.terrain.elevation[idx]).toBeLessThan(state.evolution.terrain.seaLevel);
+    expect(state.evolution.terrain.fertility[idx]).toBe(0);
+  });
+});
+
+describe("raiseSeaLevel / lowerSeaLevel", () => {
+  it("raiseSeaLevel raises the waterline and floods previously-dry cells", () => {
+    const { state, rng } = createSimState(1, DEFAULT_PARAMS);
+    const params = DEFAULT_PARAMS;
+    const before = state.evolution.terrain.seaLevel;
+
+    applyIntervention(state.evolution, rng, params, { tick: 0, tool: "raiseSeaLevel", params: { strength: 1 } });
+
+    expect(state.evolution.terrain.seaLevel).toBeGreaterThan(before);
+    let floodedSomething = false;
+    for (let i = 0; i < state.evolution.terrain.elevation.length; i++) {
+      if (state.evolution.terrain.elevation[i] < state.evolution.terrain.seaLevel) {
+        expect(state.evolution.terrain.fertility[i]).toBe(0);
+        floodedSomething = true;
+      }
+    }
+    expect(floodedSomething).toBe(true);
+  });
+
+  it("lowerSeaLevel lowers the waterline", () => {
+    const { state, rng } = createSimState(1, DEFAULT_PARAMS);
+    const params = DEFAULT_PARAMS;
+    const before = state.evolution.terrain.seaLevel;
+
+    applyIntervention(state.evolution, rng, params, { tick: 0, tool: "lowerSeaLevel", params: { strength: 1 } });
+
+    expect(state.evolution.terrain.seaLevel).toBeLessThan(before);
+  });
+
+  it("recomputes passability/fertility for the whole grid, not just cells near a click point", () => {
+    const { state, rng } = createSimState(1, DEFAULT_PARAMS);
+    const params = DEFAULT_PARAMS;
+    const revisionBefore = state.evolution.terrain.revision;
+
+    applyIntervention(state.evolution, rng, params, { tick: 0, tool: "raiseSeaLevel", params: { strength: 1 } });
+
+    expect(state.evolution.terrain.revision).toBeGreaterThan(revisionBefore);
+    for (let i = 0; i < state.evolution.terrain.elevation.length; i++) {
+      const expectedPassability =
+        state.evolution.terrain.elevation[i] >= state.evolution.terrain.seaLevel
+          ? 1 - params.passabilitySteepness * (state.evolution.terrain.elevation[i] - state.evolution.terrain.seaLevel)
+          : undefined;
+      if (expectedPassability !== undefined && expectedPassability >= 0 && expectedPassability <= 1) {
+        expect(state.evolution.terrain.passability[i]).toBeCloseTo(expectedPassability);
+      }
+    }
   });
 });
 
@@ -146,7 +200,7 @@ describe("meteor", () => {
     expect(state.evolution.creatures.some((c) => Math.abs(c.x - (cx + 90)) < 1)).toBe(true);
   });
 
-  it("zeroes fertility immediately and recovers it over craterRecoveryTicks", () => {
+  it("zeroes fertility immediately, and recovers it over craterRecoveryTicks when the crater stays above sea level", () => {
     const { state, rng } = createSimState(1, DEFAULT_PARAMS);
     const params = DEFAULT_PARAMS;
     const x = params.worldWidth / 2;
@@ -155,11 +209,34 @@ describe("meteor", () => {
     const gy = Math.floor(y / params.gridCellSize);
     const idx = gy * state.evolution.terrain.cols + gx;
 
+    // Raise the impact site well above sea level first so the crater (elevation -= 0.5) can't dig
+    // it back underwater — a crater that DOES end up underwater legitimately stays barren forever
+    // (a crater lake), which is covered by the next test, not this one.
+    applyIntervention(state.evolution, rng, params, { tick: 0, tool: "raiseTerrain", params: { x, y, radius: 10, strength: 2 } });
     applyIntervention(state.evolution, rng, params, { tick: 0, tool: "meteor", params: { x, y, radius: 10, craterRecoveryTicks: 100 } });
     expect(state.evolution.terrain.fertility[idx]).toBe(0);
+    expect(state.evolution.terrain.elevation[idx]).toBeGreaterThan(state.evolution.terrain.seaLevel);
 
     processActiveTransitions(state.evolution, 100);
     expect(state.evolution.terrain.fertility[idx]).toBeGreaterThan(0);
+  });
+
+  it("a crater that ends up underwater stays barren after recovery — a crater lake, not a bug", () => {
+    const { state, rng } = createSimState(1, DEFAULT_PARAMS);
+    const params = DEFAULT_PARAMS;
+    const x = params.worldWidth / 2;
+    const y = params.worldHeight / 2;
+    const gx = Math.floor(x / params.gridCellSize);
+    const gy = Math.floor(y / params.gridCellSize);
+    const idx = gy * state.evolution.terrain.cols + gx;
+
+    // Lower the impact site well below sea level first so the crater can't help but stay underwater.
+    applyIntervention(state.evolution, rng, params, { tick: 0, tool: "lowerTerrain", params: { x, y, radius: 10, strength: 2 } });
+    applyIntervention(state.evolution, rng, params, { tick: 0, tool: "meteor", params: { x, y, radius: 10, craterRecoveryTicks: 100 } });
+    expect(state.evolution.terrain.elevation[idx]).toBeLessThan(state.evolution.terrain.seaLevel);
+
+    processActiveTransitions(state.evolution, 100);
+    expect(state.evolution.terrain.fertility[idx]).toBe(0);
   });
 });
 

@@ -7,7 +7,7 @@ function profile(overrides: Partial<SpeciesProfile> = {}): SpeciesProfile {
     speciesId: 0,
     memberCount: 30,
     diet: { meatShare: 0.5, totalConsumed: 10 },
-    habitat: { lowlandShare: 1, hillShare: 0, mountainShare: 0 },
+    habitat: { waterShare: 0, lowlandShare: 1, hillShare: 0, mountainShare: 0 },
     movement: { averageRealizedSpeed: 1 },
     reproduction: { birthsPerCapita: 0.1, deathsPerCapita: 0.1, averageLifespanAtDeath: null },
     survival: { volatility: 0, trend: "stable" },
@@ -49,11 +49,11 @@ describe("classifySpecies — diet", () => {
 
 describe("classifySpecies — habitat", () => {
   it("labels a species mostly found on mountain terrain as highland-adapted", () => {
-    expect(labelsOf(profile({ habitat: { lowlandShare: 0.1, hillShare: 0.2, mountainShare: 0.7 } }))).toContain("highland-adapted");
+    expect(labelsOf(profile({ habitat: { waterShare: 0, lowlandShare: 0.1, hillShare: 0.2, mountainShare: 0.7 } }))).toContain("highland-adapted");
   });
 
   it("labels a species mostly found on lowland terrain as lowland-adapted", () => {
-    expect(labelsOf(profile({ habitat: { lowlandShare: 0.9, hillShare: 0.1, mountainShare: 0 } }))).toContain("lowland-adapted");
+    expect(labelsOf(profile({ habitat: { waterShare: 0, lowlandShare: 0.9, hillShare: 0.1, mountainShare: 0 } }))).toContain("lowland-adapted");
   });
 });
 
@@ -99,8 +99,8 @@ describe("classifySpecies — survival", () => {
 
 describe("classifySpecies — confidence", () => {
   it("scales confidence down for a thinly-populated species", () => {
-    const thin = classifySpecies(profile({ memberCount: 3, habitat: { lowlandShare: 0, hillShare: 0, mountainShare: 0.8 } }), neutralBaseline);
-    const wellSampled = classifySpecies(profile({ memberCount: 100, habitat: { lowlandShare: 0, hillShare: 0, mountainShare: 0.8 } }), neutralBaseline);
+    const thin = classifySpecies(profile({ memberCount: 3, habitat: { waterShare: 0, lowlandShare: 0, hillShare: 0, mountainShare: 0.8 } }), neutralBaseline);
+    const wellSampled = classifySpecies(profile({ memberCount: 100, habitat: { waterShare: 0, lowlandShare: 0, hillShare: 0, mountainShare: 0.8 } }), neutralBaseline);
     expect(thin[0].confidence).toBeLessThan(wellSampled[0].confidence);
     expect(wellSampled[0].confidence).toBe(1);
   });
@@ -109,7 +109,7 @@ describe("classifySpecies — confidence", () => {
     const capabilities = classifySpecies(
       profile({
         diet: { meatShare: 0.9, totalConsumed: 10 },
-        habitat: { lowlandShare: 0, hillShare: 0, mountainShare: 0.8 },
+        habitat: { waterShare: 0, lowlandShare: 0, hillShare: 0, mountainShare: 0.8 },
         movement: { averageRealizedSpeed: 3 },
         reproduction: { birthsPerCapita: 0.3, deathsPerCapita: 0.1, averageLifespanAtDeath: 500 },
         survival: { volatility: 0.5, trend: "declining" },

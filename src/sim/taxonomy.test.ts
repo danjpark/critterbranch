@@ -34,6 +34,7 @@ function makeTerrainWithBlockedColumns(cols: number, rows: number, blockedAtGx: 
     elevation: new Float64Array(cols * rows),
     passability,
     fertility: new Float64Array(cols * rows).fill(1),
+    seaLevel: -1, // below every (flat, all-zero) elevation value — nothing here counts as water
     revision: 0,
   };
 }

@@ -12,7 +12,12 @@ const ticks = Number(process.argv[4] ?? 10000);
 // meat via predation) — "predation" below is that axis's isolation entry. It's a genuinely
 // different mechanism than the old passive R/B food-source choice (active combat, not just
 // foraging preference), so it isn't simply the old "diet" entry renamed.
-const NEUTRAL = { patchBimodality: 0, regrowthCycleAmplitude: 0 };
+//
+// waterPassabilitySteepness: 0 flattens natural water's geographic-barrier effect too (SPEC.md
+// Addendum 9) — every fresh map has some water by default now, itself a real disruptive force
+// independent of any gene, so isolating any OTHER axis needs it off. "geography" below re-enables
+// it in isolation, same pattern as every other entry here.
+const NEUTRAL = { patchBimodality: 0, regrowthCycleAmplitude: 0, waterPassabilitySteepness: 0 };
 
 const overridesByAxis: Record<string, Partial<Params>> = {
   neutral: { ...NEUTRAL },
@@ -22,6 +27,7 @@ const overridesByAxis: Record<string, Partial<Params>> = {
   "lifehistory-slow": { ...NEUTRAL, regrowthCycleAmplitude: 0.6, regrowthCyclePeriod: 6000 },
   "foraging-no-nursing": { ...NEUTRAL, patchBimodality: 1.0, nursingRatePerTick: 0 },
   predation: { ...NEUTRAL, specializationExponent: 3 },
+  geography: { ...NEUTRAL, waterPassabilitySteepness: DEFAULT_PARAMS.waterPassabilitySteepness },
 };
 
 const params = { ...DEFAULT_PARAMS, ...overridesByAxis[axis] };
@@ -29,7 +35,7 @@ const { state, rng } = createSimState(seed, params);
 
 console.log(`axis=${axis} seed=${seed} ticks=${ticks}`);
 console.log(
-  `params: patchBimodality=${params.patchBimodality} regrowthCycleAmplitude=${params.regrowthCycleAmplitude} specializationExponent=${params.specializationExponent}`,
+  `params: patchBimodality=${params.patchBimodality} regrowthCycleAmplitude=${params.regrowthCycleAmplitude} specializationExponent=${params.specializationExponent} waterPassabilitySteepness=${params.waterPassabilitySteepness} seaLevelTargetWaterFraction=${params.seaLevelTargetWaterFraction}`,
 );
 
 for (let t = 0; t < ticks; t++) {

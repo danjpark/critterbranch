@@ -27,6 +27,7 @@ export interface DietProfile {
 }
 
 export interface HabitatProfile {
+  waterShare: number;
   lowlandShare: number;
   hillShare: number;
   mountainShare: number;
@@ -85,15 +86,16 @@ function dietProfile(stats: SpeciesBehaviorStats, speciesId: number): DietProfil
 }
 
 function habitatProfile(members: Creature[], terrain: TerrainGrid, params: Params): HabitatProfile {
-  if (members.length === 0) return { lowlandShare: 0, hillShare: 0, mountainShare: 0 };
-  const counts: Record<ElevationBand, number> = { lowland: 0, hill: 0, mountain: 0 };
+  if (members.length === 0) return { waterShare: 0, lowlandShare: 0, hillShare: 0, mountainShare: 0 };
+  const counts: Record<ElevationBand, number> = { water: 0, lowland: 0, hill: 0, mountain: 0 };
   for (const c of members) {
     const gx = wrap(Math.floor(c.x / params.gridCellSize), terrain.cols);
     const gy = wrap(Math.floor(c.y / params.gridCellSize), terrain.rows);
-    const band = elevationBand(terrain.elevation[gy * terrain.cols + gx], params.terrainRoughness);
+    const band = elevationBand(terrain.elevation[gy * terrain.cols + gx], terrain.seaLevel, params.terrainRoughness);
     counts[band]++;
   }
   return {
+    waterShare: counts.water / members.length,
     lowlandShare: counts.lowland / members.length,
     hillShare: counts.hill / members.length,
     mountainShare: counts.mountain / members.length,

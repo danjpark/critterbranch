@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "engineVersion": "0.8.0",
-  "seed": 42,
+  "seed": 12,
   "params": {
     "world": {
       "worldWidth": 200,
@@ -48,7 +48,9 @@
       "terrainHillCount": 5,
       "terrainRoughness": 0.3,
       "passabilitySteepness": 1.5,
-      "fertilitySteepness": 0.6
+      "fertilitySteepness": 0.6,
+      "seaLevelTargetWaterFraction": 0.18,
+      "waterPassabilitySteepness": 10
     },
     "taxonomy": {
       "taxonomyIntervalTicks": 100,

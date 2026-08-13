@@ -36,6 +36,14 @@ describe("initTrees", () => {
       expect(world.fruit[idx]).toBeCloseTo(params.treeFruitCapacity * terrain.fertility[idx]);
     }
   });
+
+  it("never plants a tree underwater", () => {
+    const { terrain, world, trees } = setup({ richTreeCount: 10, poorTreeCount: 40, seaLevelTargetWaterFraction: 0.3 });
+    for (const tree of trees.trees) {
+      const idx = cellIndexAt(tree.x, tree.y, DEFAULT_PARAMS, world);
+      expect(terrain.elevation[idx]).toBeGreaterThanOrEqual(terrain.seaLevel);
+    }
+  });
 });
 
 describe("stepTrees — maturity", () => {
@@ -143,12 +151,20 @@ describe("stepTrees — crowdedness death", () => {
 });
 
 describe("trySeedSapling", () => {
+  // seaLevelTargetWaterFraction: 0 -> seaLevel sits at the map's own minimum elevation, so nothing
+  // is strictly below it — an all-land terrain, keeping these tests focused on sapling mechanics
+  // rather than incidentally depending on where water happened to land.
+  function noWaterTerrain(params: typeof DEFAULT_PARAMS, cols: number, rows: number) {
+    return generateTerrain(new RNG(1), { ...params, seaLevelTargetWaterFraction: 0 }, cols, rows);
+  }
+
   it("always plants when saplingChance is 1, within saplingSpreadRadius", () => {
     const params = { ...DEFAULT_PARAMS, saplingChance: 1, saplingSpreadRadius: 5 };
     const treeState: TreeState = { nextId: 0, trees: [] };
     const world = initWorld(20, 20);
+    const terrain = noWaterTerrain(params, 20, 20);
     const rng = new RNG(9);
-    trySeedSapling(treeState, 50, 50, rng, params, 123, world);
+    trySeedSapling(treeState, 50, 50, rng, params, terrain, 123, world);
 
     expect(treeState.trees.length).toBe(1);
     const sapling = treeState.trees[0];
@@ -162,9 +178,10 @@ describe("trySeedSapling", () => {
   it("inherits the capacity of whichever tree owns the eaten cell", () => {
     const params = { ...DEFAULT_PARAMS, saplingChance: 1, saplingSpreadRadius: 5 };
     const world = initWorld(20, 20);
+    const terrain = noWaterTerrain(params, 20, 20);
     const treeState: TreeState = { nextId: 1, trees: [{ id: 0, x: 50, y: 50, plantedTick: 0, maturedTick: 0, capacity: 1.5 }] };
     const rng = new RNG(9);
-    trySeedSapling(treeState, 50, 50, rng, params, 0, world);
+    trySeedSapling(treeState, 50, 50, rng, params, terrain, 0, world);
 
     const sapling = treeState.trees.find((t) => t.id !== 0)!;
     expect(sapling.capacity).toBe(1.5);
@@ -173,9 +190,10 @@ describe("trySeedSapling", () => {
   it("falls back to poor capacity when no tree owns the eaten cell", () => {
     const params = { ...DEFAULT_PARAMS, saplingChance: 1, saplingSpreadRadius: 5, patchBimodality: 1 };
     const world = initWorld(20, 20);
+    const terrain = noWaterTerrain(params, 20, 20);
     const treeState: TreeState = { nextId: 0, trees: [] };
     const rng = new RNG(9);
-    trySeedSapling(treeState, 50, 50, rng, params, 0, world);
+    trySeedSapling(treeState, 50, 50, rng, params, terrain, 0, world);
 
     expect(treeState.trees[0].capacity).toBeCloseTo(params.treeFruitCapacity * 0.15);
   });
@@ -184,8 +202,20 @@ describe("trySeedSapling", () => {
     const params = { ...DEFAULT_PARAMS, saplingChance: 0 };
     const treeState: TreeState = { nextId: 0, trees: [] };
     const world = initWorld(20, 20);
+    const terrain = noWaterTerrain(params, 20, 20);
     const rng = new RNG(9);
-    for (let i = 0; i < 50; i++) trySeedSapling(treeState, 50, 50, rng, params, 0, world);
+    for (let i = 0; i < 50; i++) trySeedSapling(treeState, 50, 50, rng, params, terrain, 0, world);
+    expect(treeState.trees.length).toBe(0);
+  });
+
+  it("does not plant when the candidate cell is underwater", () => {
+    const params = { ...DEFAULT_PARAMS, saplingChance: 1, saplingSpreadRadius: 5 };
+    const world = initWorld(20, 20);
+    const terrain = generateTerrain(new RNG(1), { ...params, seaLevelTargetWaterFraction: 1 }, 20, 20); // everything is water
+    const treeState: TreeState = { nextId: 0, trees: [] };
+    const rng = new RNG(9);
+    trySeedSapling(treeState, 50, 50, rng, params, terrain, 0, world);
+
     expect(treeState.trees.length).toBe(0);
   });
 });

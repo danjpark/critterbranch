@@ -35,6 +35,10 @@ export function cellIndexAt(x: number, y: number, params: Params, world: World):
   return gy * world.cols + gx;
 }
 
+function isWater(x: number, y: number, params: Params, terrain: TerrainGrid, world: World): boolean {
+  return terrain.elevation[cellIndexAt(x, y, params, world)] < terrain.seaLevel;
+}
+
 /** The reduced capacity a "poor" tree gets, per patchBimodality — shared by initTrees (founding
  * poor trees) and trySeedSapling (wild-grown saplings, always poor — see its own doc comment). */
 function poorTreeCapacity(params: Params): number {
@@ -77,8 +81,18 @@ export function initTrees(rng: RNG, params: Params, terrain: TerrainGrid, world:
     return [rng.nextRange(0, params.worldWidth), rng.nextRange(0, params.worldHeight)];
   }
 
+  // Rejection-samples for a land cell (trees don't grow in the sea — SPEC.md Addendum 9), giving
+  // up after enough attempts rather than looping forever on a pathological near-total-ocean world.
+  function uniformLandPoint(): [number, number] {
+    let candidate: [number, number] = uniformPoint();
+    for (let attempt = 0; attempt < 50 && isWater(candidate[0], candidate[1], params, terrain, world); attempt++) {
+      candidate = uniformPoint();
+    }
+    return candidate;
+  }
+
   for (let i = 0; i < params.richTreeCount; i++) {
-    const [x, y] = uniformPoint();
+    const [x, y] = uniformLandPoint();
     plantAt(x, y, params.treeFruitCapacity);
   }
 
@@ -86,17 +100,31 @@ export function initTrees(rng: RNG, params: Params, terrain: TerrainGrid, world:
   const perCluster = Math.ceil(params.poorTreeCount / params.poorClusterCount);
   let planted = 0;
   for (let c = 0; c < params.poorClusterCount && planted < params.poorTreeCount; c++) {
-    const [cx, cy] = uniformPoint();
+    const [cx, cy] = uniformLandPoint();
     for (let i = 0; i < perCluster && planted < params.poorTreeCount; i++, planted++) {
       if (rng.next() < params.patchBimodality) {
-        const angle = rng.nextRange(0, Math.PI * 2);
-        // sqrt(uniform) * radius, not a bare uniform draw, for genuinely uniform-over-the-disk
-        // placement within the cluster — the same radial-peaking bug this whole function's doc
-        // comment describes, just at the "clustered" end instead of the "collapse" end.
-        const dist = params.poorClusterRadius * Math.sqrt(rng.next());
-        plantAt(cx + Math.cos(angle) * dist, cy + Math.sin(angle) * dist, poorCapacity);
+        // Falls back to the cluster center itself (guaranteed land, uniformLandPoint already
+        // checked it) if 10 tries all land in water — a coastline-adjacent cluster shouldn't be
+        // able to loop forever or silently plant underwater.
+        let px = cx;
+        let py = cy;
+        for (let attempt = 0; attempt < 10; attempt++) {
+          const angle = rng.nextRange(0, Math.PI * 2);
+          // sqrt(uniform) * radius, not a bare uniform draw, for genuinely uniform-over-the-disk
+          // placement within the cluster — the same radial-peaking bug this whole function's doc
+          // comment describes, just at the "clustered" end instead of the "collapse" end.
+          const dist = params.poorClusterRadius * Math.sqrt(rng.next());
+          const candX = cx + Math.cos(angle) * dist;
+          const candY = cy + Math.sin(angle) * dist;
+          if (!isWater(candX, candY, params, terrain, world)) {
+            px = candX;
+            py = candY;
+            break;
+          }
+        }
+        plantAt(px, py, poorCapacity);
       } else {
-        const [x, y] = uniformPoint();
+        const [x, y] = uniformLandPoint();
         plantAt(x, y, poorCapacity);
       }
     }
@@ -128,13 +156,16 @@ export function cloneTreeState(treeState: TreeState): TreeState {
  * then blowing well past what World.fruit's cell grid can even usefully hold (found the hard way:
  * a 5,000-tick determinism test that used to run in seconds started timing out at 60s+).
  */
-export function trySeedSapling(treeState: TreeState, x: number, y: number, rng: RNG, params: Params, tick: number, world: World): void {
+export function trySeedSapling(treeState: TreeState, x: number, y: number, rng: RNG, params: Params, terrain: TerrainGrid, tick: number, world: World): void {
   if (treeState.trees.length >= params.maxTreeCount) return;
   if (rng.next() >= params.saplingChance) return;
   const angle = rng.nextRange(0, Math.PI * 2);
   const dist = rng.nextRange(0, params.saplingSpreadRadius);
   const sx = wrap(x + Math.cos(angle) * dist, params.worldWidth);
   const sy = wrap(y + Math.sin(angle) * dist, params.worldHeight);
+  // Trees don't grow in the sea (SPEC.md Addendum 9) — a fruit that drifts into water just fails
+  // to seed, no resampling; saplingChance is already probabilistic per bite.
+  if (isWater(sx, sy, params, terrain, world)) return;
 
   const sourceIdx = cellIndexAt(x, y, params, world);
   const sourceTree = treeState.trees.find((t) => cellIndexAt(t.x, t.y, params, world) === sourceIdx);

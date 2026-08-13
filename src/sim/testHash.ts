@@ -31,6 +31,7 @@ export function hashState(state: SimState): string {
     elevation: Array.from(evolution.terrain.elevation),
     passability: Array.from(evolution.terrain.passability),
     fertility: Array.from(evolution.terrain.fertility),
+    seaLevel: evolution.terrain.seaLevel,
     species: speciesSnapshot,
     taxonomyEventCount: observations.taxonomyEvents.length,
   });

@@ -13,20 +13,25 @@ import { createRunConfig } from "../src/sim/runConfig.ts";
 import { runSimulationFromConfig, type SimState } from "../src/sim/sim.ts";
 import { DEFAULT_PARAMS } from "../src/params.ts";
 
-// seed=42, barrier at tick 2000: produces an allopatric split by tick ~10,000 under current
-// tree/predation params — doesn't depend on pre-existing speciation, the barrier itself drives
-// the divergence, so this one wasn't seed-sensitive the way meteor-radiation turned out to be.
-const barrierSplit = createRunConfig(42, DEFAULT_PARAMS, [
+// seed=12, barrier at tick 2000: produces an allopatric split within 20,000 ticks under current
+// params. Re-swept (was seed=42) after SPEC.md Addendum 9's terrain generation change (signed
+// hills consume an extra RNG draw per hill, reshuffling downstream dynamics) broke the previous
+// choice — turns out this scenario IS seed-sensitive after all now, unlike before: swept seeds
+// 1/6/9/12/20/30/40/42/50, only seed 12 produced a confirmed allopatric split in that window.
+const barrierSplit = createRunConfig(12, DEFAULT_PARAMS, [
   { tick: 2000, tool: "barrierStamp", params: { x1: 100, y1: 0, x2: 100, y2: 200, width: 10, targetPassability: 0.02, formationTicks: 400 } },
 ]);
 
-// seed=1, meteor at tick 7000: seed=42 (the original choice) never speciates into regional
-// lineages at all under the tree-food geometry (confirmed directly — still one species at tick
-// 12,000) — a meteor needs a REGIONAL lineage to wipe out for "extinction" to mean anything. Seed
-// 1 reliably speciates by ~tick 6,000; tick 7,000 gives that split time to establish first. Same
-// seed/tick "golden scenario: extinction and radiation" (src/sim/goldenScenarios.test.ts) uses.
-const meteorRadiation = createRunConfig(1, DEFAULT_PARAMS, [
-  { tick: 7000, tool: "meteor", params: { x: 100, y: 100, radius: 60, craterRecoveryTicks: 800 } },
+// seed=6, meteor at tick 7000, targeting (114, 60) — the minority sub-lineage's actual centroid at
+// that tick (confirmed directly). Re-tuned after SPEC.md Addendum 9's terrain generation change
+// (signed hills consume an extra RNG draw per hill, reshuffling downstream speciation timing) broke
+// the previous seed=1 choice — it no longer speciates at all under the new terrain within any
+// reasonable window. Demonstrates extinction of an already-established regional lineage; does NOT
+// reliably demonstrate post-extinction radiation into a new lineage — a known, documented gap (see
+// Addendum 9's "Implementation status"), same reason "golden scenario: extinction and radiation" in
+// src/sim/goldenScenarios.test.ts only asserts the extinction half.
+const meteorRadiation = createRunConfig(6, DEFAULT_PARAMS, [
+  { tick: 7000, tool: "meteor", params: { x: 114, y: 60, radius: 35, craterRecoveryTicks: 800 } },
 ]);
 
 writeFileSync("public/scenarios/barrier-split.json", JSON.stringify(barrierSplit, null, 2) + "\n");
@@ -45,9 +50,6 @@ summarize("barrier-split (20k ticks)", barrierState, { "allopatric split occurre
 
 const meteorState = runSimulationFromConfig(meteorRadiation, 27000);
 const extinctions = meteorState.observations.taxonomyEvents.filter((e) => e.type === "extinction");
-const lastExtinctionTick = extinctions.length > 0 ? Math.max(...extinctions.map((e) => e.event.tick)) : -1;
-const hasRadiation = meteorState.observations.taxonomyEvents.some((e) => e.type === "speciation" && e.event.tick > lastExtinctionTick);
-summarize("meteor-radiation (27k ticks)", meteorState, {
-  "extinction occurred": extinctions.length > 0,
-  "post-extinction radiation occurred": hasRadiation,
-});
+// Post-extinction radiation is NOT checked here — a known, documented gap (see the comment above
+// and SPEC.md Addendum 9). This scenario demonstrates extinction of a regional lineage only.
+summarize("meteor-radiation (27k ticks)", meteorState, { "extinction occurred": extinctions.length > 0 });

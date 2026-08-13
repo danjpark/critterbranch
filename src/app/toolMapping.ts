@@ -80,5 +80,9 @@ export function resolveToolApplication(
         tool: "seedFounders",
         params: { x, y, spreadRadius: Math.max(brush.radius / 4, 1), count: brush.seedCount, genome: "random" as const },
       };
+    case "raiseSeaLevel":
+      return { kind: "apply", tool: "raiseSeaLevel", params: { strength: brush.strength } };
+    case "lowerSeaLevel":
+      return { kind: "apply", tool: "lowerSeaLevel", params: { strength: brush.strength } };
   }
 }

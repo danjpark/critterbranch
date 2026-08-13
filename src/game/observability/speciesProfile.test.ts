@@ -79,6 +79,7 @@ describe("computeSpeciesProfiles", () => {
     const sim = createSimState(1, DEFAULT_PARAMS);
     const terrain = sim.state.evolution.terrain;
     terrain.elevation.fill(0); // norm 0 -> lowland everywhere
+    terrain.seaLevel = 0; // keep elevation 0 as the baseline "lowland" reference, not whatever generateTerrain picked
     const mountainIdx = 5; // some arbitrary cell, made a mountain below
     terrain.elevation[mountainIdx] = DEFAULT_PARAMS.terrainRoughness * 0.9; // norm 0.9 > 0.7 -> mountain
 
