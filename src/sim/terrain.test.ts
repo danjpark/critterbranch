@@ -62,9 +62,14 @@ describe("terrainDerivedFields", () => {
     expect(far.fertility).toBeLessThan(near.fertility);
   });
 
-  it("gives water cells hard-zero fertility regardless of depth (no aquatic food until M4)", () => {
-    expect(terrainDerivedFields(-0.01, 0, DEFAULT_PARAMS).fertility).toBe(0);
+  // Deep water (past shallowWaterMaxDepth) stays exactly as barren as Addendum 9 originally made
+  // ALL water — the "no aquatic food" claim only ever applied past the shallow band (SPEC.md
+  // Addendum 10 gave shallow water real, if modest, fertility; see the "shallow water" describe
+  // block below for that).
+  it("gives deep water cells hard-zero fertility regardless of depth", () => {
     expect(terrainDerivedFields(-1, 0, DEFAULT_PARAMS).fertility).toBe(0);
+    const justPastShallow = terrainDerivedFields(-(DEFAULT_PARAMS.shallowWaterMaxDepth + 0.001), 0, DEFAULT_PARAMS);
+    expect(justPastShallow.fertility).toBe(0);
   });
 
   it("decreases water passability monotonically with depth, steeper than the land falloff", () => {
@@ -81,5 +86,40 @@ describe("terrainDerivedFields", () => {
     const inland = terrainDerivedFields(0.2, 0, DEFAULT_PARAMS);
     expect(atWaterline.passability).toBe(1);
     expect(inland.passability).toBeLessThan(1);
+  });
+});
+
+// SPEC.md Addendum 10 (Milestone 4: water as a real niche).
+describe("terrainDerivedFields — shallow water", () => {
+  it("gives real, nonzero fertility right at the waterline, tapering to 0 at shallowWaterMaxDepth", () => {
+    // elevation exactly at seaLevel (relative = 0) is the LAND branch (full fertility) — the
+    // waterline's shallow-water limit is depth -> 0+, approached but not reached from below.
+    const justUnderwater = terrainDerivedFields(-1e-6, 0, DEFAULT_PARAMS);
+    expect(justUnderwater.fertility).toBeCloseTo(DEFAULT_PARAMS.shallowWaterFertilityCeiling, 3);
+
+    const atShallowBoundary = terrainDerivedFields(-DEFAULT_PARAMS.shallowWaterMaxDepth, 0, DEFAULT_PARAMS);
+    expect(atShallowBoundary.fertility).toBeCloseTo(0);
+  });
+
+  it("decreases fertility monotonically with depth within the shallow band", () => {
+    const nearShore = terrainDerivedFields(-0.01, 0, DEFAULT_PARAMS);
+    const deeperShallow = terrainDerivedFields(-0.03, 0, DEFAULT_PARAMS);
+    expect(deeperShallow.fertility).toBeLessThan(nearShore.fertility);
+    expect(deeperShallow.fertility).toBeGreaterThan(0);
+  });
+
+  it("never exceeds shallowWaterFertilityCeiling, staying well below land's max of 1 (a modest bonus, not a jackpot)", () => {
+    // depth starts just past 0 — depth exactly 0 (elevation === seaLevel) is the LAND branch.
+    for (let depth = 0.001; depth <= DEFAULT_PARAMS.shallowWaterMaxDepth; depth += 0.005) {
+      expect(terrainDerivedFields(-depth, 0, DEFAULT_PARAMS).fertility).toBeLessThanOrEqual(DEFAULT_PARAMS.shallowWaterFertilityCeiling + 1e-9);
+    }
+    expect(DEFAULT_PARAMS.shallowWaterFertilityCeiling).toBeLessThan(1);
+  });
+
+  it("leaves passability untouched by the shallow-water fertility change", () => {
+    const params = { ...DEFAULT_PARAMS, shallowWaterFertilityCeiling: 0.9 };
+    const a = terrainDerivedFields(-0.02, 0, DEFAULT_PARAMS);
+    const b = terrainDerivedFields(-0.02, 0, params);
+    expect(a.passability).toBeCloseTo(b.passability);
   });
 });

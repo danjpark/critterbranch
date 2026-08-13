@@ -25,7 +25,14 @@ export interface TerrainGrid {
  * Passability/fertility as a function of elevation relative to sea level (SPEC.md Addendum 9).
  * Land tapers off the same way both fields always have, just measured from the waterline instead
  * of absolute elevation 0. Water gets a much steeper passability falloff (near-barrier by design —
- * no creature can swim well until M4) and hard-zero fertility (no aquatic food until M4).
+ * no creature can swim well until M4/M6 give some genotype a real advantage there) — passability is
+ * untouched by Addendum 10 below, the existing continuous depth falloff already does the "some
+ * effort required" job.
+ *
+ * Fertility in water is NOT flat zero (Addendum 10, Milestone 4: "water as a real niche") — shallow
+ * water (depth <= shallowWaterMaxDepth) tapers from a deliberately low shallowWaterFertilityCeiling
+ * down to 0 at the shallow/deep boundary, giving shallow-water trees a modest but real yield; deep
+ * water stays exactly as barren as M3 made it.
  */
 export function terrainDerivedFields(elevation: number, seaLevel: number, params: Params): { passability: number; fertility: number } {
   const relative = elevation - seaLevel;
@@ -36,10 +43,12 @@ export function terrainDerivedFields(elevation: number, seaLevel: number, params
     };
   }
   const depth = -relative;
-  return {
-    passability: clamp01(1 - params.waterPassabilitySteepness * depth),
-    fertility: 0,
-  };
+  const passability = clamp01(1 - params.waterPassabilitySteepness * depth);
+  if (depth > params.shallowWaterMaxDepth) {
+    return { passability, fertility: 0 };
+  }
+  const shallowness = 1 - depth / Math.max(params.shallowWaterMaxDepth, 1e-9);
+  return { passability, fertility: clamp01(params.shallowWaterFertilityCeiling * shallowness) };
 }
 
 /**

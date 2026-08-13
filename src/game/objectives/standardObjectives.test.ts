@@ -10,6 +10,7 @@ import { createGameState } from "../gameState.ts";
 import type { GameEvaluationContext } from "./objective.ts";
 import {
   createApexPredatorObjective,
+  createAquaticForagerObjective,
   createBiodiversityObjective,
   createDietaryGeneralistObjective,
   createDietarySpecialistObjective,
@@ -153,6 +154,54 @@ describe("createApexPredatorObjective", () => {
     const ctx = context();
     const obj = createApexPredatorObjective(20, 0.7);
     seedSpeciesWithDiet(ctx, 1, 5, 0, 10); // meatShare = 1.0, but too few members
+    expect(obj.evaluate(ctx).complete).toBe(false);
+  });
+});
+
+/** Seeds a living species with `memberCount` creatures, `waterCount` of them placed on a cell
+ * directly set below the terrain's own seaLevel, the rest on a cell set above it — mirrors what
+ * computeSpeciesProfiles' habitatProfile actually reads (elevationBand per living member's current
+ * cell), not a stand-in stat. SPEC.md Addendum 10 (Milestone 4: water as a real niche). */
+function seedSpeciesWithWaterShare(ctx: GameEvaluationContext, speciesId: number, memberCount: number, waterCount: number): void {
+  const terrain = ctx.sim.state.evolution.terrain;
+  terrain.seaLevel = 0;
+  terrain.elevation.fill(1); // land everywhere by default
+  terrain.elevation[0] = -1; // cell 0 (grid 0,0): underwater
+
+  ctx.sim.state.observations.taxonomy.species.set(speciesId, species({ id: speciesId, memberCount }));
+  const rng = new RNG(1);
+  const cellSize = DEFAULT_PARAMS.gridCellSize;
+  for (let i = 0; i < memberCount; i++) {
+    const inWater = i < waterCount;
+    // Water members sit in cell 0 (grid 0,0); land members sit one cell over (grid 1,0) —
+    // elevation there is still the default 1 (land) set above.
+    const x = inWater ? cellSize * 0.5 : cellSize * 1.5;
+    const y = cellSize * 0.5;
+    ctx.sim.state.evolution.creatures.push(
+      createCreature({ id: speciesId * 1000 + i, parentId: null, lineageId: speciesId, genome: genome(0.5), x, y, energy: 10, birthTick: 0, rng }),
+    );
+  }
+}
+
+describe("createAquaticForagerObjective", () => {
+  it("completes when a sufficiently populous species spends a real share of its time in water", () => {
+    const ctx = context();
+    const obj = createAquaticForagerObjective(20, 0.3);
+    seedSpeciesWithWaterShare(ctx, 1, 25, 10); // waterShare = 0.4
+    expect(obj.evaluate(ctx).complete).toBe(true);
+  });
+
+  it("does not complete below the water-share threshold", () => {
+    const ctx = context();
+    const obj = createAquaticForagerObjective(20, 0.3);
+    seedSpeciesWithWaterShare(ctx, 1, 25, 2); // waterShare = 0.08
+    expect(obj.evaluate(ctx).complete).toBe(false);
+  });
+
+  it("does not complete below the population threshold even at 100% in water", () => {
+    const ctx = context();
+    const obj = createAquaticForagerObjective(20, 0.3);
+    seedSpeciesWithWaterShare(ctx, 1, 5, 5); // waterShare = 1.0, but too few members
     expect(obj.evaluate(ctx).complete).toBe(false);
   });
 });

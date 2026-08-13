@@ -66,6 +66,11 @@ export interface Params {
   /** 0 = poor trees are just as capacious AND just as loosely placed as rich ones (axis
    * collapses); 1 = maximally different — same knob, same effect, as the old patchBimodality. */
   patchBimodality: number;
+  /** How many trees the world starts with in shallow water specifically (SPEC.md Addendum 10,
+   * Milestone 4). Placed only in cells within shallowWaterMaxDepth of sea level — a dedicated pool,
+   * separate from richTreeCount/poorTreeCount's land-only placement. Uses treeFruitCapacity like a
+   * rich tree; shallowWaterFertilityCeiling alone is what keeps their realized yield modest. */
+  shallowWaterTreeCount: number;
   /** Ticks a sapling takes to become a fruit-producing mature tree. */
   treeMaturityTicks: number;
   /** Max fruit a single rich tree's cell can hold — a poor tree's is this interpolated down by
@@ -124,8 +129,16 @@ export interface Params {
   seaLevelTargetWaterFraction: number;
   /** Passability falloff per unit of depth below sea level — deliberately much steeper than
    * passabilitySteepness so water reads as near-impassable by default (no creature can swim well
-   * until Milestone 4). See SPEC.md Addendum 9. */
+   * until M5/M6 give some genotype a real advantage). See SPEC.md Addendum 9. */
   waterPassabilitySteepness: number;
+  /** Depth below sea level, in the same elevation units as seaLevel itself, below which water
+   * counts as "shallow" — eligible for trees and real (if modest) fertility. Deeper than this stays
+   * exactly as barren as Addendum 9 originally made all water. See SPEC.md Addendum 10. */
+  shallowWaterMaxDepth: number;
+  /** The fertility ceiling shallow water tapers toward at depth 0 (the waterline itself), scaling
+   * down to 0 at shallowWaterMaxDepth. Deliberately low relative to land's max of 1 — Milestone 4 is
+   * a modest bonus, not yet a strong incentive (that's M5/M6's job). See SPEC.md Addendum 10. */
+  shallowWaterFertilityCeiling: number;
 
   // Founding population (single-founder default; multi-founder config arrives with the UI phase)
   foundingPopulationSize: number;
@@ -202,6 +215,7 @@ export const DEFAULT_PARAMS: Params = {
   poorClusterCount: 25,
   poorClusterRadius: 4,
   patchBimodality: 1.0,
+  shallowWaterTreeCount: 30,
   treeMaturityTicks: 300,
   treeFruitCapacity: 3.0,
   treeFruitRegrowthRate: 0.05,
@@ -226,6 +240,8 @@ export const DEFAULT_PARAMS: Params = {
   fertilitySteepness: 0.6,
   seaLevelTargetWaterFraction: 0.18,
   waterPassabilitySteepness: 10.0,
+  shallowWaterMaxDepth: 0.04,
+  shallowWaterFertilityCeiling: 0.35,
 
   foundingPopulationSize: 100,
 
@@ -262,6 +278,7 @@ export interface WorldParams {
   poorClusterCount: number;
   poorClusterRadius: number;
   patchBimodality: number;
+  shallowWaterTreeCount: number;
   treeMaturityTicks: number;
   treeFruitCapacity: number;
   treeFruitRegrowthRate: number;
@@ -304,6 +321,8 @@ export interface TerrainParams {
   fertilitySteepness: number;
   seaLevelTargetWaterFraction: number;
   waterPassabilitySteepness: number;
+  shallowWaterMaxDepth: number;
+  shallowWaterFertilityCeiling: number;
 }
 
 export interface TaxonomyParams {
@@ -347,6 +366,7 @@ export function groupParams(p: Params): RunParams {
       poorClusterCount: p.poorClusterCount,
       poorClusterRadius: p.poorClusterRadius,
       patchBimodality: p.patchBimodality,
+      shallowWaterTreeCount: p.shallowWaterTreeCount,
       treeMaturityTicks: p.treeMaturityTicks,
       treeFruitCapacity: p.treeFruitCapacity,
       treeFruitRegrowthRate: p.treeFruitRegrowthRate,
@@ -386,6 +406,8 @@ export function groupParams(p: Params): RunParams {
       fertilitySteepness: p.fertilitySteepness,
       seaLevelTargetWaterFraction: p.seaLevelTargetWaterFraction,
       waterPassabilitySteepness: p.waterPassabilitySteepness,
+      shallowWaterMaxDepth: p.shallowWaterMaxDepth,
+      shallowWaterFertilityCeiling: p.shallowWaterFertilityCeiling,
     },
     taxonomy: {
       taxonomyIntervalTicks: p.taxonomyIntervalTicks,

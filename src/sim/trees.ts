@@ -39,6 +39,23 @@ function isWater(x: number, y: number, params: Params, terrain: TerrainGrid, wor
   return terrain.elevation[cellIndexAt(x, y, params, world)] < terrain.seaLevel;
 }
 
+/** 0 on land, positive depth below sea level in water — same elevation-space units as seaLevel. */
+function waterDepthAt(x: number, y: number, params: Params, terrain: TerrainGrid, world: World): number {
+  const idx = cellIndexAt(x, y, params, world);
+  return Math.max(0, terrain.seaLevel - terrain.elevation[idx]);
+}
+
+/** True only past shallowWaterMaxDepth — land and shallow water both read false (SPEC.md
+ * Addendum 10: shallow water is a real, if modest, niche now, not a rejection case). */
+function isDeepWater(x: number, y: number, params: Params, terrain: TerrainGrid, world: World): boolean {
+  return waterDepthAt(x, y, params, terrain, world) > params.shallowWaterMaxDepth;
+}
+
+function isShallowWater(x: number, y: number, params: Params, terrain: TerrainGrid, world: World): boolean {
+  const depth = waterDepthAt(x, y, params, terrain, world);
+  return depth > 0 && depth <= params.shallowWaterMaxDepth;
+}
+
 /** The reduced capacity a "poor" tree gets, per patchBimodality — shared by initTrees (founding
  * poor trees) and trySeedSapling (wild-grown saplings, always poor — see its own doc comment). */
 function poorTreeCapacity(params: Params): number {
@@ -91,6 +108,18 @@ export function initTrees(rng: RNG, params: Params, terrain: TerrainGrid, world:
     return candidate;
   }
 
+  // Shallow water is typically a thin band near shore — a much smaller target than land's ~82%
+  // default share — so this gets far more attempts than uniformLandPoint before giving up. Returns
+  // null (caller just skips that tree) rather than falling back onto land/deep water, since a
+  // shallow-water tree planted somewhere that isn't shallow water would misrepresent the pool.
+  function uniformShallowWaterPoint(): [number, number] | null {
+    for (let attempt = 0; attempt < 500; attempt++) {
+      const candidate = uniformPoint();
+      if (isShallowWater(candidate[0], candidate[1], params, terrain, world)) return candidate;
+    }
+    return null;
+  }
+
   for (let i = 0; i < params.richTreeCount; i++) {
     const [x, y] = uniformLandPoint();
     plantAt(x, y, params.treeFruitCapacity);
@@ -130,6 +159,16 @@ export function initTrees(rng: RNG, params: Params, terrain: TerrainGrid, world:
     }
   }
 
+  // Shallow-water trees (SPEC.md Addendum 10, Milestone 4): a dedicated pool, land placement above
+  // is untouched. Uses treeFruitCapacity like a rich tree — shallowWaterFertilityCeiling alone (a
+  // deliberately low value) is what keeps their realized yield modest, the same way "poor" land
+  // trees are just rich trees regrowing toward a lower fertility-adjusted ceiling.
+  for (let i = 0; i < params.shallowWaterTreeCount; i++) {
+    const point = uniformShallowWaterPoint();
+    if (point === null) break; // not enough shallow water on this map to place more — stop, don't force it
+    plantAt(point[0], point[1], params.treeFruitCapacity);
+  }
+
   return { nextId, trees };
 }
 
@@ -163,9 +202,12 @@ export function trySeedSapling(treeState: TreeState, x: number, y: number, rng: 
   const dist = rng.nextRange(0, params.saplingSpreadRadius);
   const sx = wrap(x + Math.cos(angle) * dist, params.worldWidth);
   const sy = wrap(y + Math.sin(angle) * dist, params.worldHeight);
-  // Trees don't grow in the sea (SPEC.md Addendum 9) — a fruit that drifts into water just fails
-  // to seed, no resampling; saplingChance is already probabilistic per bite.
-  if (isWater(sx, sy, params, terrain, world)) return;
+  // Trees don't grow in deep water (SPEC.md Addendum 9) but do in shallow water (Addendum 10) — a
+  // fruit that drifts into deep water just fails to seed, no resampling; saplingChance is already
+  // probabilistic per bite. Capacity is still inherited from whichever tree owns the source cell
+  // below, same rule as always — a shallow-water sapling from a land tree's fruit just carries its
+  // parent's (land) capacity in, no special-casing needed.
+  if (isDeepWater(sx, sy, params, terrain, world)) return;
 
   const sourceIdx = cellIndexAt(x, y, params, world);
   const sourceTree = treeState.trees.find((t) => cellIndexAt(t.x, t.y, params, world) === sourceIdx);

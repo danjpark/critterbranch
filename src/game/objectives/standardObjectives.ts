@@ -111,6 +111,35 @@ export function createApexPredatorObjective(minPopulation = 20, meatShareThresho
   };
 }
 
+/** Produce a species that spends a real share of its time in water — SPEC.md Addendum 10
+ * (Milestone 4: water as a real niche). Reads SpeciesProfile.habitat.waterShare, the same live
+ * demonstrated-behavior sample every other habitat label already uses (no decayed-evidence gate
+ * the way diet has MIN_DIET_EVIDENCE — habitat is a fresh per-call sample of current creature
+ * positions, not an accumulator that can sit at zero evidence). */
+export function createAquaticForagerObjective(minPopulation = 20, waterShareThreshold = 0.3): GameObjective {
+  return {
+    id: "aquatic-forager",
+    description: `Produce a species of at least ${minPopulation} that spends a real share of its time in water.`,
+    evaluate(context: GameEvaluationContext): ObjectiveProgress {
+      const { profiles } = computeSpeciesProfiles(context.sim);
+      let best: { speciesId: number; waterShare: number } | null = null;
+      for (const profile of profiles.values()) {
+        if (profile.memberCount < minPopulation) continue;
+        if (!best || profile.habitat.waterShare > best.waterShare) {
+          best = { speciesId: profile.speciesId, waterShare: profile.habitat.waterShare };
+        }
+      }
+      const complete = best !== null && best.waterShare >= waterShareThreshold;
+      return {
+        complete,
+        currentValue: best?.waterShare ?? 0,
+        targetValue: waterShareThreshold,
+        message: complete ? `Species ${best!.speciesId} sustains a population of ${minPopulation}+ with a real presence in the water.` : undefined,
+      };
+    },
+  };
+}
+
 /** Cause a geography-driven (allopatric) speciation event — a barrier separating two populations. */
 export function createGeographicSpeciationObjective(): GameObjective {
   return {

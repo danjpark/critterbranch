@@ -1,6 +1,12 @@
 import { DEFAULT_PARAMS } from "../../params.ts";
 import { createRunConfig } from "../../sim/runConfig.ts";
-import { createApexPredatorObjective, createBiodiversityObjective, createDietarySpecialistObjective, createDisasterRecoveryObjective } from "../objectives/standardObjectives.ts";
+import {
+  createApexPredatorObjective,
+  createAquaticForagerObjective,
+  createBiodiversityObjective,
+  createDietarySpecialistObjective,
+  createDisasterRecoveryObjective,
+} from "../objectives/standardObjectives.ts";
 import type { ChallengeDefinition } from "./challenge.ts";
 
 /** These exist to exercise the objective/budget/challenge systems end to end, not as tuned final
@@ -44,4 +50,17 @@ export const APEX_PREDATOR: ChallengeDefinition = {
   terraformBudget: 150,
 };
 
-export const PROTOTYPE_CHALLENGES: ChallengeDefinition[] = [FORK_THE_FAMILY, PICKY_EATERS, AFTER_THE_FALL, APEX_PREDATOR];
+/** SPEC.md Addendum 10 (Milestone 4: water as a real niche) — named after the roadmap's own
+ * "Island Hopper" ticket. The player has to actually use Raise/Lower Sea Level or Raise/Lower
+ * Terrain to make water worth wading into (or worth crossing at all) — nothing about the starting
+ * map hands this one to you. */
+export const ISLAND_HOPPER: ChallengeDefinition = {
+  id: "island-hopper",
+  name: "Island Hopper",
+  description: "Produce a species that spends a real share of its time in water.",
+  runConfig: createRunConfig(1005, DEFAULT_PARAMS, []),
+  objectives: [createAquaticForagerObjective()],
+  terraformBudget: 180,
+};
+
+export const PROTOTYPE_CHALLENGES: ChallengeDefinition[] = [FORK_THE_FAMILY, PICKY_EATERS, AFTER_THE_FALL, APEX_PREDATOR, ISLAND_HOPPER];

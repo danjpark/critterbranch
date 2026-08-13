@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "engineVersion": "0.8.0",
-  "seed": 6,
+  "seed": 10,
   "params": {
     "world": {
       "worldWidth": 200,
@@ -12,6 +12,7 @@
       "poorClusterCount": 25,
       "poorClusterRadius": 4,
       "patchBimodality": 1,
+      "shallowWaterTreeCount": 30,
       "treeMaturityTicks": 300,
       "treeFruitCapacity": 3,
       "treeFruitRegrowthRate": 0.05,
@@ -50,7 +51,9 @@
       "passabilitySteepness": 1.5,
       "fertilitySteepness": 0.6,
       "seaLevelTargetWaterFraction": 0.18,
-      "waterPassabilitySteepness": 10
+      "waterPassabilitySteepness": 10,
+      "shallowWaterMaxDepth": 0.04,
+      "shallowWaterFertilityCeiling": 0.35
     },
     "taxonomy": {
       "taxonomyIntervalTicks": 100,
@@ -72,11 +75,11 @@
   },
   "interventionLog": [
     {
-      "tick": 7000,
+      "tick": 2800,
       "tool": "meteor",
       "params": {
-        "x": 114,
-        "y": 60,
+        "x": 69,
+        "y": 85,
         "radius": 35,
         "craterRecoveryTicks": 800
       }

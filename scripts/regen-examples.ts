@@ -13,25 +13,24 @@ import { createRunConfig } from "../src/sim/runConfig.ts";
 import { runSimulationFromConfig, type SimState } from "../src/sim/sim.ts";
 import { DEFAULT_PARAMS } from "../src/params.ts";
 
-// seed=12, barrier at tick 2000: produces an allopatric split within 20,000 ticks under current
-// params. Re-swept (was seed=42) after SPEC.md Addendum 9's terrain generation change (signed
-// hills consume an extra RNG draw per hill, reshuffling downstream dynamics) broke the previous
-// choice — turns out this scenario IS seed-sensitive after all now, unlike before: swept seeds
-// 1/6/9/12/20/30/40/42/50, only seed 12 produced a confirmed allopatric split in that window.
-const barrierSplit = createRunConfig(12, DEFAULT_PARAMS, [
+// seed=8, barrier at tick 2000: produces an allopatric split within 20,000 ticks under current
+// params. Re-swept (was seed=12) after SPEC.md Addendum 10 (Milestone 4: shallow-water food)
+// shifted population dynamics enough to break the previous choice — swept seeds
+// 1/2/3/4/5/6/7/8/9/10/11/12/20/30/40/42/50, seeds 8/9/42/50 all produced a confirmed allopatric
+// split in that window; picked the first one found.
+const barrierSplit = createRunConfig(8, DEFAULT_PARAMS, [
   { tick: 2000, tool: "barrierStamp", params: { x1: 100, y1: 0, x2: 100, y2: 200, width: 10, targetPassability: 0.02, formationTicks: 400 } },
 ]);
 
-// seed=6, meteor at tick 7000, targeting (114, 60) — the minority sub-lineage's actual centroid at
-// that tick (confirmed directly). Re-tuned after SPEC.md Addendum 9's terrain generation change
-// (signed hills consume an extra RNG draw per hill, reshuffling downstream speciation timing) broke
-// the previous seed=1 choice — it no longer speciates at all under the new terrain within any
-// reasonable window. Demonstrates extinction of an already-established regional lineage; does NOT
-// reliably demonstrate post-extinction radiation into a new lineage — a known, documented gap (see
-// Addendum 9's "Implementation status"), same reason "golden scenario: extinction and radiation" in
+// seed=10, meteor at tick 2800, targeting (69, 85) — the minority sub-lineage's actual centroid at
+// that tick (confirmed directly). Re-tuned after SPEC.md Addendum 10 (Milestone 4: shallow-water
+// food) shifted population dynamics enough to break the previous seed=6 choice. Demonstrates
+// extinction of an already-established regional lineage; does NOT reliably demonstrate
+// post-extinction radiation into a new lineage — a known, documented gap (see Addendum 9's
+// "Implementation status"), same reason "golden scenario: extinction and radiation" in
 // src/sim/goldenScenarios.test.ts only asserts the extinction half.
-const meteorRadiation = createRunConfig(6, DEFAULT_PARAMS, [
-  { tick: 7000, tool: "meteor", params: { x: 114, y: 60, radius: 35, craterRecoveryTicks: 800 } },
+const meteorRadiation = createRunConfig(10, DEFAULT_PARAMS, [
+  { tick: 2800, tool: "meteor", params: { x: 69, y: 85, radius: 35, craterRecoveryTicks: 800 } },
 ]);
 
 writeFileSync("public/scenarios/barrier-split.json", JSON.stringify(barrierSplit, null, 2) + "\n");

@@ -15,7 +15,7 @@ function setup(paramOverrides: Partial<typeof DEFAULT_PARAMS> = {}, cols = 20, r
 
 describe("initTrees", () => {
   it("seeds richTreeCount + poorTreeCount already-mature trees, each with fruit filled to its own fertility-adjusted ceiling", () => {
-    const { params, terrain, world, trees } = setup({ richTreeCount: 5, poorTreeCount: 10, patchBimodality: 1 });
+    const { params, terrain, world, trees } = setup({ richTreeCount: 5, poorTreeCount: 10, patchBimodality: 1, shallowWaterTreeCount: 0 });
     expect(trees.trees.length).toBe(15);
     for (const tree of trees.trees) {
       expect(tree.maturedTick).toBe(0);
@@ -37,11 +37,26 @@ describe("initTrees", () => {
     }
   });
 
-  it("never plants a tree underwater", () => {
-    const { terrain, world, trees } = setup({ richTreeCount: 10, poorTreeCount: 40, seaLevelTargetWaterFraction: 0.3 });
+  it("never plants a land (rich/poor) tree underwater", () => {
+    // shallowWaterTreeCount: 0 isolates the land-only placement pass this test is actually about —
+    // land trees planting in shallow water would be the wrong kind of failure to catch here, see
+    // the shallow-water-specific test below for that pool's own bound.
+    const { terrain, world, trees } = setup({ richTreeCount: 10, poorTreeCount: 40, shallowWaterTreeCount: 0, seaLevelTargetWaterFraction: 0.3 });
     for (const tree of trees.trees) {
       const idx = cellIndexAt(tree.x, tree.y, DEFAULT_PARAMS, world);
       expect(terrain.elevation[idx]).toBeGreaterThanOrEqual(terrain.seaLevel);
+    }
+  });
+
+  // SPEC.md Addendum 10 (Milestone 4: water as a real niche).
+  it("plants shallowWaterTreeCount trees, all within shallowWaterMaxDepth and none on dry land", () => {
+    const { params, terrain, world, trees } = setup({ richTreeCount: 0, poorTreeCount: 0, shallowWaterTreeCount: 15, seaLevelTargetWaterFraction: 0.3 });
+    expect(trees.trees.length).toBe(15);
+    for (const tree of trees.trees) {
+      const idx = cellIndexAt(tree.x, tree.y, params, world);
+      const depth = terrain.seaLevel - terrain.elevation[idx];
+      expect(depth).toBeGreaterThan(0); // actually underwater, not land
+      expect(depth).toBeLessThanOrEqual(params.shallowWaterMaxDepth + 1e-9);
     }
   });
 });
@@ -208,7 +223,7 @@ describe("trySeedSapling", () => {
     expect(treeState.trees.length).toBe(0);
   });
 
-  it("does not plant when the candidate cell is underwater", () => {
+  it("does not plant when the candidate cell is deep underwater", () => {
     const params = { ...DEFAULT_PARAMS, saplingChance: 1, saplingSpreadRadius: 5 };
     const world = initWorld(20, 20);
     const terrain = generateTerrain(new RNG(1), { ...params, seaLevelTargetWaterFraction: 1 }, 20, 20); // everything is water
@@ -217,5 +232,30 @@ describe("trySeedSapling", () => {
     trySeedSapling(treeState, 50, 50, rng, params, terrain, 0, world);
 
     expect(treeState.trees.length).toBe(0);
+  });
+
+  // SPEC.md Addendum 10 (Milestone 4: water as a real niche).
+  it("does plant when the candidate cell is shallow water, not just land", () => {
+    const params = { ...DEFAULT_PARAMS, saplingChance: 1, saplingSpreadRadius: 5 };
+    const cols = 20;
+    const rows = 20;
+    const world = initWorld(cols, rows);
+    // Flat terrain, entirely at depth = shallowWaterMaxDepth / 2 below sea level — every candidate
+    // cell within saplingSpreadRadius is guaranteed shallow water, none of it deep.
+    const terrain = {
+      cols,
+      rows,
+      elevation: new Float64Array(cols * rows).fill(0),
+      passability: new Float64Array(cols * rows).fill(1),
+      fertility: new Float64Array(cols * rows).fill(0.2),
+      seaLevel: params.shallowWaterMaxDepth / 2,
+      revision: 0,
+    };
+    const treeState: TreeState = { nextId: 0, trees: [] };
+    const rng = new RNG(9);
+    trySeedSapling(treeState, 50, 50, rng, params, terrain, 42, world);
+
+    expect(treeState.trees.length).toBe(1);
+    expect(treeState.trees[0].plantedTick).toBe(42);
   });
 });

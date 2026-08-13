@@ -62,10 +62,14 @@ export function terrainCellColor(elevation: number, seaLevel: number, fertility:
   }
 
   if (band === "water") {
+    // Same fertility tint land gets (SPEC.md Addendum 10) — shallow water with real food gets a
+    // faint green cast, so "this coastline has something worth eating" is legible without a
+    // separate visual language. Deep water (fertility always 0) is untouched by this term.
+    const tint = fertility * 0.06;
     const darken = (1 - passability) * 0.5;
-    r = clamp01(r - darken * 0.35);
-    g = clamp01(g - darken * 0.3);
-    b = clamp01(b - darken * 0.2);
+    r = clamp01(r - tint * 0.5 - darken * 0.35);
+    g = clamp01(g + tint * 0.3 - darken * 0.3);
+    b = clamp01(b - tint * 0.3 - darken * 0.2);
     return `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`;
   }
 

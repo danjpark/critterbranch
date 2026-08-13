@@ -142,13 +142,13 @@ describe("golden scenario: extinction and radiation", () => {
     () => {
       // This scenario needs the population to have already speciated into regional lineages
       // BEFORE the meteor hits (so it can wipe one out entirely, not just cull a fraction of one
-      // still-undifferentiated species). Re-swept after SPEC.md Addendum 9's terrain generation
-      // change reshuffled speciation timing across seeds (signed hills consume an extra RNG draw
-      // per hill) — seed 6 reliably splits by tick 3,700 under DEFAULT_PARAMS; meteor at tick 7,000
-      // (x=114, y=60 — the minority sub-lineage's actual centroid at that tick, confirmed directly)
-      // gives the split time to establish and lands squarely on the smaller regional population.
-      const config = createRunConfig(6, DEFAULT_PARAMS, [
-        { tick: 7000, tool: "meteor", params: { x: 114, y: 60, radius: 35, craterRecoveryTicks: 800 } },
+      // still-undifferentiated species). Re-swept after SPEC.md Addendum 10 (Milestone 4: shallow-
+      // water food) shifted population dynamics enough to break the previous seed=6 choice — seed
+      // 10 reliably splits by tick 1,300 under DEFAULT_PARAMS; meteor at tick 2,800 (x=69, y=85 —
+      // the minority sub-lineage's actual centroid at that tick, confirmed directly) gives the
+      // split time to establish and lands squarely on the smaller regional population.
+      const config = createRunConfig(10, DEFAULT_PARAMS, [
+        { tick: 2800, tool: "meteor", params: { x: 69, y: 85, radius: 35, craterRecoveryTicks: 800 } },
       ]);
       const state = runSimulationFromConfig(config, 27_000);
 

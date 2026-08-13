@@ -68,4 +68,13 @@ describe("terrainCellColor", () => {
     expect(brightness(deep)).toBeLessThan(brightness(shallow));
     expect(shallow).not.toBe(land);
   });
+
+  // SPEC.md Addendum 10 (Milestone 4: water as a real niche) — fertile shallow water reads
+  // differently from barren water at the same depth/passability, so "this coastline has food" is
+  // visible without a separate legend entry.
+  it("gives fertile water a different tint than barren water at the same depth", () => {
+    const barren = terrainCellColor(-0.01, 0, 0, 0.9, ROUGHNESS);
+    const fertile = terrainCellColor(-0.01, 0, 0.3, 0.9, ROUGHNESS);
+    expect(fertile).not.toBe(barren);
+  });
 });

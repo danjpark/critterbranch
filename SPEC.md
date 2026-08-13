@@ -1007,3 +1007,104 @@ seed/tick search budget than fits a fast test suite, or a genuine tuning pass �
 gap Addendum 3's original axis-isolation calibration and Addendum 6's foraging-axis gap both were,
 not a quick seed swap. Revisit if the game layer ever depends on demonstrating this capability
 specifically (an objective built on it, say).
+
+## Addendum 10 — Milestone 4 design note: water as a real niche
+
+Design note, written before implementation, same process as every milestone since M2. The roadmap
+lists M4 as "shallow-water food, Island Hopper challenge — problem specified, solution NOT
+prescribed," so unlike M3 there's no existing mechanic being extended, just a problem statement.
+One product decision confirmed with Dan before writing this: **shallow-water food is a modest bonus
+in this pass, not a strong incentive.** Real, meaningful selective pressure toward water specialists
+is deliberately left for M5 (the real genotype→phenotype→performance pipeline) and M6 (amphibious
+speciation, the roadmap's flagship payoff for this whole arc) — M4 only needs water to become a real,
+reachable food source, not yet a mechanic worth building a whole strategy around.
+
+### Why this doesn't need a new gene, a new food type, or new instrumentation
+
+M3 already built every seam this needs:
+- **Passability near shore is already nonzero.** `terrainDerivedFields`'s water branch
+  (`clamp01(1 - waterPassabilitySteepness * depth)`) is a continuous falloff, not a step function —
+  very shallow water is already meaningfully reachable today, just discounted. M4 doesn't need to
+  loosen movement at all, only give a creature a reason to spend it wading in.
+- **The diet system is food-*type*-based, not location-based.** `gainPerUnit(carnivory, foodType,
+  params)` doesn't know or care where a unit of fruit grew — a herbivore eating shallow-water fruit
+  gets exactly the specialization curve it already gets from land fruit. The niche this milestone
+  creates is entirely about *access cost*, not a different nutrient profile — deliberately, so M5/M6
+  have a real, undiluted "can you afford to go there" question to build phenotype differentiation on
+  top of, instead of this pass accidentally answering it early with a nutrient shortcut.
+- **`SpeciesProfile.habitat.waterShare`** (added in M3, previously unused by anything) already
+  tracks what fraction of a species is observed standing in water. M4's own challenge objective reads
+  directly off it — no new observability plumbing needed.
+
+### Concrete design
+
+**Shallow vs. deep water is a depth threshold, not a new terrain concept.** A new
+`TerrainParams.shallowWaterMaxDepth`: depth ≤ this counts as shallow, deeper stays exactly as
+punishing as M3 already made it (hard-zero fertility). `terrainDerivedFields`'s water branch grows a
+second case: shallow-water fertility tapers from a new, deliberately low
+`shallowWaterFertilityCeiling` down to 0 at the shallow/deep boundary — "modest," per the decision
+above — instead of the flat hard-zero every underwater cell gets today. Passability is untouched;
+the existing continuous depth falloff already does the "some effort required" job.
+
+**Trees grow in shallow water too, using the exact same `FruitTree` entity and the exact same
+`capacity × terrain.fertility` yield formula rich/poor land trees already use** — no new entity
+type, no new capacity concept. A new `WorldParams.shallowWaterTreeCount` seeds a dedicated,
+shallow-water-only population at generation time (land tree placement stays land-only, unchanged);
+the low `shallowWaterFertilityCeiling` alone is what keeps their realized yield modest, the same way
+"poor" land trees are already just rich trees with a lower ceiling. `trySeedSapling`'s dispersal
+check changes from "reject all water" to "reject only water deeper than `shallowWaterMaxDepth`" —
+inherited capacity still comes from whichever tree owns the source cell, same rule as always, so a
+sapling from a land tree that happens to wash into the shallows just carries its parent's capacity
+in, no special-casing needed.
+
+**Rendering:** shallow water already reads slightly lighter than deep water (M3's depth-based
+darken), which happens to be exactly the right visual cue to lean on. `terrainCellColor`'s water branch
+gains the same fertility tint land cells already get — a faint green cast wherever shallow water
+actually has real fertility, so "this patch of coastline has food" is legible without a new visual
+language.
+
+**New challenge, per the roadmap's own naming — "Island Hopper."** A new
+`createAquaticForagerObjective(minPopulation, waterShareThreshold)`, structurally identical to
+`createApexPredatorObjective`, reading `profile.habitat.waterShare` instead of diet share: get a
+species of real size to spend a meaningful share of its time observed in water. This is a geography/
+habitat objective, not a diet-source objective — tracking *where* a unit of fruit was eaten (as
+opposed to merely what type) doesn't exist and isn't being added in this pass, consistent with the
+"modest bonus, not a whole new instrumentation surface" scope.
+
+### Deliberately out of scope for this pass
+
+No swim-specific phenotype trait, no differentiated access cost by genotype, no aquatic-only food
+type, no new gene, no location-aware diet tracking. All of that is M5 (the pipeline that would
+actually consume a phenotype trait like this) or M6 (the speciation payoff) — building any of it now
+would front-load a payoff this milestone was explicitly scoped not to deliver yet.
+
+**Implementation status (2026-08-13): built exactly as designed above, tuning verified empirically
+before locking defaults, two golden-scenario/example seeds re-swept, zero design surprises.**
+
+Tuning was checked directly rather than guessed, same discipline as every prior milestone's
+numbers: at the shipped defaults (`shallowWaterMaxDepth: 0.04`, `shallowWaterFertilityCeiling: 0.35`,
+`shallowWaterTreeCount: 30`), shallow water covers ~7-9% of the map (a real coastal band, not a
+sliver), every shallow-water tree placed successfully on every seed checked, and average shallow
+fertility (~0.18) landed almost exactly between land's poor and rich tiers — genuinely "modest," not
+degenerate or overpowered. In aggregate, shallow water's total food supply came out to roughly 18%
+of land's — a real secondary source without threatening to overshadow land, matching the confirmed
+product decision.
+
+**One thing that was NOT a surprise, worth naming anyway:** M4's shallow-water food shifted
+population dynamics enough that both `barrier-split.json`/`meteor-radiation.json`'s bundled example
+seeds and `goldenScenarios.test.ts`'s extinction scenario (previously re-tuned for Addendum 9) broke
+again and needed a fresh seed sweep — same category of churn M3 caused for M2's tuning, M2 caused
+for the food-redesign's, and so on back through this project's history. This is now an expected,
+budgeted cost of any milestone that touches core population dynamics, not a regression to be
+alarmed by; `scripts/regen-examples.ts`'s own verification step exists specifically to catch it
+before it ships silently broken. New seeds: `barrier-split.json` seed 8 (was 12), `meteor-radiation.
+json` seed 10 (was 6), `goldenScenarios.test.ts`'s extinction test seed 10 (was 6).
+
+**Verification:** typecheck clean, full suite green (289 passed, 1 pre-existing documented skip —
+unrelated, see Addendum 9), benchmark shows no regression, and live in-browser verification used
+direct pixel measurement rather than eyeballing: default water coverage measured 18.05% (matches
+target), and — the most direct proof the mechanic actually works end to end, not just in the data
+model — sampling fruit-colored pixels on the rendered canvas and checking their immediate
+surroundings found real fruit squares sitting directly adjacent to water-toned terrain (11 of 40
+sampled fruit clusters had water-toned neighbors). The Island Hopper challenge loads with correct
+budget (180) and objective text, and an era advanced cleanly under it with zero console errors.

@@ -58,13 +58,21 @@ describe("raiseSeaLevel / lowerSeaLevel", () => {
 
     expect(state.evolution.terrain.seaLevel).toBeGreaterThan(before);
     let floodedSomething = false;
+    let floodedSomethingDeep = false;
     for (let i = 0; i < state.evolution.terrain.elevation.length; i++) {
-      if (state.evolution.terrain.elevation[i] < state.evolution.terrain.seaLevel) {
-        expect(state.evolution.terrain.fertility[i]).toBe(0);
+      const depth = state.evolution.terrain.seaLevel - state.evolution.terrain.elevation[i];
+      if (depth > 0) {
         floodedSomething = true;
+        // Shallow water gets real (if modest) fertility since SPEC.md Addendum 10 — only past
+        // shallowWaterMaxDepth does flooding zero it out entirely.
+        if (depth > params.shallowWaterMaxDepth) {
+          expect(state.evolution.terrain.fertility[i]).toBe(0);
+          floodedSomethingDeep = true;
+        }
       }
     }
     expect(floodedSomething).toBe(true);
+    expect(floodedSomethingDeep).toBe(true);
   });
 
   it("lowerSeaLevel lowers the waterline", () => {
