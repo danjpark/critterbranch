@@ -13,24 +13,25 @@ import { createRunConfig } from "../src/sim/runConfig.ts";
 import { runSimulationFromConfig, type SimState } from "../src/sim/sim.ts";
 import { DEFAULT_PARAMS } from "../src/params.ts";
 
-// seed=8, barrier at tick 2000: produces an allopatric split within 20,000 ticks under current
-// params. Re-swept (was seed=12) after SPEC.md Addendum 10 (Milestone 4: shallow-water food)
-// shifted population dynamics enough to break the previous choice — swept seeds
-// 1/2/3/4/5/6/7/8/9/10/11/12/20/30/40/42/50, seeds 8/9/42/50 all produced a confirmed allopatric
-// split in that window; picked the first one found.
-const barrierSplit = createRunConfig(8, DEFAULT_PARAMS, [
+// seed=3, barrier at tick 2000: produces an allopatric split within 20,000 ticks under current
+// params. Re-swept (was seed=8) after SPEC.md Addendum 12 (Milestone 6: aquaticAdaptation) shifted
+// population dynamics enough to break the previous choice — swept seeds
+// 1/2/3/4/5/6/7/8/9/10/11/12/20/30/40/42/50, seeds 3/6/30/40/42 all produced a confirmed allopatric
+// split with a healthy surviving population; picked the first one found.
+const barrierSplit = createRunConfig(3, DEFAULT_PARAMS, [
   { tick: 2000, tool: "barrierStamp", params: { x1: 100, y1: 0, x2: 100, y2: 200, width: 10, targetPassability: 0.02, formationTicks: 400 } },
 ]);
 
-// seed=10, meteor at tick 2800, targeting (69, 85) — the minority sub-lineage's actual centroid at
-// that tick (confirmed directly). Re-tuned after SPEC.md Addendum 10 (Milestone 4: shallow-water
-// food) shifted population dynamics enough to break the previous seed=6 choice. Demonstrates
-// extinction of an already-established regional lineage; does NOT reliably demonstrate
-// post-extinction radiation into a new lineage — a known, documented gap (see Addendum 9's
-// "Implementation status"), same reason "golden scenario: extinction and radiation" in
-// src/sim/goldenScenarios.test.ts only asserts the extinction half.
-const meteorRadiation = createRunConfig(10, DEFAULT_PARAMS, [
-  { tick: 2800, tool: "meteor", params: { x: 69, y: 85, radius: 35, craterRecoveryTicks: 800 } },
+// seed=6, meteor at tick 7600, targeting (76, 92) — the minority sub-lineage's actual centroid at
+// that tick (confirmed directly). Re-tuned after SPEC.md Addendum 12 (Milestone 6:
+// aquaticAdaptation) shifted population dynamics enough to break the previous seed=10 choice —
+// this seed's split happens to land on the amphibious axis specifically (dominantDivergentGene is
+// aquaticAdaptation), same seed used by "golden scenario: extinction and radiation" in
+// src/sim/goldenScenarios.test.ts. Demonstrates extinction of an already-established regional
+// lineage; does NOT reliably demonstrate post-extinction radiation into a new lineage — a known,
+// documented gap (see Addendum 9's "Implementation status").
+const meteorRadiation = createRunConfig(6, DEFAULT_PARAMS, [
+  { tick: 7600, tool: "meteor", params: { x: 76, y: 92, radius: 35, craterRecoveryTicks: 800 } },
 ]);
 
 writeFileSync("public/scenarios/barrier-split.json", JSON.stringify(barrierSplit, null, 2) + "\n");

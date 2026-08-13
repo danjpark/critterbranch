@@ -21,7 +21,17 @@ import { DEFAULT_PARAMS, type Params } from "../params.ts";
 // waterPassabilitySteepness: 0 flattens natural water's geographic-barrier effect (SPEC.md
 // Addendum 9) — see axisIsolation.test.ts's NEUTRAL for the full reasoning (deliberately not
 // seaLevelTargetWaterFraction: 0, which would distort land fertility/passability statistics).
-const NEUTRAL: Partial<Params> = { patchBimodality: 0, regrowthCycleAmplitude: 0, nursingRatePerTick: 0, waterPassabilitySteepness: 0 };
+// aquaticLandPassabilitySteepness/aquaticWaterPassabilitySteepness flatten the aquaticAdaptation
+// gene's own effect too (SPEC.md Addendum 12) — see axisIsolation.test.ts's NEUTRAL for why
+// waterPassabilitySteepness alone doesn't neutralize it (the land-side cost survives that override).
+const NEUTRAL: Partial<Params> = {
+  patchBimodality: 0,
+  regrowthCycleAmplitude: 0,
+  nursingRatePerTick: 0,
+  waterPassabilitySteepness: 0,
+  aquaticLandPassabilitySteepness: DEFAULT_PARAMS.passabilitySteepness,
+  aquaticWaterPassabilitySteepness: 0,
+};
 
 function speciationEvents(state: ReturnType<typeof runSimulationFromConfig>) {
   return state.observations.taxonomyEvents.filter((e): e is Extract<typeof e, { type: "speciation" }> => e.type === "speciation");
@@ -77,10 +87,15 @@ describe("golden scenario: barrier / allopatric split", () => {
       // carnivory: 0 pinned for the same reason as speed — an isolated allopatric-split scenario
       // shouldn't depend on whatever incidental carnivory the shared base genome happens to draw
       // (SPEC.md Addendum 7 made that a real, previously-inert value suddenly matter).
-      const baseGenome = { ...randomGenome(new RNG(1)), carnivory: 0 };
+      // aquaticAdaptation: 0 pinned for the identical reason once that gene (SPEC.md Addendum 12)
+      // started giving an incidental draw a real, previously-inert movement cost.
+      const baseGenome = { ...randomGenome(new RNG(1)), carnivory: 0, aquaticAdaptation: 0 };
       const genomeLeft: Genome = { ...baseGenome, offspringInvestment: 0.05, speed: 0.4 };
       const genomeRight: Genome = { ...baseGenome, offspringInvestment: 0.95, speed: 0.4 };
-      const config = createRunConfig(1, params, [
+      // Re-swept to seed 2 (was 1) after SPEC.md Addendum 12's new aquaticAdaptation gene shifted
+      // the RNG sequence enough that seed 1 no longer splits allopatrically within 5,000 ticks —
+      // same category of churn every major-gene addition this session has caused.
+      const config = createRunConfig(2, params, [
         { tick: 0, tool: "barrierStamp", params: { x1: 100, y1: 0, x2: 100, y2: 200, width: 10, targetPassability: 0, formationTicks: 0 } },
         // Close enough to the wall (x=100) that it's genuinely on their shortest path -- see
         // taxonomy.test.ts's torus-aware geometry tests for why x=70/x=130 and not further out.
@@ -142,13 +157,15 @@ describe("golden scenario: extinction and radiation", () => {
     () => {
       // This scenario needs the population to have already speciated into regional lineages
       // BEFORE the meteor hits (so it can wipe one out entirely, not just cull a fraction of one
-      // still-undifferentiated species). Re-swept after SPEC.md Addendum 10 (Milestone 4: shallow-
-      // water food) shifted population dynamics enough to break the previous seed=6 choice — seed
-      // 10 reliably splits by tick 1,300 under DEFAULT_PARAMS; meteor at tick 2,800 (x=69, y=85 —
-      // the minority sub-lineage's actual centroid at that tick, confirmed directly) gives the
-      // split time to establish and lands squarely on the smaller regional population.
-      const config = createRunConfig(10, DEFAULT_PARAMS, [
-        { tick: 2800, tool: "meteor", params: { x: 69, y: 85, radius: 35, craterRecoveryTicks: 800 } },
+      // still-undifferentiated species). Re-swept after SPEC.md Addendum 12 (Milestone 6:
+      // aquaticAdaptation) shifted population dynamics enough to break the previous seed=10
+      // choice — seed 6 reliably splits by tick 6,100 under DEFAULT_PARAMS (notably, on the
+      // amphibious axis specifically — dominantDivergentGene is aquaticAdaptation for this split,
+      // confirmed directly); meteor at tick 7,600 (x=76, y=92 — the minority sub-lineage's actual
+      // centroid at that tick) gives the split time to establish and lands squarely on the smaller
+      // regional population.
+      const config = createRunConfig(6, DEFAULT_PARAMS, [
+        { tick: 7600, tool: "meteor", params: { x: 76, y: 92, radius: 35, craterRecoveryTicks: 800 } },
       ]);
       const state = runSimulationFromConfig(config, 27_000);
 

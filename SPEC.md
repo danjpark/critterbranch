@@ -1180,3 +1180,135 @@ change in the RNG-consuming combat math. Live-verified in browser: Apex Predator
 with correct budget and objective text, an era advanced cleanly under active predation with zero
 console errors. Unlike every other milestone this session, no scenario seeds needed re-tuning —
 expected, since nothing about population dynamics actually changed.
+
+## Addendum 12 — Milestone 6 design note: amphibious speciation
+
+Design note, written before implementation, given the same rigor as M3/M4 — the roadmap flags this
+one as "the first flagship emergent capability," and unlike M5 there's real product surface here for
+Dan to weigh in on. Two decisions confirmed via AskUserQuestion before writing this (both
+"Recommended" chosen): (1) a fully water-adapted creature should be able to cross deep, open water
+nearly as easily as land — a strong, dramatic effect, real access to territory a land specialist
+fundamentally cannot reach, not a modest discount; (2) this pass touches movement only, mirroring
+exactly how `carnivory` started scoped to diet alone before predation became its own later
+milestone — no combat interaction with the new trait yet.
+
+### The core mechanic: a new gene, mirroring the diet axis's proven shape exactly
+
+New `Genome.aquaticAdaptation` ∈ [0, 1] (0 = land specialist, 1 = water specialist), same weight
+(1.0) as `carnivory` — a primary trade-off axis, not a minor one. Deliberately NOT a one-directional
+"swim bonus with no cost," which was considered and rejected: SPEC.md's own foundational premise is
+that the tree only branches where a population faces a real trade-off, and a strictly beneficial
+trait just drifts the whole population toward it with no fork — the exact failure mode a bare bonus
+would produce. Instead this mirrors `carnivory`'s already-proven "specialist beats generalist at
+either extreme" shape: better in water AND worse on land as the gene moves toward 1, better on land
+AND worse in water as it moves toward 0, an aquaticAdaptation=0.5 generalist doing worse at both than
+either specialist. That's what makes this a genuine disruptive-selection axis instead of a slow
+population-wide drift.
+
+### Where the mechanic lives: a phenotype-aware passability, not a flat scalar anymore
+
+Today's `movementEfficiency(phenotype, environment: { passability })` takes a single precomputed,
+genotype-blind `passability` number — that number can't answer "how passable is this FOR ME," only
+"how passable is this in general," because `terrain.passability` is one shared array every creature
+reads identically. Making the aquatic trade-off real requires computing passability per-creature, not
+per-cell.
+
+**Fix: `terrain.ts`'s land/water passability formula is generalized into a shared low-level helper**
+(`passabilityFromSteepness(relative, landSteepness, waterSteepness)`) that both the existing
+genotype-blind `terrainDerivedFields` (used for taxonomy's barrier detection, rendering, fertility —
+deliberately still genotype-blind, since "how objectively difficult is this terrain" needs to stay a
+property of the terrain, not of whoever's asking) and a new phenotype-aware caller in `phenotype.ts`
+can both call, just with different steepness constants. `movementEfficiency` changes shape: it now
+takes raw `{ elevation, seaLevel }` instead of a precomputed `passability`, plus `params`, and
+interpolates the land/water steepness constants by `phenotype.aquaticAdaptation` before calling the
+shared helper:
+
+- Land steepness interpolates from `passabilitySteepness` (aquaticAdaptation=0, unchanged from
+  today) toward a new, deliberately harsher `aquaticLandPassabilitySteepness` (aquaticAdaptation=1)
+  — a fully aquatic creature is genuinely awkward on land, fins over legs.
+- Water steepness interpolates from `waterPassabilitySteepness` (aquaticAdaptation=0, unchanged —
+  a land specialist finds water exactly as punishing as it always has) toward a new, deliberately
+  gentle `aquaticWaterPassabilitySteepness` (aquaticAdaptation=1) — gentle enough that a full
+  specialist crosses even substantial depth with real mobility, per the "strong, opens deep water"
+  decision above.
+
+`terrain.passability` itself (the shared, genotype-blind array) is untouched — taxonomy's allopatric
+barrier detection, rendering, and fertility all keep reading it exactly as before. Only movement gets
+the personalized version, computed fresh per creature per tick (cheap arithmetic, same "don't cache,
+it's not worth the complexity" call M5 already made for `derivePhenotype`).
+
+### Closing the observability loop this milestone's own name implies
+
+`SpeciesProfile.habitat.waterShare` already exists (M3) and already feeds the Island Hopper objective
+(M4) — but `CapabilityClassifier` never grew a label for it. A new `"aquatic-adapted"` capability
+(mirroring `"highland-adapted"`/`"lowland-adapted"` exactly, same threshold pattern) closes that gap:
+once a species' demonstrated behavior shows it really is spending real time in water, the Capability
+layer should be able to say so — this is literally "SpeciesProfile → Capability" from the roadmap's
+own pipeline description, applied to this milestone's new trait's actual behavioral consequence, not
+scope creep.
+
+**New challenge: "Amphibian's Fork."** A new `createAmphibiousSpeciationObjective`, structurally
+identical to `createGeographicSpeciationObjective` (which already checks `taxonomyEvents` for a
+speciation event with a specific `mechanism`) — this one checks for a speciation event whose
+`dominantDivergentGene` is `"aquaticAdaptation"`. Existing, unmodified machinery: taxonomy's
+bimodality detector picks up the new gene automatically (it's just another entry in `GENE_WEIGHTS`),
+and `dominantDivergentGene` is already recorded on every promoted split — nothing new to build there,
+just a new objective reading a field that already exists.
+
+### Deliberately out of scope for this pass
+
+No effect on combat (attackPower/evasionPower untouched, per the confirmed decision — a water-
+specialist predator or prey is no better or worse in a fight, only at getting there). No dedicated
+visual encoding — `render/color.ts`'s hue already spends its one 2D angle on diet+foraging and
+lightness on life-history; OkLCh has no fourth channel to spend on this without touching an
+already-tuned system. `aquaticAdaptation` still contributes to `geneticDistance` (it's in
+`GENE_WEIGHTS`), so real divergence on this axis still shows up as increased chroma — just not as
+its own recognizable hue. A dedicated visual language for a demonstrated new capability (watching a
+lineage visibly grow fins) is explicitly M7's job ("procedural creature appearance... watching a
+lineage visibly sprout new features as it evolves") — this milestone deliberately doesn't front-load
+that payoff, consistent with every other "defer to the milestone that actually owns this" call made
+throughout this arc.
+
+**Implementation status (2026-08-13): built exactly as designed, empirically confirmed to produce
+the "strong, opens deep water" effect and a genuine amphibious speciation event under default
+params, no artificial isolation needed.**
+
+`Genome.aquaticAdaptation` added (weight 1.0, alongside `carnivory`); `terrain.ts`'s
+`passabilityFromSteepness(relative, landSteepness, waterSteepness)` extracted as a shared helper,
+called by both the unchanged genotype-blind `terrainDerivedFields` and a new phenotype-aware caller;
+`movementEfficiency` reworked to take raw `{ elevation, seaLevel }` + `params` and interpolate land/
+water steepness by `phenotype.aquaticAdaptation` before calling the shared helper.
+`aquaticLandPassabilitySteepness`/`aquaticWaterPassabilitySteepness` defaults (5.0 / 0.8) tuned via a
+throwaway probe script checking exact multiplier values at various elevations/depths, then confirmed
+against a live simulation (a second probe found seed 6 produces a genuine amphibious speciation event
+under fully default params — the same seed later reused for `goldenScenarios.test.ts`'s extinction
+scenario, since it happens to split on the `aquaticAdaptation` axis specifically). New
+`"aquatic-adapted"` capability label (mirroring `highland-adapted`/`lowland-adapted`, threshold 30%
+water-share, checked independently rather than else-if chained so it can co-occur with elevation
+capabilities). New `createAmphibiousSpeciationObjective` + "Amphibian's Fork" challenge (budget 220),
+structurally identical to the existing geographic-speciation objective.
+
+Adding a new major-weight gene shifted `geneticDistance`'s weightSum and the RNG-consumption sequence
+for every downstream draw — the same expected, budgeted churn every major-gene addition this session
+has caused. Six tests broke, split across two distinct root causes (confirmed by probing each rather
+than assuming): two (`axisIsolation.test.ts`, `goldenScenarios.test.ts`'s neutral control) had a
+genuine confound — the existing `waterPassabilitySteepness: 0` NEUTRAL override only flattened
+`aquaticAdaptation`'s water-side benefit, leaving its land-side cost un-neutralized; fixed by adding
+`aquaticLandPassabilitySteepness: DEFAULT_PARAMS.passabilitySteepness,
+aquaticWaterPassabilitySteepness: 0` to both files' NEUTRAL constants. The other four (one
+`taxonomy.test.ts` Phase 4 test, three `goldenScenarios.test.ts` tests: barrier/allopatric-split,
+extinction-and-radiation, and the two bundled example scenarios in `scripts/regen-examples.ts`) were
+pure RNG-sequence-shift, unrelated to any design flaw — confirmed by checking that pinning
+`aquaticAdaptation: 0` alone did NOT restore the old behavior, then fixed by sweeping seeds and
+picking the first reliable one (taxonomy: seed 10; golden barrier: seed 2; golden
+extinction-and-radiation + bundled meteor-radiation: seed 6, tick 7600, x=76/y=92 — the minority
+sub-lineage's actual centroid, found via the established two-step approach; bundled barrier-split:
+seed 3, the first of five reliable seeds found in a 17-seed sweep).
+
+Full suite green (308 passed, 1 skipped, up from 292 — new coverage in `phenotype.test.ts`,
+`terrain.test.ts`, `capabilityClassifier.test.ts`, `standardObjectives.test.ts`). Typecheck clean.
+Benchmark run with no regression (6638/2397/1610/321 ticks/sec at founding 100/500/1000/5000).
+Live-verified in browser: Amphibian's Fork challenge loaded with correct budget (220) and objective
+text, an era advanced cleanly from tick 0 to 2000 with zero console errors, population grew 100→228,
+and `aquaticAdaptation` showed up as a +44% major trait change in the era summary — direct evidence
+the gene is under real selection pressure during play, not just present in the genome.

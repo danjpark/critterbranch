@@ -186,9 +186,9 @@ export function stepCreature(
 
   const cellX = wrap(Math.floor(creature.x / params.gridCellSize), world.cols);
   const cellY = wrap(Math.floor(creature.y / params.gridCellSize), world.rows);
-  const passability = terrain.passability[cellY * world.cols + cellX];
+  const cellIdx = cellY * world.cols + cellX;
 
-  const travel = movementEfficiency(derivePhenotype(creature.genome), { passability });
+  const travel = movementEfficiency(derivePhenotype(creature.genome), { elevation: terrain.elevation[cellIdx], seaLevel: terrain.seaLevel }, params);
   creature.x = wrap(creature.x + Math.cos(creature.heading) * travel, worldWidth);
   creature.y = wrap(creature.y + Math.sin(creature.heading) * travel, worldHeight);
   creature.distanceTraveled += travel;

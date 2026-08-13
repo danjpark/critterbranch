@@ -55,6 +55,21 @@ describe("classifySpecies — habitat", () => {
   it("labels a species mostly found on lowland terrain as lowland-adapted", () => {
     expect(labelsOf(profile({ habitat: { waterShare: 0, lowlandShare: 0.9, hillShare: 0.1, mountainShare: 0 } }))).toContain("lowland-adapted");
   });
+
+  // SPEC.md Addendum 12 (Milestone 6).
+  it("labels a species mostly found in water as aquatic-adapted", () => {
+    expect(labelsOf(profile({ habitat: { waterShare: 0.6, lowlandShare: 0.4, hillShare: 0, mountainShare: 0 } }))).toContain("aquatic-adapted");
+  });
+
+  it("does not label a species with only a small water presence as aquatic-adapted", () => {
+    expect(labelsOf(profile({ habitat: { waterShare: 0.1, lowlandShare: 0.9, hillShare: 0, mountainShare: 0 } }))).not.toContain("aquatic-adapted");
+  });
+
+  it("aquatic-adapted can co-occur with a land-elevation label, unlike highland/lowland which are mutually exclusive", () => {
+    const labels = labelsOf(profile({ habitat: { waterShare: 0.35, lowlandShare: 0.05, hillShare: 0, mountainShare: 0.6 } }));
+    expect(labels).toContain("aquatic-adapted");
+    expect(labels).toContain("highland-adapted");
+  });
 });
 
 describe("classifySpecies — movement (relative to population baseline)", () => {

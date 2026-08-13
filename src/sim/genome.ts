@@ -18,6 +18,10 @@ export interface Genome {
    * matching every existing scenario/test's implicit assumption before this gene existed. */
   nursingDuration: number;
   mutationRate: number;
+  /** 0 = land specialist, 1 = water specialist — same "specialist beats generalist at either
+   * extreme" shape as carnivory, just for movement instead of diet (see sim/phenotype.ts's
+   * movementEfficiency). SPEC.md Addendum 12 (Milestone 6). */
+  aquaticAdaptation: number;
 }
 
 export const GENE_KEYS = [
@@ -30,6 +34,7 @@ export const GENE_KEYS = [
   "offspringInvestment",
   "nursingDuration",
   "mutationRate",
+  "aquaticAdaptation",
 ] as const satisfies readonly (keyof Genome)[];
 
 export const GENE_RANGES: Record<keyof Genome, [number, number]> = {
@@ -42,6 +47,7 @@ export const GENE_RANGES: Record<keyof Genome, [number, number]> = {
   offspringInvestment: [0, 1],
   nursingDuration: [0, 600],
   mutationRate: [0.001, 0.2],
+  aquaticAdaptation: [0, 1],
 };
 
 export function randomGenome(rng: RNG): Genome {
@@ -101,6 +107,12 @@ export const GENE_WEIGHTS: Record<keyof Genome, number> = {
   // re-diluting every threshold already tuned for the other eight genes.
   nursingDuration: 0.1,
   mutationRate: 0.1,
+  // Full weight, matching carnivory — this is meant to be a primary trade-off axis capable of
+  // becoming a detected split's dominantDivergentGene (SPEC.md Addendum 12), not a minor one like
+  // nursingDuration/mutationRate above. Expect the same re-tuning churn every prior major-axis
+  // addition caused (see this file's carnivory reinstatement, Addendum 7) — budgeted, not a
+  // surprise.
+  aquaticAdaptation: 1.0,
 };
 
 /** Weighted RMS distance between two genomes, each gene normalized by its own range. In [0, 1]. */

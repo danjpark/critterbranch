@@ -9,6 +9,7 @@ import type { PopulationSample, Species } from "../../sim/taxonomy.ts";
 import { createGameState } from "../gameState.ts";
 import type { GameEvaluationContext } from "./objective.ts";
 import {
+  createAmphibiousSpeciationObjective,
   createApexPredatorObjective,
   createAquaticForagerObjective,
   createBiodiversityObjective,
@@ -29,6 +30,7 @@ function genome(offspringInvestment: number): Genome {
     offspringInvestment,
     nursingDuration: 0,
     mutationRate: 0.05,
+    aquaticAdaptation: 0,
   };
 }
 
@@ -250,6 +252,60 @@ describe("createGeographicSpeciationObjective", () => {
           geneticSeparation: 0.5,
           minimumBarrierPassability: 0.8,
           spatialSeparation: 5,
+          founderCount: 10,
+          divergenceDominanceRatio: 0.6,
+          dominantDivergentGene: "offspringInvestment",
+        },
+      },
+    });
+    expect(obj.evaluate(ctx).complete).toBe(false);
+  });
+});
+
+describe("createAmphibiousSpeciationObjective", () => {
+  it("completes once a speciation event dominantly diverged on aquaticAdaptation", () => {
+    const ctx = context();
+    const obj = createAmphibiousSpeciationObjective();
+    expect(obj.evaluate(ctx).complete).toBe(false);
+
+    ctx.sim.state.observations.taxonomyEvents.push({
+      type: "speciation",
+      event: {
+        tick: 1000,
+        speciesId: 1,
+        parentId: 0,
+        mechanism: "sympatric",
+        dominantDivergentGene: "aquaticAdaptation",
+        founderCount: 10,
+        evidence: {
+          geneticSeparation: 0.5,
+          minimumBarrierPassability: 0.8,
+          spatialSeparation: 5,
+          founderCount: 10,
+          divergenceDominanceRatio: 0.6,
+          dominantDivergentGene: "aquaticAdaptation",
+        },
+      },
+    });
+    expect(obj.evaluate(ctx).complete).toBe(true);
+  });
+
+  it("does not complete for a split dominated by a different gene", () => {
+    const ctx = context();
+    const obj = createAmphibiousSpeciationObjective();
+    ctx.sim.state.observations.taxonomyEvents.push({
+      type: "speciation",
+      event: {
+        tick: 1000,
+        speciesId: 1,
+        parentId: 0,
+        mechanism: "allopatric",
+        dominantDivergentGene: "offspringInvestment",
+        founderCount: 10,
+        evidence: {
+          geneticSeparation: 0.5,
+          minimumBarrierPassability: 0.02,
+          spatialSeparation: 100,
           founderCount: 10,
           divergenceDominanceRatio: 0.6,
           dominantDivergentGene: "offspringInvestment",

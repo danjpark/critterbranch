@@ -21,7 +21,21 @@ import { DEFAULT_PARAMS, type Params } from "../params.ts";
 // distorts land fertility/passability (now measured relative to sea level) far more harshly than
 // normal play ever sees. Leaving water's default coverage in place but fully passable keeps land
 // statistics representative while removing the actual barrier effect.
-const NEUTRAL: Partial<Params> = { patchBimodality: 0, regrowthCycleAmplitude: 0, nursingRatePerTick: 0, waterPassabilitySteepness: 0 };
+// aquaticLandPassabilitySteepness/aquaticWaterPassabilitySteepness flatten a FOURTH axis (SPEC.md
+// Addendum 12): the aquaticAdaptation gene has a real land-side cost that waterPassabilitySteepness
+// above does NOT neutralize on its own (that override only flattens the WATER side for a land
+// specialist; a water specialist still gets meaningfully worse land movement regardless). Setting
+// both aquatic steepness constants equal to their land/water counterparts makes aquaticAdaptation's
+// value have literally zero effect on movement, the same "matching values, not just small ones"
+// approach as the geography fix beside it.
+const NEUTRAL: Partial<Params> = {
+  patchBimodality: 0,
+  regrowthCycleAmplitude: 0,
+  nursingRatePerTick: 0,
+  waterPassabilitySteepness: 0,
+  aquaticLandPassabilitySteepness: DEFAULT_PARAMS.passabilitySteepness,
+  aquaticWaterPassabilitySteepness: 0,
+};
 
 function runFor(seed: number, overrides: Partial<Params>, ticks: number) {
   const params = { ...DEFAULT_PARAMS, ...overrides };

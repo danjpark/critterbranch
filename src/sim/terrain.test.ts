@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateTerrain, terrainDerivedFields } from "./terrain.ts";
+import { generateTerrain, passabilityFromSteepness, terrainDerivedFields } from "./terrain.ts";
 import { RNG } from "./rng.ts";
 import { DEFAULT_PARAMS } from "../params.ts";
 
@@ -121,5 +121,34 @@ describe("terrainDerivedFields — shallow water", () => {
     const a = terrainDerivedFields(-0.02, 0, DEFAULT_PARAMS);
     const b = terrainDerivedFields(-0.02, 0, params);
     expect(a.passability).toBeCloseTo(b.passability);
+  });
+});
+
+// SPEC.md Addendum 12 (Milestone 6) — the shared low-level shape terrainDerivedFields and
+// phenotype.ts's phenotype-aware movement both call, just with different steepness constants.
+describe("passabilityFromSteepness", () => {
+  it("gives full passability exactly at the waterline (relative=0), regardless of steepness", () => {
+    expect(passabilityFromSteepness(0, 1.5, 10)).toBe(1);
+    expect(passabilityFromSteepness(0, 5, 0.8)).toBe(1);
+  });
+
+  it("tapers land passability with landSteepness, ignoring waterSteepness entirely", () => {
+    expect(passabilityFromSteepness(0.1, 1.5, 999)).toBeCloseTo(1 - 1.5 * 0.1);
+  });
+
+  it("tapers water passability with waterSteepness, ignoring landSteepness entirely", () => {
+    expect(passabilityFromSteepness(-0.1, 999, 0.8)).toBeCloseTo(1 - 0.8 * 0.1);
+  });
+
+  it("clamps to [0, 1] rather than going negative or above 1", () => {
+    expect(passabilityFromSteepness(10, 1.5, 10)).toBe(0);
+    expect(passabilityFromSteepness(-10, 10, 0.8)).toBe(0);
+  });
+
+  it("matches terrainDerivedFields exactly when called with the default flat steepness constants", () => {
+    const relative = 0.05;
+    const viaHelper = passabilityFromSteepness(relative, DEFAULT_PARAMS.passabilitySteepness, DEFAULT_PARAMS.waterPassabilitySteepness);
+    const viaTerrainDerivedFields = terrainDerivedFields(relative, 0, DEFAULT_PARAMS).passability;
+    expect(viaHelper).toBeCloseTo(viaTerrainDerivedFields);
   });
 });

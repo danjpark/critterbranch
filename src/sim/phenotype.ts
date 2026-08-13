@@ -1,12 +1,14 @@
+import type { Params } from "../params.ts";
 import type { Genome } from "./genome.ts";
+import { lerp } from "./util.ts";
+import { passabilityFromSteepness } from "./terrain.ts";
 
 /**
  * The genotype -> phenotype seam (SPEC.md Addendum 9, grown in Addendum 11 / Milestone 5 to cover
- * combat as well as movement). Deliberately a pure pass-through today — genotype maps to phenotype
- * deterministically and 1:1, no environmental/developmental modifiers yet. The point of this
- * milestone is that EVERY "how good am I at X" computation reads through here now, not that any of
- * them compute anything new — M6 is where a real derived trait (e.g. swimEfficiency) actually
- * changes that.
+ * combat, and in Addendum 12 / Milestone 6 to carry the first real derived trait). Every other
+ * field is still a pure pass-through — `aquaticAdaptation` is the first phenotype value that
+ * actually changes what a creature can DO (see `movementEfficiency` below), not just where a value
+ * originates.
  */
 export interface Phenotype {
   speed: number;
@@ -16,25 +18,43 @@ export interface Phenotype {
    * this for a real dedicated gene later shouldn't require touching any call site. */
   attackPower: number;
   evasionPower: number;
+  /** 0 = land specialist, 1 = water specialist — SPEC.md Addendum 12 (Milestone 6). */
+  aquaticAdaptation: number;
 }
 
 export function derivePhenotype(genome: Genome): Phenotype {
-  return { speed: genome.speed, size: genome.size, attackPower: genome.size, evasionPower: genome.speed };
+  return {
+    speed: genome.speed,
+    size: genome.size,
+    attackPower: genome.size,
+    evasionPower: genome.speed,
+    aquaticAdaptation: genome.aquaticAdaptation,
+  };
 }
 
-/** What a cell offers a mover, independent of who's moving through it. */
+/** Raw terrain facts a mover needs — not a precomputed passability, since Addendum 12 makes
+ * passability itself depend on who's asking (see movementEfficiency below). */
 export interface MovementEnvironment {
-  passability: number;
+  elevation: number;
+  seaLevel: number;
 }
 
 /**
  * Replaces the inline `genome.speed * passability` multiplication that used to live in
- * creature.ts's move step. Behaviorally identical for land movement today; the payoff is that
- * "how fast do I actually move here" is now one named function of phenotype and environment,
- * ready for a future phenotype trait (e.g. swimEfficiency) to multiply in specifically for water.
+ * creature.ts's move step. For a land specialist (aquaticAdaptation=0) this is byte-identical to
+ * the flat, genotype-blind terrain.passability every creature used to share (SPEC.md Addendum 9) —
+ * the land and water steepness constants interpolate toward the aquatic-specialist extremes only as
+ * aquaticAdaptation grows, per the "specialist beats generalist at either extreme" shape Addendum 12
+ * mirrors from the diet axis: harsher on land, gentler in water, real mobility through real depth at
+ * aquaticAdaptation=1. `terrain.passability` itself (used by taxonomy/rendering/fertility) is
+ * untouched — this is a separate, personalized computation only movement reads.
  */
-export function movementEfficiency(phenotype: Phenotype, environment: MovementEnvironment): number {
-  return phenotype.speed * environment.passability;
+export function movementEfficiency(phenotype: Phenotype, environment: MovementEnvironment, params: Params): number {
+  const relative = environment.elevation - environment.seaLevel;
+  const landSteepness = lerp(params.passabilitySteepness, params.aquaticLandPassabilitySteepness, phenotype.aquaticAdaptation);
+  const waterSteepness = lerp(params.waterPassabilitySteepness, params.aquaticWaterPassabilitySteepness, phenotype.aquaticAdaptation);
+  const effectivePassability = passabilityFromSteepness(relative, landSteepness, waterSteepness);
+  return phenotype.speed * effectivePassability;
 }
 
 /**

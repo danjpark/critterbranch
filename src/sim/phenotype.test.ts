@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_PARAMS } from "../params.ts";
 import type { Genome } from "./genome.ts";
 import { combatSuccessProbability, derivePhenotype, movementEfficiency, type Phenotype } from "./phenotype.ts";
 
@@ -13,12 +14,13 @@ function genome(overrides: Partial<Genome> = {}): Genome {
     offspringInvestment: 0.2,
     nursingDuration: 0,
     mutationRate: 0.05,
+    aquaticAdaptation: 0,
     ...overrides,
   };
 }
 
 function phenotype(overrides: Partial<Phenotype> = {}): Phenotype {
-  return { speed: 1, size: 1, attackPower: 1, evasionPower: 1, ...overrides };
+  return { speed: 1, size: 1, attackPower: 1, evasionPower: 1, aquaticAdaptation: 0, ...overrides };
 }
 
 describe("derivePhenotype", () => {
@@ -35,16 +37,64 @@ describe("derivePhenotype", () => {
     expect(p.attackPower).toBe(1.7);
     expect(p.evasionPower).toBe(2.3);
   });
+
+  // SPEC.md Addendum 12 (Milestone 6).
+  it("passes aquaticAdaptation through unchanged", () => {
+    expect(derivePhenotype(genome({ aquaticAdaptation: 0.73 })).aquaticAdaptation).toBe(0.73);
+  });
 });
 
 describe("movementEfficiency", () => {
-  it("scales linearly with both phenotype speed and environment passability", () => {
-    expect(movementEfficiency(phenotype({ speed: 2 }), { passability: 0.5 })).toBeCloseTo(1);
-    expect(movementEfficiency(phenotype({ speed: 2 }), { passability: 1 })).toBeCloseTo(2);
+  it("scales linearly with phenotype speed on flat land at sea level", () => {
+    const env = { elevation: 0, seaLevel: 0 };
+    expect(movementEfficiency(phenotype({ speed: 2 }), env, DEFAULT_PARAMS)).toBeCloseTo(2);
+    expect(movementEfficiency(phenotype({ speed: 1 }), env, DEFAULT_PARAMS)).toBeCloseTo(1);
   });
 
-  it("is zero when passability is zero (impassable terrain), regardless of speed", () => {
-    expect(movementEfficiency(phenotype({ speed: 5 }), { passability: 0 })).toBe(0);
+  it("a land specialist (aquaticAdaptation=0) is unaffected — byte-identical to the pre-M6 flat passabilitySteepness formula", () => {
+    const p = phenotype({ speed: 1, aquaticAdaptation: 0 });
+    const env = { elevation: 0.1, seaLevel: 0 };
+    const expected = 1 * Math.max(0, 1 - DEFAULT_PARAMS.passabilitySteepness * 0.1);
+    expect(movementEfficiency(p, env, DEFAULT_PARAMS)).toBeCloseTo(expected);
+  });
+
+  it("is zero on terrain steep enough to fully block a land specialist", () => {
+    const p = phenotype({ speed: 5, aquaticAdaptation: 0 });
+    // passability = 1 - passabilitySteepness * relative; needs relative >= 1/passabilitySteepness to floor at 0.
+    const blockingElevation = 2 / DEFAULT_PARAMS.passabilitySteepness;
+    expect(movementEfficiency(p, { elevation: blockingElevation, seaLevel: 0 }, DEFAULT_PARAMS)).toBe(0);
+  });
+
+  // SPEC.md Addendum 12 (Milestone 6) — the actual trade-off this milestone exists to create.
+  it("a water specialist moves meaningfully worse on land than a land specialist does", () => {
+    const env = { elevation: 0.15, seaLevel: 0 };
+    const landSpecialist = movementEfficiency(phenotype({ aquaticAdaptation: 0 }), env, DEFAULT_PARAMS);
+    const waterSpecialist = movementEfficiency(phenotype({ aquaticAdaptation: 1 }), env, DEFAULT_PARAMS);
+    expect(waterSpecialist).toBeLessThan(landSpecialist);
+  });
+
+  it("a water specialist moves meaningfully better in deep water than a land specialist does", () => {
+    const env = { elevation: -0.15, seaLevel: 0 }; // depth 0.15
+    const landSpecialist = movementEfficiency(phenotype({ aquaticAdaptation: 0 }), env, DEFAULT_PARAMS);
+    const waterSpecialist = movementEfficiency(phenotype({ aquaticAdaptation: 1 }), env, DEFAULT_PARAMS);
+    expect(waterSpecialist).toBeGreaterThan(landSpecialist);
+  });
+
+  it("a full water specialist retains real mobility even at depth that fully blocks a land specialist", () => {
+    const env = { elevation: -0.2, seaLevel: 0 }; // depth 0.2, well past where land specialists hit 0
+    const landSpecialist = movementEfficiency(phenotype({ aquaticAdaptation: 0 }), env, DEFAULT_PARAMS);
+    const waterSpecialist = movementEfficiency(phenotype({ aquaticAdaptation: 1 }), env, DEFAULT_PARAMS);
+    expect(landSpecialist).toBe(0);
+    expect(waterSpecialist).toBeGreaterThan(0.5);
+  });
+
+  it("interpolates smoothly for a partial specialist, not a hard gate", () => {
+    const env = { elevation: -0.1, seaLevel: 0 };
+    const none = movementEfficiency(phenotype({ aquaticAdaptation: 0 }), env, DEFAULT_PARAMS);
+    const half = movementEfficiency(phenotype({ aquaticAdaptation: 0.5 }), env, DEFAULT_PARAMS);
+    const full = movementEfficiency(phenotype({ aquaticAdaptation: 1 }), env, DEFAULT_PARAMS);
+    expect(half).toBeGreaterThan(none);
+    expect(full).toBeGreaterThan(half);
   });
 });
 

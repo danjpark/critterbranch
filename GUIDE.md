@@ -59,13 +59,13 @@ Colored dots. **Every part of the color is computed straight from the creature's
 
 There's a **"Deuteranopia-safe hues"** toggle that restricts the color wheel to a blue-orange axis for colorblind-safe viewing, and a **competition heatmap** overlay that shows per-species food-consumption pressure across the map.
 
-Click any creature to open the **Inspector**: its id, parent, birth tick, age, energy, and the exact numeric value of every one of its 9 genes.
+Click any creature to open the **Inspector**: its id, parent, birth tick, age, energy, and the exact numeric value of every one of its 10 genes.
 
 ---
 
 ## 4. What makes a creature — the genes
 
-Every creature has exactly 9 heritable numbers. A child's genes are its parent's genes plus a small random mutation (the size of the mutation is itself controlled by a 9th gene, so "how mutable I am" is itself evolvable).
+Every creature has exactly 10 heritable numbers. A child's genes are its parent's genes plus a small random mutation (the size of the mutation is itself controlled by one of those genes, so "how mutable I am" is itself evolvable).
 
 | Gene | Range | What it does |
 |---|---|---|
@@ -78,6 +78,7 @@ Every creature has exactly 9 heritable numbers. A child's genes are its parent's
 | `offspringInvestment` | 0 – 1 | How much energy it hands each child at birth — the one-time half of the "cheap-and-many vs. expensive-and-few" (r/K) trade-off. |
 | `nursingDuration` | 0 – 600 ticks | How long a parent keeps *actively feeding* each child after birth, on top of the birth endowment above — the ongoing half of that same r/K trade-off. |
 | `mutationRate` | 0.001 – 0.2 | How much a creature's own children's genes are allowed to drift from its own. |
+| `aquaticAdaptation` ✅ *(new)* | 0 (land specialist) – 1 (water specialist) | Same "specialist beats generalist" shape as `carnivory`: pushes toward 1 and land gets harder while deep water opens up almost freely; pushes toward 0 and the reverse. A 0.5 generalist is worse at both than a specialist at either extreme — the fork that makes amphibious speciation possible. |
 
 ### How creatures actually behave, per tick
 Sense nearby fruit *and* nearby creatures-as-potential-prey (scored by the same mechanism — a herbivore naturally never finds attacking worth it, no special-casing needed) → steer toward whichever scored best → move (slowed by terrain) → pay metabolism → either eat fruit where it landed, or, if it ended within attack range of prey and isn't on attack cooldown, roll a contest (`attack power / (attack power + evasion power)`) to try to kill and eat it. A successful kill removes the prey and feeds the predator, scaled by how specialized it actually is toward meat.
@@ -112,7 +113,7 @@ Every split and every extinction is logged in the **Event feed**, with the tick 
 | **Inspector** | Full gene readout of whichever single creature you last clicked. |
 
 ### Species capabilities (what the species card can tell you)
-Once a species has enough living members to be confident about, the game infers labels about it from its **actual observed behavior** — not from reading its genes directly (a creature could theoretically have carnivory genes and never once successfully hunt). Possible labels: **Omnivore / Herbivore / Carnivore**, **Highland-Adapted / Lowland-Adapted**, **Fast-mover / Sedentary**, **r-strategist / K-strategist**, **Resilient / Fragile** — each with a confidence score and a plain-English reason ("Draws 82% of intake from meat," "63% of members observed in mountain terrain").
+Once a species has enough living members to be confident about, the game infers labels about it from its **actual observed behavior** — not from reading its genes directly (a creature could theoretically have carnivory genes and never once successfully hunt). Possible labels: **Omnivore / Herbivore / Carnivore**, **Highland-Adapted / Lowland-Adapted**, **Aquatic-Adapted** ✅ *(new)*, **Fast-mover / Sedentary**, **r-strategist / K-strategist**, **Resilient / Fragile** — each with a confidence score and a plain-English reason ("Draws 82% of intake from meat," "63% of members observed in mountain terrain," "30% of members observed in water").
 
 ---
 
@@ -144,6 +145,7 @@ Select a tool, then click the map. Every action costs Terraform Points in Game M
 | **After the Fall** | Trigger a real population collapse, then recover biodiversity afterward. |
 | **Apex Predator** | Sustain a population of real size that draws most of its diet from hunting, not scavenging. |
 | **Island Hopper** | Produce a species that spends a real share of its time in water — you'll likely need to terraform for it (raise sea level, carve straits) since the starting map won't just hand it to you. |
+| **Amphibian's Fork** ✅ *(new)* | Cause a speciation event driven by the land/water trade-off — watch one population split into a land branch and a water branch. |
 
 *(These are explicitly first-pass content to exercise the objective/budget system end to end, not final tuned difficulty — expect them to get reworked.)*
 
@@ -154,25 +156,25 @@ Select a tool, then click the map. Every action costs Terraform Points in Game M
 Critterbranch is being built in milestones. Everything above this line is real and playable today. Here's the honest state of the roadmap:
 
 ### ✅ Built
-- **Core simulation**: deterministic tick loop, 9-gene creatures, mutation, reproduction, metabolism, energy.
+- **Core simulation**: deterministic tick loop, 10-gene creatures, mutation, reproduction, metabolism, energy.
 - **Persistent fruit-tree food economy**: trees mature, spread, and die on their own — not a static grid.
 - **Predation**: carnivory as a real trade-off, hunting, combat contest, meat as a second food source, cannibalism allowed.
 - **Speciation detection**: gap-based bimodality test, confirmation passes, allopatric/sympatric/founder-effect classification with evidence.
 - **Terrain as a real force**: elevation, movement/food penalties, procedurally-generated natural water at world-gen, and a player-facing Raise/Lower Sea Level tool.
-- **Water as a real (if modest) niche**: shallow coastal water grows real fruit trees using the exact same mechanics as land — a genuine secondary food source, deliberately scaled below land's output. Deep water is still a hard barrier and stays barren. Nobody has a genetic *edge* in water yet — that payoff is still ahead (see M5/M6 below); today it's equally reachable, equally rewarding, for every creature.
+- **Water as a real niche with a genetic edge**: shallow coastal water grows real fruit trees using the exact same mechanics as land. A creature's `aquaticAdaptation` gene now makes water passability personal — a water specialist can cross deep, open water nearly as easily as land, at the cost of being genuinely awkward on land, mirroring `carnivory`'s "specialist beats generalist" shape.
+- **Full genotype→phenotype→performance pipeline**: one consistent seam (`Phenotype`, `derivePhenotype`, `movementEfficiency`, `combatSuccessProbability`) that movement and combat both read from — no more ad hoc per-system gene reads.
+- **Amphibious speciation**: a population can genuinely fork into a land branch and a water branch, driven purely by the land/water trade-off, with its own capability label and challenge.
 - **Full god-mode toolkit**: terrain, barriers, trees, drought/bloom, meteors (with undo), founder-seeding, sea level.
 - **Observability layer**: SpeciesProfile (real demonstrated diet/habitat/movement/reproduction/survival stats) and the Capability classifier built on top of it — never reads genes directly, only actual behavior.
-- **Game Mode**: Terraform → Evolution → Discovery loop, Terraform Points budget, Era Summaries, checkpoints, 5 prototype challenges.
+- **Game Mode**: Terraform → Evolution → Discovery loop, Terraform Points budget, Era Summaries, checkpoints, 6 prototype challenges.
 - **Visualization**: World map (parchment terrain style), phylogenetic Tree view, Muller plot, gene-space scatter, gene-flow chart, trait-over-time chart, event feed.
 - **Scenario export/import/replay**, deterministic headless replay verified to match live play exactly.
 
 ### 🔭 Planned, not yet built (in rough order)
 | Milestone | What it adds |
 |---|---|
-| **M5 — Full genotype→phenotype pipeline** | Today's `Phenotype` layer is a placeholder (a pure pass-through of genes). M5 builds the real genotype → phenotype → performance → behavior → capability chain the rest of the game will eventually run on — including a real swimming advantage for some creatures over others, which water doesn't give anyone yet. |
-| **M6 — Amphibious speciation** | The first flagship "wow" moment the whole water arc has been building toward: watching one ancestral population split into a land branch and a water branch on its own. |
-| **M7 — Procedural creature appearance** | Species get real visual bodies derived from phenotype (species cards, not per-dot rendering) — including watching a lineage visibly sprout new features (fins, wings) as it evolves toward a new capability. Also where the "2.5D StarCraft-style" visual upgrade Dan asked for lands. |
-| **M8 — 10-20 handcrafted challenges** | Real, tuned challenge content (today's 4 are first-pass scaffolding). |
+| **M7 — Procedural creature appearance** | Species get real visual bodies derived from phenotype (species cards, not per-dot rendering) — including watching a lineage visibly sprout new features (fins, wings) as it evolves toward a new capability. Also where the "2.5D" visual upgrade and the desktop-layout rework land. |
+| **M8 — 10-20 handcrafted challenges** | Real, tuned challenge content (today's 6 are first-pass scaffolding). |
 | **M9 — Flight** | Another emergent capability from morphology × environment, same pattern as amphibious speciation. |
 | **M10 — Ecosystem expansion** | Climate, seasons, migration, and any other systems layered on top once the core loop is proven. |
 

@@ -6,6 +6,7 @@ export type CapabilityLabel =
   | "carnivore"
   | "highland-adapted"
   | "lowland-adapted"
+  | "aquatic-adapted"
   | "fast-mover"
   | "sedentary"
   | "r-strategist"
@@ -44,6 +45,9 @@ const SPECIALIST_THRESHOLD = 0.3;
 
 const HIGHLAND_MOUNTAIN_SHARE = 0.3;
 const LOWLAND_SHARE = 0.7;
+// Matches standardObjectives.ts's createAquaticForagerObjective's default waterShareThreshold
+// (SPEC.md Addendum 12) — same reasoning as the diet thresholds above.
+const AQUATIC_WATER_SHARE = 0.3;
 
 // Movement/reproduction labels are relative to the current population's own average (see
 // PopulationBaseline) — "fast" only means something next to how fast everyone else is moving this
@@ -92,6 +96,18 @@ export function classifySpecies(profile: SpeciesProfile, baseline: PopulationBas
       displayName: "Lowland-Adapted",
       confidence,
       evidence: `${(profile.habitat.lowlandShare * 100).toFixed(0)}% of members observed in lowland terrain.`,
+    });
+  }
+
+  // Independent of the highland/lowland if-else above — a species' water/land habitat shares
+  // aren't mutually exclusive at the species level the way a single member's instantaneous band
+  // is, so this gets its own check rather than another else-if branch (SPEC.md Addendum 12).
+  if (profile.habitat.waterShare >= AQUATIC_WATER_SHARE) {
+    capabilities.push({
+      label: "aquatic-adapted",
+      displayName: "Aquatic-Adapted",
+      confidence,
+      evidence: `${(profile.habitat.waterShare * 100).toFixed(0)}% of members observed in water.`,
     });
   }
 

@@ -139,6 +139,17 @@ export interface Params {
    * down to 0 at shallowWaterMaxDepth. Deliberately low relative to land's max of 1 — Milestone 4 is
    * a modest bonus, not yet a strong incentive (that's M5/M6's job). See SPEC.md Addendum 10. */
   shallowWaterFertilityCeiling: number;
+  /** Land passabilitySteepness a FULLY water-adapted creature (aquaticAdaptation=1) experiences
+   * instead of passabilitySteepness — deliberately harsher, the "worse on land" half of the
+   * amphibious trade-off. A land specialist (aquaticAdaptation=0) is untouched by this; the actual
+   * per-creature steepness interpolates between the two by its own aquaticAdaptation gene. See
+   * sim/phenotype.ts's movementEfficiency and SPEC.md Addendum 12 (Milestone 6). */
+  aquaticLandPassabilitySteepness: number;
+  /** Water passabilitySteepness a FULLY water-adapted creature experiences instead of
+   * waterPassabilitySteepness — deliberately gentle (per Dan's "strong, opens deep water" choice),
+   * letting a full specialist cross real depth with real mobility. A land specialist is untouched;
+   * see aquaticLandPassabilitySteepness's doc comment for the interpolation this pairs with. */
+  aquaticWaterPassabilitySteepness: number;
 
   // Founding population (single-founder default; multi-founder config arrives with the UI phase)
   foundingPopulationSize: number;
@@ -242,6 +253,8 @@ export const DEFAULT_PARAMS: Params = {
   waterPassabilitySteepness: 10.0,
   shallowWaterMaxDepth: 0.04,
   shallowWaterFertilityCeiling: 0.35,
+  aquaticLandPassabilitySteepness: 5.0,
+  aquaticWaterPassabilitySteepness: 0.8,
 
   foundingPopulationSize: 100,
 
@@ -323,6 +336,8 @@ export interface TerrainParams {
   waterPassabilitySteepness: number;
   shallowWaterMaxDepth: number;
   shallowWaterFertilityCeiling: number;
+  aquaticLandPassabilitySteepness: number;
+  aquaticWaterPassabilitySteepness: number;
 }
 
 export interface TaxonomyParams {
@@ -408,6 +423,8 @@ export function groupParams(p: Params): RunParams {
       waterPassabilitySteepness: p.waterPassabilitySteepness,
       shallowWaterMaxDepth: p.shallowWaterMaxDepth,
       shallowWaterFertilityCeiling: p.shallowWaterFertilityCeiling,
+      aquaticLandPassabilitySteepness: p.aquaticLandPassabilitySteepness,
+      aquaticWaterPassabilitySteepness: p.aquaticWaterPassabilitySteepness,
     },
     taxonomy: {
       taxonomyIntervalTicks: p.taxonomyIntervalTicks,

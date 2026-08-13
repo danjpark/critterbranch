@@ -1,6 +1,7 @@
 import { DEFAULT_PARAMS } from "../../params.ts";
 import { createRunConfig } from "../../sim/runConfig.ts";
 import {
+  createAmphibiousSpeciationObjective,
   createApexPredatorObjective,
   createAquaticForagerObjective,
   createBiodiversityObjective,
@@ -63,4 +64,24 @@ export const ISLAND_HOPPER: ChallengeDefinition = {
   terraformBudget: 180,
 };
 
-export const PROTOTYPE_CHALLENGES: ChallengeDefinition[] = [FORK_THE_FAMILY, PICKY_EATERS, AFTER_THE_FALL, APEX_PREDATOR, ISLAND_HOPPER];
+/** SPEC.md Addendum 12 (Milestone 6: amphibious speciation) — the flagship payoff of the whole
+ * water arc. A larger terraform budget than Island Hopper's: producing a real land/water trade-off
+ * split takes more deliberate world-shaping (carving real archipelagos, not just a bit of coastline)
+ * than merely getting a species to spend time near shore does. */
+export const AMPHIBIANS_FORK: ChallengeDefinition = {
+  id: "amphibians-fork",
+  name: "Amphibian's Fork",
+  description: "Split one population into a land branch and a water branch.",
+  runConfig: createRunConfig(1006, DEFAULT_PARAMS, []),
+  objectives: [createAmphibiousSpeciationObjective()],
+  terraformBudget: 220,
+};
+
+export const PROTOTYPE_CHALLENGES: ChallengeDefinition[] = [
+  FORK_THE_FAMILY,
+  PICKY_EATERS,
+  AFTER_THE_FALL,
+  APEX_PREDATOR,
+  ISLAND_HOPPER,
+  AMPHIBIANS_FORK,
+];

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "engineVersion": "0.8.0",
-  "seed": 10,
+  "seed": 6,
   "params": {
     "world": {
       "worldWidth": 200,
@@ -53,7 +53,9 @@
       "seaLevelTargetWaterFraction": 0.18,
       "waterPassabilitySteepness": 10,
       "shallowWaterMaxDepth": 0.04,
-      "shallowWaterFertilityCeiling": 0.35
+      "shallowWaterFertilityCeiling": 0.35,
+      "aquaticLandPassabilitySteepness": 5,
+      "aquaticWaterPassabilitySteepness": 0.8
     },
     "taxonomy": {
       "taxonomyIntervalTicks": 100,
@@ -75,11 +77,11 @@
   },
   "interventionLog": [
     {
-      "tick": 2800,
+      "tick": 7600,
       "tool": "meteor",
       "params": {
-        "x": 69,
-        "y": 85,
+        "x": 76,
+        "y": 92,
         "radius": 35,
         "craterRecoveryTicks": 800
       }

@@ -160,6 +160,31 @@ export function createGeographicSpeciationObjective(): GameObjective {
   };
 }
 
+/** Cause a speciation event driven by the amphibious trade-off itself — SPEC.md Addendum 12
+ * (Milestone 6), the flagship payoff of the whole water arc. Structurally identical to
+ * createGeographicSpeciationObjective above, just matching a different field on the same event:
+ * taxonomy's bimodality detector already picks up aquaticAdaptation automatically (it's just
+ * another entry in GENE_WEIGHTS) and dominantDivergentGene is already recorded on every promoted
+ * split — nothing new to build there, only a new objective reading a field that already exists. */
+export function createAmphibiousSpeciationObjective(): GameObjective {
+  return {
+    id: "amphibious-speciation",
+    description: "Cause a speciation event driven by the land/water trade-off — watch one population split into a land branch and a water branch.",
+    evaluate(context: GameEvaluationContext): ObjectiveProgress {
+      const event = context.sim.state.observations.taxonomyEvents.find(
+        (e) => e.type === "speciation" && e.event.dominantDivergentGene === "aquaticAdaptation",
+      );
+      return {
+        complete: event !== undefined,
+        message:
+          event && event.type === "speciation"
+            ? `Species ${event.event.speciesId} split from species ${event.event.parentId}, diverging on land/water adaptation.`
+            : undefined,
+      };
+    },
+  };
+}
+
 /** Survive a significant decline in living-species count, then recover to at least `minSpecies`. */
 export function createDisasterRecoveryObjective(minSpecies = 4, declineFraction = 0.4): GameObjective {
   return {
