@@ -40,13 +40,15 @@ describe("GameRunner", () => {
     expect(runner.canAdvanceEra()).toBe(false);
   });
 
-  it("stepEraAdvance ticks incrementally at the current speed and does nothing when no era is advancing", () => {
+  it("stepEraAdvance ticks incrementally, ramped up from a slow floor at the start of the era, and does nothing when no era is advancing", () => {
     const runner = new GameRunner("sandbox", 1);
     runner.setSpeed(10);
     runner.advanceEra();
 
+    // First frame of the era is still inside the opening ramp window (see app/pacing.ts), so it
+    // ticks at the ramp's floor speed (1), not the full chosen speed (10) yet.
     runner.stepEraAdvance();
-    expect(runner.game.sim.state.evolution.tick).toBe(10);
+    expect(runner.game.sim.state.evolution.tick).toBe(1);
     expect(runner.isAdvancingEra()).toBe(true);
 
     const tickBeforeNoOp = runner.game.sim.state.evolution.tick;
@@ -54,6 +56,42 @@ describe("GameRunner", () => {
     idleRunner.stepEraAdvance(); // no era in progress
     expect(idleRunner.game.sim.state.evolution.tick).toBe(0);
     expect(runner.game.sim.state.evolution.tick).toBe(tickBeforeNoOp);
+  });
+
+  it("stepEraAdvance's ramp reaches the full chosen speed once past the opening window (see app/pacing.ts's DEFAULT_RAMP_CONFIG.rampTicks=300)", () => {
+    const runner = new GameRunner("sandbox", 1);
+    runner.setSpeed(10);
+    runner.advanceEra();
+
+    while (runner.game.sim.state.evolution.tick < 300) runner.stepEraAdvance();
+    const tickBeforeFullSpeed = runner.game.sim.state.evolution.tick;
+    runner.stepEraAdvance();
+    expect(runner.game.sim.state.evolution.tick - tickBeforeFullSpeed).toBe(10);
+  });
+
+  it("a normal era (still actively growing, never reaches equilibrium) runs its full tick budget and reports endedEarly: false", () => {
+    const runner = new GameRunner("sandbox", 1);
+    runner.setSpeed("max");
+    runner.advanceEra();
+    while (runner.isAdvancingEra()) runner.stepEraAdvance();
+
+    expect(runner.lastEraSummary!.endedEarly).toBe(false);
+    expect(runner.lastEraSummary!.plannedTick).toBe(runner.lastEraSummary!.after.tick);
+    expect(runner.lastEraSummary!.after.tick).toBe(2000);
+  });
+
+  it("a later era can end early once the ecosystem settles into equilibrium (empirically confirmed for this exact seed — see sim/equilibrium.ts's tuning note)", () => {
+    const runner = new GameRunner("sandbox", 1);
+    runner.setSpeed("max");
+    for (let era = 1; era <= 5; era++) {
+      runner.advanceEra();
+      while (runner.isAdvancingEra()) runner.stepEraAdvance();
+      if (era < 5) runner.continueToTerraform();
+    }
+
+    expect(runner.lastEraSummary!.endedEarly).toBe(true);
+    expect(runner.lastEraSummary!.after.tick).toBeLessThan(runner.lastEraSummary!.plannedTick);
+    expect(runner.lastEraSummary!.plannedTick).toBe(10_000); // 5 eras x 2000 ticks/era
   });
 
   it("stepEraAdvance finalizes into discovery with an EraSummary once the target tick is reached", () => {
@@ -112,14 +150,14 @@ describe("GameRunner", () => {
     runner.advanceEra();
     expect(runner.eraProgress()).toBe(0);
 
+    // First frame is still inside the opening ramp window (app/pacing.ts), so it ticks at the
+    // ramp's floor speed (1), not the full chosen speed (100) yet — see the dedicated ramp test.
     runner.stepEraAdvance();
-    expect(runner.eraProgress()).toBeCloseTo(100 / 2000);
+    expect(runner.eraProgress()).toBeCloseTo(1 / 2000);
 
-    // Nineteen more calls reaches exactly 2000/2000 and finalizes within that same call —
-    // progress never lingers at a visible "1", it goes straight from <1 to null (no longer
-    // advancing).
-    for (let i = 0; i < 19; i++) runner.stepEraAdvance();
-    expect(runner.isAdvancingEra()).toBe(false);
+    // Progress never lingers at a visible "1" once the era finishes — it goes straight from <1 to
+    // null (no longer advancing).
+    while (runner.isAdvancingEra()) runner.stepEraAdvance();
     expect(runner.eraProgress()).toBeNull();
   });
 

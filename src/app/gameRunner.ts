@@ -7,9 +7,11 @@ import { continueToTerraform, createGame, type Game } from "../game/game.ts";
 import type { GameMode, GameState } from "../game/gameState.ts";
 import type { GameObjective } from "../game/objectives/objective.ts";
 import { applyTerraformCommand, type TerraformBudgetState, type TerraformResult } from "../game/terraform.ts";
+import { isEcosystemStable } from "../sim/equilibrium.ts";
 import { cloneSimState, tick, type SimState } from "../sim/sim.ts";
 import type { RNGSnapshot } from "../sim/rng.ts";
 import type { GodTool, SpeedSetting } from "../ui/controls.ts";
+import { DEFAULT_RAMP_CONFIG, rampedTicksPerFrame } from "./pacing.ts";
 import { DEFAULT_BRUSH, resolveToolApplication, type BrushSettings } from "./toolMapping.ts";
 
 /** Shorter than the classic sandbox's 10,000-tick roadmap default — keeps "Advance Era" feeling
@@ -20,6 +22,13 @@ const GAME_ERA_CONFIG = { ticksPerEra: 2000 };
 /** Matches SimRunner's own "max" speed budget — how long a single frame is allowed to spend
  * ticking before yielding, so the tab stays responsive even at max speed. */
 const MAX_SPEED_BUDGET_MS = 40;
+
+/** Equilibrium early-end (see stepEraAdvance) never fires before this fraction of the era's ticks
+ * has run, even if the ecosystem looks stable — avoids a trivial near-instant "era" that never gave
+ * anything a chance to happen. Empirically, real eras never approach stability this early anyway
+ * (see sim/equilibrium.ts's tuning note) — this is a floor for safety, not a binding constraint in
+ * practice. See SPEC.md Addendum 13. */
+const EQUILIBRIUM_MIN_ERA_FRACTION = 0.25;
 
 /** A named, session-only save point a player can jump back to later without losing any other
  * saved point — see app/gameRunner.ts's class doc and the "like a git branch" framing this was
@@ -155,12 +164,19 @@ export class GameRunner {
 
   /** Ticks the sim toward the current era's target according to `speed` — exactly the same
    * per-frame budget SimRunner.advance() uses for the classic sandbox's speed controls, so both
-   * feel consistent. No-op unless an era advance is in progress (see advanceEra()). Finalizes
-   * (increments era, enters discovery, builds the EraSummary) once the target tick is reached. */
+   * feel consistent. Numeric speeds ramp up from a slow floor over the era's opening stretch (see
+   * app/pacing.ts) so the eventful early ticks are actually watchable instead of blowing by at full
+   * speed immediately; "max" bypasses the ramp entirely (a player who picked max already opted out
+   * of watching slowly). No-op unless an era advance is in progress (see advanceEra()). Finalizes
+   * (increments era, enters discovery, builds the EraSummary) once the target tick is reached, OR
+   * early once the ecosystem has gone quiet for a while (see sim/equilibrium.ts and SPEC.md
+   * Addendum 13) — a dead tail with nothing left to watch shouldn't have to grind out its full
+   * tick budget just to reach the same summary a shorter run would already show. */
   stepEraAdvance(): void {
     const target = this.eraTargetTick;
     if (target === null) return;
     const { state, rng, params } = this.game.sim;
+    const before = this.eraBeforeSnapshot!;
 
     if (this.speed === "max") {
       const start = performance.now();
@@ -168,18 +184,31 @@ export class GameRunner {
         tick(state, rng, params);
       }
     } else {
-      for (let i = 0; i < this.speed && state.evolution.tick < target; i++) {
+      const ticksSinceEraStart = state.evolution.tick - before.tick;
+      const perFrame = rampedTicksPerFrame(this.speed, ticksSinceEraStart, DEFAULT_RAMP_CONFIG);
+      for (let i = 0; i < perFrame && state.evolution.tick < target; i++) {
         tick(state, rng, params);
       }
     }
 
     if (state.evolution.tick >= target) {
-      this.finalizeEraAdvance();
+      this.finalizeEraAdvance(false);
+      return;
+    }
+
+    const totalEraTicks = target - before.tick;
+    const elapsedFraction = (state.evolution.tick - before.tick) / totalEraTicks;
+    if (elapsedFraction < EQUILIBRIUM_MIN_ERA_FRACTION) return;
+
+    const obs = state.observations;
+    if (isEcosystemStable(obs.populationHistory, obs.traitHistory, obs.taxonomyEvents)) {
+      this.finalizeEraAdvance(true);
     }
   }
 
-  private finalizeEraAdvance(): void {
+  private finalizeEraAdvance(endedEarly: boolean): void {
     const before = this.eraBeforeSnapshot!;
+    const plannedTick = this.eraTargetTick!;
     finishEra(this.game.gameState);
     const after = captureEraSnapshot(this.game);
     this.lastEraSummary = {
@@ -187,6 +216,8 @@ export class GameRunner {
       after,
       delta: computeEraDelta(before, after),
       notableTraitShifts: computeNotableTraitShifts(this.game, before.tick, after.tick),
+      endedEarly,
+      plannedTick,
     };
     this.eraTargetTick = null;
     this.eraBeforeSnapshot = null;

@@ -125,6 +125,60 @@ describe("SimRunner scenario load/export", () => {
   });
 });
 
+describe("SimRunner autoPace", () => {
+  it("defaults to off, leaving isFastForwarding() false regardless of sim state", () => {
+    const runner = new SimRunner(1);
+    expect(runner.autoPace).toBe(false);
+    expect(runner.isFastForwarding()).toBe(false);
+  });
+
+  it("ramps up from the floor speed right after construction when enabled", () => {
+    const runner = new SimRunner(1);
+    runner.setAutoPace(true);
+    runner.setSpeed(10);
+    runner.playing = true;
+
+    runner.advance();
+    expect(runner.sim.state.evolution.tick).toBe(1); // DEFAULT_RAMP_CONFIG.floorSpeedTicks
+  });
+
+  it("ramps back down to the floor right after a fresh intervention, not just at construction", () => {
+    const runner = new SimRunner(1);
+    runner.setAutoPace(true);
+    runner.setSpeed(10);
+    runner.playing = true;
+    for (let i = 0; i < 50; i++) runner.advance(); // well past the ramp window
+
+    runner.setActiveTool("plantTree");
+    runner.useToolAt(50, 50);
+    const tickAfterIntervention = runner.sim.state.evolution.tick;
+
+    runner.advance();
+    expect(runner.sim.state.evolution.tick - tickAfterIntervention).toBe(1);
+  });
+
+  it("fast-forwards once the ecosystem has been stable for a while (empirically confirmed for this exact seed by absolute tick 9500 — see sim/equilibrium.ts's tuning note, same underlying data as gameRunner.test.ts's early-end test)", () => {
+    const runner = new SimRunner(1);
+    for (let i = 0; i < 5000; i++) runner.stepOnce();
+
+    runner.setAutoPace(true);
+    runner.setSpeed(10);
+    expect(runner.isFastForwarding()).toBe(false); // still actively changing this early
+
+    for (let i = 0; i < 4500; i++) runner.stepOnce();
+    expect(runner.isFastForwarding()).toBe(true);
+
+    // Fast-forwarding routes through the same time-boxed budget "max" speed uses (see advance()),
+    // not the ramped/flat per-frame count — the exact tick delta a single call produces depends on
+    // machine speed, so isFastForwarding() above (a deterministic read of the same decision
+    // advance() makes) is the real behavioral assertion here.
+    runner.playing = true;
+    const before = runner.sim.state.evolution.tick;
+    runner.advance();
+    expect(runner.sim.state.evolution.tick).toBeGreaterThan(before);
+  });
+});
+
 describe("meteor undo", () => {
   it("undo rewinds state AND the RNG stream, so continued play matches a run where the meteor never happened", () => {
     const seed = 55;

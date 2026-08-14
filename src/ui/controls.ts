@@ -132,13 +132,16 @@ export interface ControlsCallbacks {
   onRestart: (seed: number) => void;
   onDeuteranopiaToggle: (enabled: boolean) => void;
   onCompetitionHeatmapToggle: (enabled: boolean) => void;
+  onAutoPaceToggle: (enabled: boolean) => void;
 }
 
 export interface ControlsHandle {
   root: HTMLElement;
   inspectorRoot: HTMLElement;
   setPlaying: (playing: boolean) => void;
-  setStatus: (tick: number, population: number, livingSpeciesCount: number) => void;
+  /** fastForwarding appends a note to the status line when autoPace is actively skipping through a
+   * quiet stretch, so the sudden speed change doesn't read as the chosen speed being ignored. */
+  setStatus: (tick: number, population: number, livingSpeciesCount: number, fastForwarding: boolean) => void;
   setInspected: (creature: Creature | null) => void;
 }
 
@@ -201,6 +204,15 @@ export function createControls(callbacks: ControlsCallbacks): ControlsHandle {
   heatmapCheckbox.addEventListener("change", () => callbacks.onCompetitionHeatmapToggle(heatmapCheckbox.checked));
   heatmapLabel.append(heatmapCheckbox, document.createTextNode("Competition heatmap (World view)"));
 
+  // Off by default (see SimRunner.autoPace's doc) — ramps the opening of any eventful moment so
+  // it's watchable, then fast-forwards once things go quiet, instead of a flat speed the whole time.
+  const autoPaceLabel = document.createElement("label");
+  autoPaceLabel.className = "row";
+  const autoPaceCheckbox = document.createElement("input");
+  autoPaceCheckbox.type = "checkbox";
+  autoPaceCheckbox.addEventListener("change", () => callbacks.onAutoPaceToggle(autoPaceCheckbox.checked));
+  autoPaceLabel.append(autoPaceCheckbox, document.createTextNode("Auto-pace (slow openings, skip quiet stretches)"));
+
   const status = document.createElement("div");
   status.className = "status";
 
@@ -213,6 +225,7 @@ export function createControls(callbacks: ControlsCallbacks): ControlsHandle {
     sectionTitle("Display"),
     deuteranopiaLabel,
     heatmapLabel,
+    autoPaceLabel,
     status,
   );
 
@@ -230,8 +243,8 @@ export function createControls(callbacks: ControlsCallbacks): ControlsHandle {
     setPlaying(playing: boolean) {
       playPauseButton.textContent = playing ? "Pause" : "Play";
     },
-    setStatus(tickCount: number, population: number, livingSpeciesCount: number) {
-      status.textContent = `tick ${tickCount.toLocaleString()} — population ${population.toLocaleString()} — ${livingSpeciesCount.toLocaleString()} species`;
+    setStatus(tickCount: number, population: number, livingSpeciesCount: number, fastForwarding: boolean) {
+      status.textContent = `tick ${tickCount.toLocaleString()} — population ${population.toLocaleString()} — ${livingSpeciesCount.toLocaleString()} species${fastForwarding ? " — auto-pacing (fast-forwarding through a quiet stretch)" : ""}`;
     },
     setInspected(creature: Creature | null) {
       inspectorBody.replaceChildren(...renderInspector(creature));
@@ -936,12 +949,15 @@ export function createEraSummaryPanel(): EraSummaryHandle {
         return;
       }
 
-      const { before, after, delta, notableTraitShifts } = summary;
+      const { before, after, delta, notableTraitShifts, endedEarly, plannedTick } = summary;
       const lines: string[] = [
         `Era ${after.era} complete (tick ${before.tick.toLocaleString()} → ${after.tick.toLocaleString()})`,
         `Population: ${before.totalPopulation.toLocaleString()} → ${after.totalPopulation.toLocaleString()} (${delta.populationChange >= 0 ? "+" : ""}${delta.populationChange.toLocaleString()})`,
         `Species: ${delta.livingSpeciesCountBefore} → ${delta.livingSpeciesCountAfter}`,
       ];
+      if (endedEarly) {
+        lines.push(`Ended early — the ecosystem settled into equilibrium (${(after.tick - before.tick).toLocaleString()} of ${(plannedTick - before.tick).toLocaleString()} planned ticks).`);
+      }
       if (delta.newSpeciesIds.length > 0) lines.push(`New species: ${delta.newSpeciesIds.join(", ")}`);
       if (delta.extinctSpeciesIds.length > 0) lines.push(`Extinct: ${delta.extinctSpeciesIds.join(", ")}`);
       if (notableTraitShifts.length > 0) {

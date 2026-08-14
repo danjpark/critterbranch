@@ -52,6 +52,10 @@ export function advanceGameEra(game: Game): EraSummary {
     after,
     delta: computeEraDelta(before, after),
     notableTraitShifts: computeNotableTraitShifts(game, before.tick, after.tick),
+    // This is the blocking/headless path (era.ts's advanceEra, not app/gameRunner.ts's animated
+    // stepEraAdvance) — it always runs the full tick budget, so it can never end early.
+    endedEarly: false,
+    plannedTick: after.tick,
   };
 }
 

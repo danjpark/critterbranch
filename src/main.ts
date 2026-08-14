@@ -155,6 +155,7 @@ const controls = createControls({
     showCompetitionHeatmap = enabled;
     render();
   },
+  onAutoPaceToggle: (enabled) => runner.setAutoPace(enabled),
 });
 
 const godModePanel = createGodModePanel({
@@ -343,7 +344,7 @@ function render(): void {
   for (const species of runner.sim.state.observations.taxonomy.species.values()) {
     if (species.extinctTick === null) livingSpeciesCount++;
   }
-  controls.setStatus(runner.sim.state.evolution.tick, runner.sim.state.evolution.creatures.length, livingSpeciesCount);
+  controls.setStatus(runner.sim.state.evolution.tick, runner.sim.state.evolution.creatures.length, livingSpeciesCount, runner.isFastForwarding());
   eventFeed.setEvents(runner.sim.state.observations.taxonomyEvents);
   geneFlowChart.render(runner.sim.state.observations.geneFlow.history);
   traitChart.render(runner.sim.state.observations.traitHistory, traitChartGene);

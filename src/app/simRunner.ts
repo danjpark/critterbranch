@@ -1,11 +1,13 @@
 import { DEFAULT_PARAMS, flattenParams } from "../params.ts";
 import type { Creature } from "../sim/creature.ts";
+import { isEcosystemStable } from "../sim/equilibrium.ts";
 import { applyIntervention, type Intervention } from "../sim/intervention.ts";
 import type { RNGSnapshot } from "../sim/rng.ts";
 import { createRunConfig, type RunConfig } from "../sim/runConfig.ts";
 import { applyInterventionNow, cloneSimState, createSimState, tick, type SimInstance, type SimState } from "../sim/sim.ts";
 import { collectDescendantIds, type SpeciationMechanism, type Species } from "../sim/taxonomy.ts";
 import type { GodTool, SpeedSetting } from "../ui/controls.ts";
+import { DEFAULT_RAMP_CONFIG, rampedTicksPerFrame } from "./pacing.ts";
 import { type BrushSettings, DEFAULT_BRUSH, resolveToolApplication } from "./toolMapping.ts";
 
 export type { BrushSettings } from "./toolMapping.ts";
@@ -55,6 +57,12 @@ export class SimRunner {
   sim: SimInstance;
   playing = false;
   speed: SpeedSetting = 1;
+  /** Off by default — an opt-in that ramps up from a slow floor after any eventful moment (start,
+   * restart, scenario load, or a god-mode intervention) and fast-forwards once the ecosystem has
+   * gone quiet, instead of ticking flatly at `speed` the whole time. See app/pacing.ts,
+   * sim/equilibrium.ts, and SPEC.md Addendum 13. Defaults off so Classic Sandbox's established,
+   * fully-manual speed controls stay byte-for-byte unchanged unless a player opts in. */
+  autoPace = false;
   selectedCreatureId: number | null = null;
   readonly colorOptions: ColorOptions = { ...DEFAULT_COLOR_OPTIONS };
 
@@ -70,6 +78,9 @@ export class SimRunner {
   /** A loaded scenario's pre-scripted interventions, sorted by tick, still waiting to fire as play advances. */
   private scenarioQueue: Intervention[] = [];
   private scenarioIndex = 0;
+  /** Tick of the last "eventful moment" (start/restart/scenario load, or any applied god-mode
+   * intervention) — what autoPace's ramp counts forward from. See advance(). */
+  private lastEventfulTick = 0;
 
   constructor(seed: number) {
     this.sim = createSimState(seed, DEFAULT_PARAMS);
@@ -83,6 +94,7 @@ export class SimRunner {
     this.meteorCheckpoint = null;
     this.scenarioQueue = [];
     this.scenarioIndex = 0;
+    this.lastEventfulTick = 0;
   }
 
   /** Loads a run config (seed + params + a pre-scripted intervention log) and starts it fresh at
@@ -99,6 +111,7 @@ export class SimRunner {
     this.selectedSpeciesId = null;
     this.lineageFilter = null;
     this.meteorCheckpoint = null;
+    this.lastEventfulTick = 0;
   }
 
   exportScenario(): RunConfig {
@@ -112,6 +125,16 @@ export class SimRunner {
 
   setSpeed(speed: SpeedSetting): void {
     this.speed = speed;
+  }
+
+  setAutoPace(enabled: boolean): void {
+    this.autoPace = enabled;
+  }
+
+  /** True when autoPace is currently fast-forwarding through a quiet stretch — drives a UI
+   * indicator so the sudden speed-up doesn't read as the player's own speed setting being ignored. */
+  isFastForwarding(): boolean {
+    return this.autoPace && this.shouldFastForward();
   }
 
   /** Pauses and advances exactly one tick. */
@@ -128,20 +151,37 @@ export class SimRunner {
     this.colorOptions.deuteranopiaSafe = enabled;
   }
 
-  /** Advances the sim according to the current play/speed state. No-op while paused. */
+  /** Advances the sim according to the current play/speed state. No-op while paused. When autoPace
+   * is on, numeric speeds ramp up from a slow floor after any eventful moment (see app/pacing.ts)
+   * and fast-forward (same time-boxed budget "max" already uses, safe at any population size) once
+   * the ecosystem has gone quiet (see sim/equilibrium.ts) — off by default, see the `autoPace`
+   * field doc. SPEC.md Addendum 13. */
   advance(): void {
     if (!this.playing) return;
+    const speed = this.speed;
 
-    if (this.speed === "max") {
+    if (speed === "max" || this.shouldFastForward()) {
       const start = performance.now();
       while (performance.now() - start < MAX_SPEED_BUDGET_MS) {
         this.stepOneTick();
       }
-    } else {
-      for (let i = 0; i < this.speed; i++) {
-        this.stepOneTick();
-      }
+      return;
     }
+
+    const perFrame = this.autoPace ? rampedTicksPerFrame(speed, this.sim.state.evolution.tick - this.lastEventfulTick, DEFAULT_RAMP_CONFIG) : speed;
+    for (let i = 0; i < perFrame; i++) {
+      this.stepOneTick();
+    }
+  }
+
+  /** True once autoPace is on, the opening ramp window has passed, and the ecosystem reads as
+   * stable (see sim/equilibrium.ts) — i.e. nothing left to watch slowly, safe to fast-forward. */
+  private shouldFastForward(): boolean {
+    if (!this.autoPace) return false;
+    const ticksSinceEventful = this.sim.state.evolution.tick - this.lastEventfulTick;
+    if (ticksSinceEventful < DEFAULT_RAMP_CONFIG.rampTicks) return false;
+    const obs = this.sim.state.observations;
+    return isEcosystemStable(obs.populationHistory, obs.traitHistory, obs.taxonomyEvents);
   }
 
   /** Fires any scripted-scenario interventions due at the current tick, then advances one tick. */
@@ -151,6 +191,7 @@ export class SimRunner {
       applyIntervention(this.sim.state.evolution, this.sim.rng, this.sim.params, intervention);
       this.sim.interventionLog.push(intervention);
       this.scenarioIndex++;
+      this.lastEventfulTick = this.sim.state.evolution.tick;
     }
     tick(this.sim.state, this.sim.rng, this.sim.params);
   }
@@ -248,9 +289,13 @@ export class SimRunner {
     this.sim.rng.restore(checkpoint.rng);
     this.sim.interventionLog.length = checkpoint.loggedInterventionCount;
     this.scenarioIndex = checkpoint.scenarioIndex;
+    // The undo itself is a fresh eventful moment — restarts autoPace's opening ramp rather than
+    // leaving it mid-ramp (or fast-forwarding) against a tick count that just jumped backward.
+    this.lastEventfulTick = checkpoint.state.evolution.tick;
   }
 
   private apply<Tool extends Intervention["tool"]>(tool: Tool, params: Extract<Intervention, { tool: Tool }>["params"]): void {
     applyInterventionNow(this.sim, this.sim.params, tool, params);
+    this.lastEventfulTick = this.sim.state.evolution.tick;
   }
 }

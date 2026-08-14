@@ -92,4 +92,9 @@ export interface EraSummary {
   after: EraSnapshot;
   delta: EraDelta;
   notableTraitShifts: TraitShift[];
+  /** True when app/gameRunner.ts's stepEraAdvance stopped ticking before reaching plannedTick
+   * because the ecosystem had gone quiet (see sim/equilibrium.ts) — SPEC.md Addendum 13. */
+  endedEarly: boolean;
+  /** The tick the era was originally targeting — equals after.tick unless endedEarly is true. */
+  plannedTick: number;
 }

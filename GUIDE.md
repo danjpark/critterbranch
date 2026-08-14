@@ -23,7 +23,7 @@ Switch between them with the **Classic Sandbox / Game** tabs at the top of the s
 
 ### The Game Mode loop
 1. **Terraform** — the sim is paused. Spend Terraform Points on god-mode tools (below). In Sandbox sub-mode points are unlimited; in a Challenge they're capped per the challenge's budget.
-2. **Advance Era** — the sim runs forward a fixed stretch of ticks, visibly (you can watch it happen at 1x–1000x speed, not just jump to the result).
+2. **Advance Era** — the sim runs forward a stretch of ticks, visibly (you can watch it happen at 1x–1000x speed, not just jump to the result). The opening stretch always animates at a gentler pace regardless of your chosen speed, so the eventful early ticks are actually watchable; if the ecosystem settles into equilibrium (population, every gene's mean, and no new splits/extinctions all gone flat) well before the era's tick budget is spent, the era ends there instead of grinding out a dead tail — the Era Summary says so when it happens.
 3. **Discovery** — the era stops, and an **Era Summary** tells you what changed: population before/after, species gained/lost, and which genes moved the most.
 4. Back to Terraform, or **Continue** straight into the next era if you don't need to act.
 
@@ -58,6 +58,8 @@ Colored dots. **Every part of the color is computed straight from the creature's
 - **Lightness** (how light/dark) — its life-history strategy: darker = fast-and-cheap reproduction (many small investments), lighter = slow-and-expensive (few, heavily-invested offspring).
 
 There's a **"Deuteranopia-safe hues"** toggle that restricts the color wheel to a blue-orange axis for colorblind-safe viewing, and a **competition heatmap** overlay that shows per-species food-consumption pressure across the map.
+
+Classic Sandbox also has an **"Auto-pace"** toggle (off by default, so nothing changes unless you opt in): when on, playback ramps to a gentler pace right after you start, restart, load a scenario, or use a god-mode tool, then fast-forwards once the ecosystem has gone quiet for a while — the status line notes when it's fast-forwarding so it's clear that's what's happening, not your chosen speed being ignored.
 
 Click any creature to open the **Inspector**: its id, parent, birth tick, age, energy, and the exact numeric value of every one of its 10 genes.
 

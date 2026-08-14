@@ -1312,3 +1312,123 @@ Live-verified in browser: Amphibian's Fork challenge loaded with correct budget 
 text, an era advanced cleanly from tick 0 to 2000 with zero console errors, population grew 100→228,
 and `aquaticAdaptation` showed up as a +44% major trait change in the era summary — direct evidence
 the gene is under real selection pressure during play, not just present in the genome.
+
+## Addendum 13 — era pacing: ramped animation speed + equilibrium-aware early-end/fast-forward
+
+Design note, written before implementation. Not a numbered roadmap milestone — this closes a
+player-feedback item flagged mid-M6 (2026-08-13): in Game Mode, an era's first ~10+ ticks feel
+eventful, then action visibly tapers off well before the era's full tick budget is spent, because
+the population/ecosystem settles into equilibrium quickly and the rest of the budget just grinds out
+a visually static remainder. Dan floated two ideas in the same breath — detect low-change
+equilibrium and end the era early, and/or slow the animated pacing so the eventful opening doesn't
+blow by — and said the real ask was probably both together, not one or the other. Three decisions
+confirmed via AskUserQuestion before writing this: (1) equilibrium early-end is automatic, gated by a
+minimum-fraction floor, no player toggle; (2) pacing uses a ramp (slow start, speeds up), not a flat
+slower default; (3) scope is Game Mode **and** Classic Sandbox, not Game Mode alone.
+
+### The two mechanisms, and why they're separate rather than one combined system
+
+**A reusable equilibrium detector** (`sim/equilibrium.ts`, `isEcosystemStable`): reads the existing
+`populationHistory`/`traitHistory` (already sampled every `taxonomyIntervalTicks`, no new
+instrumentation needed) and returns true when total population, every gene's mean, AND the absence
+of any recent taxonomy event have all stayed flat across a rolling window of samples. The
+worst-drifting gene decides — one axis still actively diverging blocks "stable" even if every other
+gene has settled — and a fresh split/extinction always counts as eventful regardless of what the
+population/trait numbers say. Lives in `sim/` (pure, reads only existing observation state) rather
+than `game/`, since it's a general "has this run gone quiet" question, not a game-specific concept —
+both `app/gameRunner.ts` and `app/simRunner.ts` consume it directly.
+
+**A reusable ramp helper** (`app/pacing.ts`, `rampedTicksPerFrame`): ticks-per-frame for a numeric
+speed setting, linearly ramping from a slow floor (1) up to the target over a fixed number of
+ticks-since-the-last-eventful-moment. Deliberately takes a raw tick count, not a fraction of some
+"total," so the same function serves both callers: GameRunner ramps from era-start, SimRunner ramps
+from whatever it last considered eventful (construction, restart, scenario load, or any applied
+intervention — including scripted ones). "max" speed bypasses the ramp entirely in both callers — a
+player who picked max has already opted out of watching anything slowly.
+
+**Why these live in `app/`, not `params.ts`:** despite affecting how many ticks actually get
+simulated (a real state difference, not just a rendering choice), none of this needs to be part of
+the sim's own reproducibility contract. `tick()` itself never calls the equilibrium detector or the
+ramp — they're purely an app-layer decision about *when to stop calling tick*, exactly like
+`GAME_ERA_CONFIG.ticksPerEra` itself already lives outside `params.ts` as a local const in
+`gameRunner.ts`. A recorded scenario/intervention log still replays identically regardless of what
+tolerances a *live* session used to decide when to stop watching.
+
+### GameRunner: ramp the opening, early-end the tail
+
+`stepEraAdvance()`'s per-frame tick count for numeric speeds now comes from `rampedTicksPerFrame`,
+ramping from era-start. Once at least `EQUILIBRIUM_MIN_ERA_FRACTION` (0.25) of the era's ticks have
+run — checked regardless of speed, including "max" — `isEcosystemStable` is checked every frame; if
+stable, `finalizeEraAdvance(true)` ends the era there instead of grinding to the full target.
+`EraSummary` gains `endedEarly: boolean` and `plannedTick: number` so the discovery-phase UI can say
+what happened ("Ended early — the ecosystem settled into equilibrium (1,400 of 2,000 planned
+ticks)"), rather than silently shipping a shorter era with no explanation. The floor fraction exists
+for safety (never end trivially early) but empirically never binds in practice — see the tuning note
+below.
+
+### SimRunner: ramp the opening, fast-forward the quiet stretches
+
+SimRunner has no era boundary, so "early-end" doesn't translate directly — instead, a new opt-in
+`autoPace` flag (**default off**, so Classic Sandbox's established, fully-manual speed controls stay
+byte-for-byte unchanged unless a player turns it on) makes `advance()` ramp from the last eventful
+moment, then — once past the ramp window AND `isEcosystemStable` — reroutes through the exact same
+time-boxed budget loop `speed: "max"` already uses (proven safe at any population size, rather than
+inventing a new large-multiplier tick count that could stall a frame at high population). A new
+`isFastForwarding()` query drives a status-line note ("auto-pacing…") so the sudden speed change
+doesn't read as the player's chosen speed being ignored.
+
+### Tuning, confirmed empirically before locking defaults (scripts/probe-equilibrium.ts, since deleted)
+
+Three candidate configs run against 3 seeds × 6 real GameRunner eras each (18 era-runs per config,
+`DEFAULT_PARAMS`, `EQUILIBRIUM_MIN_ERA_FRACTION` floor applied): a tight tolerance (0.06 population /
+0.01 trait) fired in only 2 of 18; a wider sample window (8 samples) with tighter tolerances never
+fired at all, because requiring 8 consecutive quiet samples is a harder bar than loosening the
+per-sample tolerance; the shipped values (windowSamples=5, populationTolerance=0.08,
+traitTolerance=0.015) fired in about a quarter of tested era-seed combinations, ALWAYS well past the
+25% floor (typically 50-70% through the era, never at the edge), and NEVER in eras 1-3 of any seed —
+population is still visibly climbing from founding size that early, so the detector correctly never
+calls it stable. That last point matters: the mechanism does nothing to a fresh session's first few
+eras (exactly where a player's attention is highest anyway) and only engages once a later era has
+genuinely gone quiet.
+
+### Deliberately out of scope for this pass
+
+No player-facing toggle for GameRunner's early-end (per the confirmed decision). No dynamic
+mid-era speed changes beyond the opening ramp (e.g. no automatic slow-down when something *new*
+starts happening again after equilibrium, only the reverse). No application to headless/scripted
+runs (`game/era.ts`'s synchronous `advanceEra`, used by tests and `advanceGameEra`) — that path
+always runs its full configured tick budget by design (`endedEarly: false` always), since a
+headless caller isn't "watching" anything for pacing to matter to.
+
+**Implementation status (2026-08-13): built as designed, tuned empirically, verified live.**
+
+`sim/equilibrium.ts` (`isEcosystemStable`) and `app/pacing.ts` (`rampedTicksPerFrame`) added as
+planned. `GameRunner.stepEraAdvance`/`finalizeEraAdvance` updated for the ramp + early-end;
+`EraSummary` gained `endedEarly`/`plannedTick` (the headless `game/game.ts` `advanceGameEra` path
+sets `endedEarly: false` unconditionally, per its own doc comment, since it never animates or checks
+equilibrium). `SimRunner` gained `autoPace`/`setAutoPace`/`isFastForwarding`, a `lastEventfulTick`
+tracked through `restart`/`loadScenario`/`apply`/scripted scenario interventions/checkpoint restore
+(an undo is itself a fresh eventful moment, restarting the ramp rather than leaving it mid-ramp
+against a tick count that just jumped backward). `ui/controls.ts` gained the "Ended early" era-summary
+line, a Classic Sandbox "Auto-pace" checkbox (off by default, same row style as the existing
+deuteranopia/heatmap toggles), and a fast-forwarding status-line note; wired through `main.ts`.
+
+Two existing `gameRunner.test.ts` assertions encoded the old flat-speed behavior as a hard tick count
+per frame — updated deliberately (matching this project's established pattern for intentional
+behavior changes) rather than left broken, plus new tests added for: the ramp reaching full speed
+past its window, a normal era running its full budget (`endedEarly: false`), and a later era actually
+ending early for a concrete seed (the same empirical finding the tuning note above is based on). New
+`sim/equilibrium.test.ts` and `app/pacing.test.ts` cover the two pure functions directly. New
+`SimRunner autoPace` tests cover the off-by-default guarantee, the ramp restarting after a fresh
+intervention, and fast-forwarding actually engaging once a concrete seed's ecosystem goes stable.
+
+Full suite green (327 passed — up from 308 — 1 pre-existing documented skip). Typecheck clean.
+Benchmark unaffected (this feature never touches `sim/`'s `tick()` hot path — the detector and ramp
+are purely app-layer decisions about how many times to call an unmodified `tick()`), confirmed by an
+unchanged benchmark run. Live-verified in browser: a full 6-era Game Mode session (seed 12345) ran
+cleanly with zero console errors, era summaries rendered correctly across every era including the
+new trait-shift/population lines; the "Ended early" line didn't happen to fire for this particular
+seed within 6 eras, consistent with the ~25% empirical firing rate found during tuning (the mechanism
+is unit-tested directly against a seed where it does fire, rather than relying on catching it live).
+Classic Sandbox's new Auto-pace checkbox toggled correctly and played forward with zero console
+errors.
