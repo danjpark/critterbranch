@@ -11,18 +11,15 @@ body {
 
 #app {
   padding: 1rem;
-  /* Raised from 1000px so a real desktop monitor gets a landscape-reading layout instead of a
-     tall column with dead margin on either side — see .sidebar below for where that extra width
-     actually goes. Still capped (not 100vw) so it doesn't stretch absurdly thin on an ultrawide. */
-  max-width: 1800px;
+  width: 100%;
   margin: 0 auto;
 }
 
 .app-mode-root {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(20rem, 640px) minmax(18rem, 1fr);
   gap: 1rem;
   align-items: flex-start;
-  flex-wrap: wrap;
 }
 
 .canvas-area {
@@ -30,9 +27,7 @@ body {
   flex-direction: column;
   gap: 0.5rem;
   max-width: 640px;
-  /* Doesn't grow past its own size (grow factor 0) — the extra width #app now allows goes to the
-     sidebar's grid instead, which is what actually turns it into a multi-column layout. */
-  flex: 0 1 640px;
+  width: 100%;
   min-width: 0;
 }
 
@@ -55,15 +50,24 @@ canvas {
 
 .sidebar {
   display: grid;
-  /* Each panel keeps its original ~18rem single-column width as a minimum, and wraps into as
-     many columns as the available width allows instead of one long vertical list — this, plus
-     canvas-area no longer growing (above), is the actual "landscape on desktop" fix. */
-  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  /* The DOM order is the user's snapped layout. Column count changes fluidly with the available
+     width, while min(16rem, 100%) prevents a panel from forcing a narrow viewport wider. */
+  grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
+  grid-auto-flow: row dense;
   align-content: start;
   gap: 1rem;
+  min-width: 0;
   max-width: 100%;
-  /* Grows to absorb whatever width canvas-area's fixed 640px doesn't use. */
-  flex: 1 1 36rem;
+}
+
+@media (max-width: 1050px) {
+  .app-mode-root {
+    grid-template-columns: 1fr;
+  }
+
+  .canvas-area {
+    justify-self: center;
+  }
 }
 
 @media (max-width: 700px) {
@@ -78,20 +82,157 @@ canvas {
   .sidebar {
     grid-template-columns: 1fr;
   }
+
+  .panel.panel--wide {
+    grid-column: span 1;
+  }
+
+  .panel-actions .panel-size-toggle {
+    display: none;
+  }
+
+  .panel-tray {
+    right: 0.5rem;
+    bottom: 0.5rem;
+    left: 0.5rem;
+  }
 }
 
 .panel {
   background: #1e2126;
+  border: 1px solid #30343b;
   border-radius: 6px;
   padding: 0.75rem;
+  min-width: 0;
+  align-self: start;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 16%);
+}
+
+.panel--wide {
+  grid-column: span 2;
+}
+
+.panel--minimized {
+  display: none;
+}
+
+.panel--dragging {
+  opacity: 0.48;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: -0.15rem -0.15rem 0.65rem;
+  padding: 0.15rem 0.15rem 0.55rem;
+  border-bottom: 1px solid #30343b;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.panel-header:active {
+  cursor: grabbing;
 }
 
 .panel h3 {
-  margin: 0 0 0.5rem 0;
+  margin: 0;
   font-size: 0.85rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: #9aa0aa;
+}
+
+.panel-actions {
+  display: flex;
+  gap: 0.2rem;
+  flex: none;
+}
+
+.panel-actions button {
+  display: grid;
+  place-items: center;
+  width: 1.65rem;
+  height: 1.4rem;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: #858c97;
+  line-height: 1;
+}
+
+.panel-actions button:hover,
+.panel-actions button[aria-pressed="true"] {
+  background: #2a2e35;
+  border-color: #3a3f47;
+  color: #e6e6e6;
+}
+
+.panel-workspace-bar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 1.8rem;
+  color: #777e89;
+  font-size: 0.75rem;
+}
+
+.panel-workspace-reset {
+  padding: 0.2rem 0.45rem;
+  border-color: transparent;
+  background: transparent;
+  color: #858c97;
+  font-size: 0.75rem;
+}
+
+.panel-workspace-reset:hover {
+  border-color: #3a3f47;
+}
+
+.panel-tray {
+  position: fixed;
+  z-index: 20;
+  right: 1rem;
+  bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: min(42rem, calc(100vw - 2rem));
+  padding: 0.45rem 0.55rem;
+  background: rgb(30 33 38 / 96%);
+  border: 1px solid #3a3f47;
+  border-radius: 5px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
+}
+
+.panel-tray[hidden] {
+  display: none;
+}
+
+.panel-tray-label {
+  flex: none;
+  color: #858c97;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.panel-tray-items {
+  display: flex;
+  gap: 0.35rem;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.panel-tray-items button {
+  flex: none;
+  padding: 0.25rem 0.5rem;
+  background: #272b31;
+  font-size: 0.75rem;
 }
 
 .row {

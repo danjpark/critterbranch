@@ -8,8 +8,9 @@
  * whenever a change to core sim dynamics might have shifted speciation/extinction timing enough to
  * break these — the verification step below is what would have caught last time's silent failure.
  */
-import { writeFileSync } from "node:fs";
-import { createRunConfig } from "../src/sim/runConfig.ts";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { createRunConfig, type RunConfig } from "../src/sim/runConfig.ts";
 import { runSimulationFromConfig, type SimState } from "../src/sim/sim.ts";
 import { DEFAULT_PARAMS } from "../src/params.ts";
 
@@ -34,22 +35,48 @@ const meteorRadiation = createRunConfig(6, DEFAULT_PARAMS, [
   { tick: 7600, tool: "meteor", params: { x: 76, y: 92, radius: 35, craterRecoveryTicks: 800 } },
 ]);
 
-writeFileSync("public/scenarios/barrier-split.json", JSON.stringify(barrierSplit, null, 2) + "\n");
-writeFileSync("public/scenarios/meteor-radiation.json", JSON.stringify(meteorRadiation, null, 2) + "\n");
-console.log("Wrote public/scenarios/{barrier-split,meteor-radiation}.json\n");
-
-function summarize(label: string, state: SimState, checks: Record<string, boolean>): void {
+function verify(label: string, state: SimState, checks: Record<string, boolean>): void {
   const failed = Object.entries(checks).filter(([, ok]) => !ok);
   const status = failed.length === 0 ? "OK" : `FAILED: ${failed.map(([name]) => name).join(", ")}`;
   console.log(`${label}: pop=${state.evolution.creatures.length} species=${state.observations.taxonomy.species.size} — ${status}`);
+  if (failed.length > 0) {
+    throw new Error(`${label} no longer demonstrates: ${failed.map(([name]) => name).join(", ")}`);
+  }
 }
 
+// Verify every candidate before touching the checked-in examples. A dynamics change can make a
+// previously-good seed stop demonstrating its premise; in that case the command must fail and
+// leave the last known-good JSON files intact instead of overwriting them and merely logging a
+// warning after the damage is done.
 const barrierState = runSimulationFromConfig(barrierSplit, 20000);
 const hasAllopatric = barrierState.observations.taxonomyEvents.some((e) => e.type === "speciation" && e.event.mechanism === "allopatric");
-summarize("barrier-split (20k ticks)", barrierState, { "allopatric split occurred": hasAllopatric });
+verify("barrier-split (20k ticks)", barrierState, {
+  "allopatric split occurred": hasAllopatric,
+  "population survived": barrierState.evolution.creatures.length > 0,
+});
 
 const meteorState = runSimulationFromConfig(meteorRadiation, 27000);
 const extinctions = meteorState.observations.taxonomyEvents.filter((e) => e.type === "extinction");
 // Post-extinction radiation is NOT checked here — a known, documented gap (see the comment above
 // and SPEC.md Addendum 9). This scenario demonstrates extinction of a regional lineage only.
-summarize("meteor-radiation (27k ticks)", meteorState, { "extinction occurred": extinctions.length > 0 });
+verify("meteor-radiation (27k ticks)", meteorState, {
+  "extinction occurred": extinctions.length > 0,
+  "population survived": meteorState.evolution.creatures.length > 0,
+});
+
+const outDir = path.join(import.meta.dirname, "..", "public", "scenarios");
+mkdirSync(outDir, { recursive: true });
+
+function writeIfChanged(name: string, config: RunConfig): void {
+  const filePath = path.join(outDir, `${name}.json`);
+  const json = `${JSON.stringify(config, null, 2)}\n`;
+  if (existsSync(filePath) && readFileSync(filePath, "utf8") === json) {
+    console.log(`${name}: already current`);
+    return;
+  }
+  writeFileSync(filePath, json, "utf8");
+  console.log(`${name}: wrote ${filePath}`);
+}
+
+writeIfChanged("barrier-split", barrierSplit);
+writeIfChanged("meteor-radiation", meteorRadiation);

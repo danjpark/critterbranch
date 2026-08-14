@@ -37,6 +37,9 @@
       "intakeRate": 0.5,
       "attackRange": 3,
       "attackCooldownTicks": 20,
+      "carnivoryHuntingThreshold": 0.4,
+      "carnivoryAttackMultiplierMin": 0.4,
+      "carnivoryAttackMultiplierMax": 3,
       "foundingPopulationSize": 100
     },
     "reproduction": {

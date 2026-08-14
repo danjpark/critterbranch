@@ -40,15 +40,17 @@ The ground is shaded into four bands by elevation, with thin ink contour lines a
 
 | Band | Look | Meaning |
 |---|---|---|
-| **Water** 🌊 | Cool desaturated blue-gray, darker in deeper spots, with a faint green cast where it has real food | Elevation below sea level. Deep water is still near-impassable and barren. **Shallow water near shore is different** — reachable (if costly) and can grow fruit trees, a real if modest food source. Nobody has a genetic edge there yet; that's still to come. |
+| **Water** 🌊 | Cool desaturated blue-gray, darker in deeper spots, with a faint green cast where it has real food | Elevation below sea level. Deep water is barren and near-impassable to a land specialist, while a creature with high `aquaticAdaptation` can cross it almost as easily as land. **Shallow water near shore is different** — it can grow fruit trees, giving aquatic lineages a modest food source of their own. |
 | **Lowland** | Warm tan/parchment | Flat, easy ground. |
 | **Hill** | Darker tan-brown | Moderate elevation — some movement penalty. |
 | **Mountain** | Dark brown, lightening toward a pale "snow-cap" near the very peak | High elevation — a real movement/food penalty. |
 
 Shading within a band also darkens slightly wherever passability is reduced (e.g. a hand-placed barrier) and tints slightly with fertility — so a barrier or a drought is visible on the map even if it didn't change the elevation band.
 
-### Fruit
-Small green squares. **Size = how much fruit is actually there right now**, not a fixed icon — a nearly-empty tree's square is barely visible, a full one is large. Fruit doesn't just exist on a static grid: it comes from **fruit trees**, which are their own living, spatial entities — a sapling matures over time, produces fruit, can spread new saplings nearby when eaten from, and can die off if it gets too crowded by neighbors. Trees grow on land and in shallow coastal water alike; they never take root in the deep.
+### Fruit trees
+Fruit is shown as a small procedural tree glyph, with a trunk and an irregular leafy canopy, rather than the old green square. **Canopy size shows development and potential yield**: a new sapling starts at a visible minimum and grows until the exact tick it becomes fruit-producing, while naturally poorer trees stay smaller than rich ones even when mature. **Canopy color shows how much fruit is available right now**: a depleted tree fades toward pale olive and a full tree becomes vivid green.
+
+These aren't decorative markers over a static food grid. Fruit trees are living, spatial entities: a sapling matures over time, produces fruit, can spread new saplings nearby when eaten from, and can die off if crowded by neighbors. Trees grow on land and in shallow coastal water alike; they never take root in the deep.
 
 ### Creatures
 Colored dots. **Every part of the color is computed straight from the creature's genes** — nothing is arbitrary:
@@ -80,7 +82,7 @@ Every creature has exactly 10 heritable numbers. A child's genes are its parent'
 | `offspringInvestment` | 0 – 1 | How much energy it hands each child at birth — the one-time half of the "cheap-and-many vs. expensive-and-few" (r/K) trade-off. |
 | `nursingDuration` | 0 – 600 ticks | How long a parent keeps *actively feeding* each child after birth, on top of the birth endowment above — the ongoing half of that same r/K trade-off. |
 | `mutationRate` | 0.001 – 0.2 | How much a creature's own children's genes are allowed to drift from its own. |
-| `aquaticAdaptation` ✅ *(new)* | 0 (land specialist) – 1 (water specialist) | Same "specialist beats generalist" shape as `carnivory`: pushes toward 1 and land gets harder while deep water opens up almost freely; pushes toward 0 and the reverse. A 0.5 generalist is worse at both than a specialist at either extreme — the fork that makes amphibious speciation possible. |
+| `aquaticAdaptation` | 0 (land specialist) – 1 (water specialist) | Same "specialist beats generalist" shape as `carnivory`: pushes toward 1 and land gets harder while deep water opens up almost freely; pushes toward 0 and the reverse. A 0.5 generalist is worse at both than a specialist at either extreme — the fork that makes amphibious speciation possible. |
 
 ### How creatures actually behave, per tick
 Sense nearby fruit *and* nearby creatures-as-potential-prey (scored by the same mechanism — a herbivore naturally never finds attacking worth it, no special-casing needed) → steer toward whichever scored best → move (slowed by terrain) → pay metabolism → either eat fruit where it landed, or, if it ended within attack range of prey and isn't on attack cooldown, roll a contest (`attack power / (attack power + evasion power)`) to try to kill and eat it. A successful kill removes the prey and feeds the predator, scaled by how specialized it actually is toward meat.
@@ -108,14 +110,14 @@ Every split and every extinction is logged in the **Event feed**, with the tick 
 |---|---|
 | **Tree view** | The actual phylogenetic tree — branches colored by genotype, tick on the x-axis, mechanism icons at every fork. Click a branch to open the **species card**: status (alive/extinct), lifespan, peak/current population, mechanism, and — once there's enough evidence — its **demonstrated capabilities** (below). |
 | **Muller plot** | Population share of every living lineage, stacked over time — good for seeing which branch is winning at a glance. |
-| **Gene-space scatter** | Every creature plotted by two genes you pick (any of the 9). Doubles as its own color legend — no separate key needed, since every dot is already colored by the same rule as the World view. |
+| **Gene-space scatter** | Every creature plotted by two genes you pick (any of the 10). Doubles as its own color legend — no separate key needed, since every dot is already colored by the same rule as the World view. |
 | **Gene flow chart** | Migrations between the west and east halves of the map, per time window. Watching this drop to zero *is* speciation happening in real time. |
 | **Trait over time chart** | Population mean ± standard deviation of one selected gene, over the whole run. |
 | **Event feed** | Chronological log of every speciation and extinction. |
 | **Inspector** | Full gene readout of whichever single creature you last clicked. |
 
 ### Species capabilities (what the species card can tell you)
-Once a species has enough living members to be confident about, the game infers labels about it from its **actual observed behavior** — not from reading its genes directly (a creature could theoretically have carnivory genes and never once successfully hunt). Possible labels: **Omnivore / Herbivore / Carnivore**, **Highland-Adapted / Lowland-Adapted**, **Aquatic-Adapted** ✅ *(new)*, **Fast-mover / Sedentary**, **r-strategist / K-strategist**, **Resilient / Fragile** — each with a confidence score and a plain-English reason ("Draws 82% of intake from meat," "63% of members observed in mountain terrain," "30% of members observed in water").
+Once a species has enough living members to be confident about, the game infers labels about it from its **actual observed behavior** — not from reading its genes directly (a creature could theoretically have carnivory genes and never once successfully hunt). Possible labels: **Omnivore / Herbivore / Carnivore**, **Highland-Adapted / Lowland-Adapted**, **Aquatic-Adapted**, **Fast-mover / Sedentary**, **r-strategist / K-strategist**, **Resilient / Fragile** — each with a confidence score and a plain-English reason ("Draws 82% of intake from meat," "63% of members observed in mountain terrain," "30% of members observed in water").
 
 ---
 
@@ -132,7 +134,7 @@ Select a tool, then click the map. Every action costs Terraform Points in Game M
 | **Drought / Bloom** | Temporarily suppress or boost regrowth in a region. |
 | **Meteor** | Strikes a location: kills everything in range and craters the ground (fertility drops to zero, recovers gradually). The single most destructive tool — has its own **Undo** button for exactly this reason. |
 | **Seed founders** | Drop a fresh batch of creatures with random genomes at a point. |
-| **Raise / Lower sea level** ✅ *(new)* | Global, not local — one click shifts the waterline **everywhere on the map at once**, not just near where you clicked. Flood a land bridge to split a population, or drain a strait to reunite two that a natural sea once separated. |
+| **Raise / Lower sea level** | Global, not local — one click shifts the waterline **everywhere on the map at once**, not just near where you clicked. Flood a land bridge to split a population, or drain a strait to reunite two that a natural sea once separated. |
 
 **Scenarios**: any run (seed + every terraforming action, timestamped) can be exported as a `.json` file and reloaded later — including by someone else, since it's fully deterministic. Two bundled examples ship with the app: a scripted **barrier split** and a **meteor extinction**.
 
@@ -147,7 +149,7 @@ Select a tool, then click the map. Every action costs Terraform Points in Game M
 | **After the Fall** | Trigger a real population collapse, then recover biodiversity afterward. |
 | **Apex Predator** | Sustain a population of real size that draws most of its diet from hunting, not scavenging. |
 | **Island Hopper** | Produce a species that spends a real share of its time in water — you'll likely need to terraform for it (raise sea level, carve straits) since the starting map won't just hand it to you. |
-| **Amphibian's Fork** ✅ *(new)* | Cause a speciation event driven by the land/water trade-off — watch one population split into a land branch and a water branch. |
+| **Amphibian's Fork** | Cause a speciation event driven by the land/water trade-off — watch one population split into a land branch and a water branch. |
 
 *(These are explicitly first-pass content to exercise the objective/budget system end to end, not final tuned difficulty — expect them to get reworked.)*
 
@@ -160,6 +162,7 @@ Critterbranch is being built in milestones. Everything above this line is real a
 ### ✅ Built
 - **Core simulation**: deterministic tick loop, 10-gene creatures, mutation, reproduction, metabolism, energy.
 - **Persistent fruit-tree food economy**: trees mature, spread, and die on their own — not a static grid.
+- **Procedural fruit-tree glyphs**: each tree has a stable hand-drawn silhouette; saplings visibly grow, rich trees mature larger than poor ones, and canopy color tracks current fruit supply.
 - **Predation**: carnivory as a real trade-off, with a genuine hunting threshold (only creatures with real carnivory investment sense/attempt prey at all — no more diffuse background attacking) and a combat contest where a real specialist actually outfights a barely-qualifying opportunist, not just earning more meat per kill. Meat as a second food source, cannibalism allowed.
 - **Speciation detection**: gap-based bimodality test, confirmation passes, allopatric/sympatric/founder-effect classification with evidence.
 - **Terrain as a real force**: elevation, movement/food penalties, procedurally-generated natural water at world-gen, and a player-facing Raise/Lower Sea Level tool.
@@ -168,7 +171,8 @@ Critterbranch is being built in milestones. Everything above this line is real a
 - **Amphibious speciation**: a population can genuinely fork into a land branch and a water branch, driven purely by the land/water trade-off, with its own capability label and challenge.
 - **Full god-mode toolkit**: terrain, barriers, trees, drought/bloom, meteors (with undo), founder-seeding, sea level.
 - **Observability layer**: SpeciesProfile (real demonstrated diet/habitat/movement/reproduction/survival stats) and the Capability classifier built on top of it — never reads genes directly, only actual behavior.
-- **Game Mode**: Terraform → Evolution → Discovery loop, Terraform Points budget, Era Summaries, checkpoints, 6 prototype challenges.
+- **Game Mode**: Terraform → Evolution → Discovery loop, Terraform Points budget, Era Summaries, checkpoints, 6 prototype challenges, and adaptive era pacing that animates eventful opening ticks before ending settled eras early.
+- **Classic Sandbox auto-pacing**: an opt-in mode that eases into eventful stretches and fast-forwards once the ecosystem is quiet, without changing the player's selected speed setting.
 - **Visualization**: World map (parchment terrain style), phylogenetic Tree view, Muller plot, gene-space scatter, gene-flow chart, trait-over-time chart, event feed.
 - **Scenario export/import/replay**, deterministic headless replay verified to match live play exactly.
 - **Desktop layout**: the sidebar's panels flow into a multi-column grid on a wide screen instead of one long stacked list, so a real monitor reads landscape instead of a narrow phone-width column. Component styling (buttons, panel chrome) is unchanged — this is a layout-shape fix only.
@@ -199,4 +203,4 @@ Critterbranch is being built in milestones. Everything above this line is real a
 
 ---
 
-*This document reflects the codebase as of the Milestone 4 commit. If you read something here that doesn't match what you see on screen, the code is the source of truth — this file can go stale, the game can't.*
+*Last reconciled with commit `475f5dd` (procedural fruit-tree glyphs), including Milestones 5–6, adaptive era pacing, the carnivory fix, and desktop layout. If something here doesn't match what you see on screen, the code is the source of truth.*
