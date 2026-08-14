@@ -106,7 +106,6 @@ function senseFoodOrPrey(
   worldHeight: number,
 ): SenseResult | null {
   const fruitGain = gainPerUnit(creature.genome.carnivory, 0, params);
-  const meatGain = gainPerUnit(creature.genome.carnivory, 1, params);
 
   const cellSize = params.gridCellSize;
   const cx = Math.floor(creature.x / cellSize);
@@ -132,10 +131,12 @@ function senseFoodOrPrey(
     }
   }
 
-  // A herbivore's meatGain is ~0, so this branch naturally never wins the comparison below —
-  // no explicit "carnivory > threshold" gate needed, same as R-specialists never bothered
-  // sensing B food before this axis was fruit/meat instead.
-  if (meatGain > 1e-6) {
+  // Only a creature with real carnivory investment ever senses/attempts prey at all (SPEC.md
+  // Addendum 14) — without this floor, gainPerUnit's meat curve is nonzero for almost any
+  // carnivory above ~0, so virtually the whole population ends up opportunistically attacking for
+  // a near-zero payoff instead of predation being a genuine specialist behavior.
+  if (creature.genome.carnivory >= params.carnivoryHuntingThreshold) {
+    const meatGain = gainPerUnit(creature.genome.carnivory, 1, params);
     const prey = findBestNearbyCreature(
       creatureIndex,
       creature.x,
@@ -188,7 +189,7 @@ export function stepCreature(
   const cellY = wrap(Math.floor(creature.y / params.gridCellSize), world.rows);
   const cellIdx = cellY * world.cols + cellX;
 
-  const travel = movementEfficiency(derivePhenotype(creature.genome), { elevation: terrain.elevation[cellIdx], seaLevel: terrain.seaLevel }, params);
+  const travel = movementEfficiency(derivePhenotype(creature.genome, params), { elevation: terrain.elevation[cellIdx], seaLevel: terrain.seaLevel }, params);
   creature.x = wrap(creature.x + Math.cos(creature.heading) * travel, worldWidth);
   creature.y = wrap(creature.y + Math.sin(creature.heading) * travel, worldHeight);
   creature.distanceTraveled += travel;

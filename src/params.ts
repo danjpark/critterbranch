@@ -37,6 +37,25 @@ export interface Params {
    * no cost for a miss, and even modest per-attempt odds compound to near-certain death within a
    * handful of ticks — a real population collapse this was tuned against, not a guess. */
   attackCooldownTicks: number;
+  /** Minimum carnivory before a creature even senses/attempts prey at all (see
+   * sim/creature.ts's senseFoodOrPrey) — SPEC.md Addendum 14. Below this, prey-sensing never
+   * triggers, full stop, regardless of how the sensing score would otherwise compare to fruit.
+   * Without this floor, gainPerUnit's meat curve (maxGain * carnivory^2) is nonzero for almost any
+   * carnivory above ~0, so virtually the whole population ends up opportunistically attacking
+   * nearby creatures for a near-zero payoff — real predation smeared into background noise instead
+   * of a genuine specialist behavior. */
+  carnivoryHuntingThreshold: number;
+  /** Phenotype.attackPower multiplier on top of size at carnivory=0 — see sim/phenotype.ts's
+   * derivePhenotype. Mostly moot on its own (carnivoryHuntingThreshold above already keeps
+   * near-zero-carnivory creatures from ever attacking), but anchors the interpolation's low end
+   * cleanly. SPEC.md Addendum 14. */
+  carnivoryAttackMultiplierMin: number;
+  /** Phenotype.attackPower multiplier on top of size at carnivory=1 — the actual incentive fix:
+   * without this, combat success was entirely carnivory-blind (pure size vs. speed), so there was
+   * no reward for specializing past whatever attack odds size alone already gave. A full
+   * specialist now genuinely outfights a barely-qualifying opportunist of the same size. SPEC.md
+   * Addendum 14. */
+  carnivoryAttackMultiplierMax: number;
 
   // Fruit trees (axis 2 — foraging strategy). The commuter-vs-camper trade-off needs bimodal food
   // geometry (SPEC.md: "a few large, rich, widely-separated patches and many small, poor, densely
@@ -212,6 +231,9 @@ export const DEFAULT_PARAMS: Params = {
   intakeRate: 0.5,
   attackRange: 3,
   attackCooldownTicks: 20,
+  carnivoryHuntingThreshold: 0.4,
+  carnivoryAttackMultiplierMin: 0.4,
+  carnivoryAttackMultiplierMax: 3.0,
 
   // Initial values are a starting estimate, not yet play-tuned — expect these to move once trees
   // are actually watched growing/dying/spreading in a real run, the same way nursingRatePerTick
@@ -317,6 +339,9 @@ export interface EvolutionParams {
   intakeRate: number;
   attackRange: number;
   attackCooldownTicks: number;
+  carnivoryHuntingThreshold: number;
+  carnivoryAttackMultiplierMin: number;
+  carnivoryAttackMultiplierMax: number;
   foundingPopulationSize: number;
 }
 
@@ -406,6 +431,9 @@ export function groupParams(p: Params): RunParams {
       intakeRate: p.intakeRate,
       attackRange: p.attackRange,
       attackCooldownTicks: p.attackCooldownTicks,
+      carnivoryHuntingThreshold: p.carnivoryHuntingThreshold,
+      carnivoryAttackMultiplierMin: p.carnivoryAttackMultiplierMin,
+      carnivoryAttackMultiplierMax: p.carnivoryAttackMultiplierMax,
       foundingPopulationSize: p.foundingPopulationSize,
     },
     reproduction: {

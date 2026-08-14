@@ -11,7 +11,10 @@ body {
 
 #app {
   padding: 1rem;
-  max-width: 1000px;
+  /* Raised from 1000px so a real desktop monitor gets a landscape-reading layout instead of a
+     tall column with dead margin on either side — see .sidebar below for where that extra width
+     actually goes. Still capped (not 100vw) so it doesn't stretch absurdly thin on an ultrawide. */
+  max-width: 1800px;
   margin: 0 auto;
 }
 
@@ -27,7 +30,9 @@ body {
   flex-direction: column;
   gap: 0.5rem;
   max-width: 640px;
-  flex: 1 1 640px;
+  /* Doesn't grow past its own size (grow factor 0) — the extra width #app now allows goes to the
+     sidebar's grid instead, which is what actually turns it into a multi-column layout. */
+  flex: 0 1 640px;
   min-width: 0;
 }
 
@@ -49,12 +54,16 @@ canvas {
 }
 
 .sidebar {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  /* Each panel keeps its original ~18rem single-column width as a minimum, and wraps into as
+     many columns as the available width allows instead of one long vertical list — this, plus
+     canvas-area no longer growing (above), is the actual "landscape on desktop" fix. */
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  align-content: start;
   gap: 1rem;
-  width: 18rem;
   max-width: 100%;
-  flex: 1 1 18rem;
+  /* Grows to absorb whatever width canvas-area's fixed 640px doesn't use. */
+  flex: 1 1 36rem;
 }
 
 @media (max-width: 700px) {
@@ -67,7 +76,7 @@ canvas {
   }
 
   .sidebar {
-    width: 100%;
+    grid-template-columns: 1fr;
   }
 }
 

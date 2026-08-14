@@ -80,18 +80,18 @@ describe("GameRunner", () => {
     expect(runner.lastEraSummary!.after.tick).toBe(2000);
   });
 
-  it("a later era can end early once the ecosystem settles into equilibrium (empirically confirmed for this exact seed — see sim/equilibrium.ts's tuning note)", () => {
-    const runner = new GameRunner("sandbox", 1);
+  it("a later era can end early once the ecosystem settles into equilibrium (empirically confirmed for this exact seed — see sim/equilibrium.ts's tuning note; re-swept from seed 1 to seed 7 after SPEC.md Addendum 14's carnivory fix shifted population dynamics under DEFAULT_PARAMS)", () => {
+    const runner = new GameRunner("sandbox", 7);
     runner.setSpeed("max");
-    for (let era = 1; era <= 5; era++) {
+    for (let era = 1; era <= 3; era++) {
       runner.advanceEra();
       while (runner.isAdvancingEra()) runner.stepEraAdvance();
-      if (era < 5) runner.continueToTerraform();
+      if (era < 3) runner.continueToTerraform();
     }
 
     expect(runner.lastEraSummary!.endedEarly).toBe(true);
     expect(runner.lastEraSummary!.after.tick).toBeLessThan(runner.lastEraSummary!.plannedTick);
-    expect(runner.lastEraSummary!.plannedTick).toBe(10_000); // 5 eras x 2000 ticks/era
+    expect(runner.lastEraSummary!.plannedTick).toBe(6_000); // 3 eras x 2000 ticks/era
   });
 
   it("stepEraAdvance finalizes into discovery with an EraSummary once the target tick is reached", () => {

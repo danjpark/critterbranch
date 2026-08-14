@@ -28,6 +28,11 @@ import { DEFAULT_PARAMS, type Params } from "../params.ts";
 // both aquatic steepness constants equal to their land/water counterparts makes aquaticAdaptation's
 // value have literally zero effect on movement, the same "matching values, not just small ones"
 // approach as the geography fix beside it.
+// carnivoryHuntingThreshold: 1.01 flattens a FIFTH axis (SPEC.md Addendum 14): predation is a real,
+// distinct disruptive-selection mechanism (carnivory range is [0,1], so a threshold just above 1
+// makes the sensing gate never pass, regardless of incidental carnivory any founder happens to
+// draw) — without this, predation acts as an unflattened confound for whichever OTHER axis is
+// under test, the same class of bug the geography fix above already covers for water.
 const NEUTRAL: Partial<Params> = {
   patchBimodality: 0,
   regrowthCycleAmplitude: 0,
@@ -35,6 +40,7 @@ const NEUTRAL: Partial<Params> = {
   waterPassabilitySteepness: 0,
   aquaticLandPassabilitySteepness: DEFAULT_PARAMS.passabilitySteepness,
   aquaticWaterPassabilitySteepness: 0,
+  carnivoryHuntingThreshold: 1.01,
 };
 
 function runFor(seed: number, overrides: Partial<Params>, ticks: number) {
@@ -109,12 +115,11 @@ describe("foraging axis in isolation", () => {
     "produces real population-level bimodality on a foraging gene when patchBimodality is maxed and the other two axes are flat",
     () => {
       // Seed matters here: this axis's split timing is genuinely seed-dependent — re-swept after
-      // SPEC.md Addendum 9's terrain generation change (signed hills consume an extra RNG draw per
-      // hill, reshuffling which seed lands well downstream of it). Seed 2, previously reliable,
-      // now only barely qualifies near the end of a much longer window; seed 1 reliably splits by
-      // tick 500 and holds a persistent 2-species split through tick 10,000 under these exact
-      // params (waterPassabilitySteepness: 0 in NEUTRAL keeps this test isolated from the new
-      // geographic-barrier axis, same reasoning as the neutral-control test above).
+      // SPEC.md Addendum 14 added carnivoryHuntingThreshold: 1.01 to NEUTRAL (closing a real,
+      // previously-unflattened predation confound — see NEUTRAL's own comment), which shifted the
+      // RNG-consumption sequence for every seed the same way every prior NEUTRAL change has (SPEC.md
+      // Addendum 9's terrain change, etc.). Re-swept via a seed sweep 1-20: seed 1 (used since
+      // Addendum 9) no longer splits under the corrected NEUTRAL; seed 2 reliably does.
       //
       // Checking isBimodal directly on the foraging genes, rather than requiring a specific
       // event's dominantDivergentGene to name one, is deliberate: that label is a secondary
@@ -125,7 +130,7 @@ describe("foraging axis in isolation", () => {
       // isBimodal on the raw gene values is the direct evidence that the axis has bite, the same
       // standard the neutral-control test above already holds every axis to.
       const params = { ...DEFAULT_PARAMS, ...NEUTRAL, patchBimodality: 1.0 };
-      const { state, rng } = createSimState(1, params);
+      const { state, rng } = createSimState(2, params);
       const foragingGenes = ["speed", "senseRadius", "wanderPersistence"] as const;
       let sawForagingBimodality = false;
 

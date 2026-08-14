@@ -125,7 +125,7 @@ export function resolvePredation(
     const prey = byId.get(attempt.preyId);
     if (!predator || !prey) continue;
 
-    const successProb = combatSuccessProbability(derivePhenotype(predator.genome), derivePhenotype(prey.genome));
+    const successProb = combatSuccessProbability(derivePhenotype(predator.genome, params), derivePhenotype(prey.genome, params));
 
     if (rng.next() < successProb) {
       // How much of the prey's energy the predator actually converts — a pure carnivore

@@ -58,7 +58,8 @@ describe("buildCreatureIndex / findBestNearbyCreature", () => {
 
 describe("resolvePredation", () => {
   it("kills prey and credits the predator's energy on a successful roll", () => {
-    // size 2 vs speed 0.2 -> attackPower/(attackPower+evasionPower) = 2/2.2, comfortably clears any roll below that.
+    // size 2, carnivory 1 (full specialist, attackMultiplierMax) vs speed 0.2 -> a heavily
+    // lopsided attackPower/(attackPower+evasionPower), comfortably clears any roll below that.
     const predator = creatureAt(0, 50, 50, { size: 2, carnivory: 1 }, 5);
     const prey = creatureAt(1, 51, 50, { speed: 0.2 }, 8);
     const attempts: PredationAttempt[] = [{ predatorId: 0, preyId: 1 }];

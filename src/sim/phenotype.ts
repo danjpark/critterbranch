@@ -22,11 +22,18 @@ export interface Phenotype {
   aquaticAdaptation: number;
 }
 
-export function derivePhenotype(genome: Genome): Phenotype {
+/**
+ * attackPower scales with carnivory (SPEC.md Addendum 14) — a real specialist genuinely outfights
+ * a barely-qualifying opportunist of the same size, giving combat success an actual incentive
+ * gradient it didn't have before (it used to be pure size vs. speed, carnivory-blind). evasionPower
+ * stays a pure pass-through of speed — being hunted doesn't depend on your OWN carnivory.
+ */
+export function derivePhenotype(genome: Genome, params: Params): Phenotype {
+  const attackMultiplier = lerp(params.carnivoryAttackMultiplierMin, params.carnivoryAttackMultiplierMax, genome.carnivory);
   return {
     speed: genome.speed,
     size: genome.size,
-    attackPower: genome.size,
+    attackPower: genome.size * attackMultiplier,
     evasionPower: genome.speed,
     aquaticAdaptation: genome.aquaticAdaptation,
   };

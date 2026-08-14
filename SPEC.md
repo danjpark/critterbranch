@@ -1432,3 +1432,128 @@ seed within 6 eras, consistent with the ~25% empirical firing rate found during 
 is unit-tested directly against a seed where it does fire, rather than relying on catching it live).
 Classic Sandbox's new Auto-pace checkbox toggled correctly and played forward with zero console
 errors.
+
+## Addendum 14 — the carnivory fix: a real hunting threshold + carnivory-coupled combat
+
+Design note, written before implementation. Closes a player-reported symptom flagged mid-M6
+(2026-08-13, same day as the era-pacing item above): carnivores weren't manifesting in play —
+creatures walked around without visibly converting to predation in a way that read as working.
+Root-caused via a throwaway probe script (since deleted) before any fix was proposed, per this
+project's own discipline: two seeds, 30k ticks each, plain `DEFAULT_PARAMS`. Mean carnivory crashed
+from its initial ~0.5 to ~0.01-0.05 within the first 1-2k ticks and never recovered —
+`fracHigh(carnivory>0.6)` (real specialists) stayed at 0.000 the entire run, both seeds — while
+predation deaths were still a large and growing share of total deaths (up to ~40% late-game),
+smeared across nearly the whole population rather than concentrated in a specialist lineage. Two
+compounding mechanical causes, both found by measurement, not guessed:
+
+1. The prey-sensing gate in `creature.ts`'s `senseFoodOrPrey` (`meatGain > 1e-6`) was essentially a
+   no-op — since `meatGain = maxGain × carnivory²`, it opened at carnivory ≈ 0.0007, so virtually
+   the entire post-selection population (sitting at 0.01-0.1) sensed and opportunistically attacked
+   nearby creatures regardless of any real specialization.
+2. `combatSuccessProbability` (predation.ts, now phenotype.ts per Addendum 11) depended only on
+   size/speed, never on carnivory — carnivory only gated energy YIELD from a kill, never access to
+   the kill itself. Zero cost to attacking with near-zero carnivory (free removal of a competitor)
+   while a real specialist only bought a small quadratic bonus, killing the incentive gradient that
+   would otherwise push carnivory up toward 1.
+
+Two decisions confirmed via AskUserQuestion before writing this (both "Recommended" chosen, one
+combined): (1) fix both causes together rather than one alone, since they compound — the gate stops
+free-riding, the combat coupling gives a real reason to keep specializing past the gate; (2) the
+goal is genuine predator/prey speciation (mirroring `aquaticAdaptation`'s proven pattern), not just
+quieting the background noise — this pass is held to the same bar Addendum 12 held amphibious
+speciation to: a real fork under ordinary, non-isolated `DEFAULT_PARAMS` play.
+
+### The fix
+
+**A real hunting floor.** New `Params.carnivoryHuntingThreshold` (default 0.4): `senseFoodOrPrey`
+now gates prey-sensing on `genome.carnivory >= params.carnivoryHuntingThreshold` directly, not on
+the derived `meatGain` epsilon. Below the floor, a creature never senses or attempts prey at all,
+full stop — predation becomes a genuine specialist behavior instead of near-universal background
+noise.
+
+**Combat success coupled to carnivory.** `sim/phenotype.ts`'s `derivePhenotype` gains a `params`
+argument (previously genome-only) and `attackPower` is no longer a pure pass-through of size: it's
+`size × lerp(carnivoryAttackMultiplierMin, carnivoryAttackMultiplierMax, carnivory)`. `evasionPower`
+stays a pure pass-through of speed — being hunted doesn't depend on your OWN carnivory, only your
+speed relative to whoever's chasing you. This is the actual incentive fix: a full specialist now
+genuinely outfights a barely-qualifying opportunist of the same size, not just extracting more
+energy from the same odds of a kill.
+
+Both levers now scale with carnivory independently and compound: attack SUCCESS (via the new
+`attackPower` multiplier) and kill ENERGY YIELD (via the existing, unchanged `specializationFactor`
+curve) both reward pushing carnivory higher once past the hunting floor.
+
+### Tuning, confirmed empirically before locking defaults (scripts/probe-carnivory-fix.ts, since
+deleted)
+
+Swept `carnivoryHuntingThreshold`/`carnivoryAttackMultiplierMin`/`Max` against 6 seeds × 30k ticks
+each, plain `DEFAULT_PARAMS`, checking for real specialization (`fracHigh(carnivory>0.6)`) and an
+actual confirmed taxonomy split with `dominantDivergentGene === "carnivory"`:
+
+- **threshold=0.4, min=0.4, max=3.0 (shipped):** 4 of 6 seeds developed real specialization
+  (`fracHigh` reaching 0.38-0.80), and **3 of 6 produced a genuine carnivory-dominant speciation
+  event** (tick 6,700 / 4,800 / 11,200) — under plain, non-isolated `DEFAULT_PARAMS`, no artificial
+  isolation needed. A 50% real-speciation rate across 6 seeds is a stronger empirical result than
+  Addendum 12's own bar for amphibious speciation ("seed 6 produces a genuine event").
+- **threshold=0.35, min=0.4, max=4.0:** worse — lower success rate, AND one seed (5) went fully
+  extinct at tick 2,713. A lower hunting floor combined with a stronger attack multiplier makes
+  attacks both more frequent (more of the population qualifies) and more lethal (bigger multiplier),
+  which can compound into a real population collapse — the same class of risk Addendum 7's
+  `attackCooldownTicks` was originally tuned against, now showing up again from a different lever.
+- **threshold=0.3, min=0.3, max=4.0:** also worse than the shipped config, no extinctions but a
+  lower real-speciation rate and later, less reliable timing.
+
+The two "no split" seeds under the shipped config aren't a bug — matches the established pattern
+(Addendum 3's life-history finding, Addendum 9's water-coverage variance) that not every seed is
+expected to produce every possible outcome; carnivory has to first survive an initial population-wide
+crash toward 0 (fruit is cheap and reliable, meat has to pay for itself) before the attack-power
+incentive can pull a sub-population back up past the hunting floor, and whether that survival happens
+is genuinely stochastic per seed.
+
+### Deliberately out of scope for this pass
+
+No change to the meat energy-yield curve itself (`specializationFactor`/`gainPerUnit`, unchanged) —
+only the two new levers (sensing gate, attack power) needed fixing. No dedicated visual encoding for
+carnivore lineages beyond what already exists (hue already encodes diet+foraging via
+`render/color.ts`). No player-facing tuning UI for the three new params — same "Phase 7 exposes all
+of `params.ts`" deferral every other tunable already lives under.
+
+**Implementation status (2026-08-13, same session as the era-pacing item above): built exactly as
+designed, tuned empirically, live-verified.**
+
+`Params` gained `carnivoryHuntingThreshold`/`carnivoryAttackMultiplierMin`/
+`carnivoryAttackMultiplierMax` (grouped under `EvolutionParams`, alongside `attackRange`/
+`attackCooldownTicks`). `creature.ts`'s `senseFoodOrPrey` gate rewritten to check
+`genome.carnivory >= params.carnivoryHuntingThreshold` directly (meatGain computation moved inside
+the gated branch, since it's now only needed there). `phenotype.ts`'s `derivePhenotype` gained a
+`params` argument and the carnivory-scaled `attackPower` formula; all three call sites
+(`creature.ts`, `predation.ts`, and `phenotype.test.ts`) updated.
+
+Adding a real gate + a real combat incentive is the kind of population-dynamics change that reliably
+reshuffles RNG-consumption order (same "expected, budgeted churn" every major axis addition this
+project has caused — Addenda 6/9/12 all note the same pattern). Found and fixed one **real
+pre-existing confound**, not just RNG churn: `axisIsolation.test.ts`/`goldenScenarios.test.ts`'s
+shared `NEUTRAL` constant never flattened predation, so any founder's incidental carnivory above
+~0.0007 (the OLD gate) meant predation was quietly active and unflattened in tests meant to isolate
+OTHER axes — the same class of bug Addendum 12's `aquaticLandPassabilitySteepness` fix already
+covers for water. Fixed by adding `carnivoryHuntingThreshold: 1.01` to both files' `NEUTRAL`
+(carnivory's range is [0,1], so a threshold just above 1 makes the gate never pass, regardless of
+incidental draws). That fix itself shifted RNG sequences enough to need reseeding: the
+foraging-axis-isolation test (both the `axisIsolation.test.ts` and `goldenScenarios.test.ts`
+copies) moved from seed 1 to seed 2 (found via a 20-seed sweep); the life-history-isolation test
+needed no reseed once NEUTRAL was corrected. Two of era-pacing's own new tests (Addendum 13,
+built the same session, just before this fix) also needed reseeding since they ran under plain
+`DEFAULT_PARAMS` and the carnivory fix genuinely changes population dynamics there: GameRunner's
+early-end test moved from seed 1 to seed 7 (era 3 of 3, tick 6,000 planned); SimRunner's
+fast-forward test moved from seed 1 to seed 7, absolute tick 5,700 (both found via fresh probe
+sweeps, not guessed). A new golden-scenario test (`goldenScenarios.test.ts`, "carnivory-axis
+disruption") was added — deliberately NOT axis-isolated, proving the actual goal (a real
+herbivore/carnivore fork under ordinary `DEFAULT_PARAMS` play) the same way Addendum 12's milestone
+was held to, using seed 3 (split confirmed by tick 6,700).
+
+Full suite green (328 passed — up from 327 — 1 pre-existing documented skip). Typecheck clean.
+Benchmark within normal run-to-run variance (no consistent directional regression; population
+dynamics genuinely differ now so an exact before/after comparison isn't meaningful, same caveat
+every prior population-dynamics-affecting change has noted). Live-verified in browser: Classic
+Sandbox run to 64,000+ ticks at max speed with the new desktop sidebar grid active, zero console
+errors throughout, trait chart correctly selectable to carnivory.

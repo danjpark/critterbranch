@@ -24,6 +24,8 @@ import { DEFAULT_PARAMS, type Params } from "../params.ts";
 // aquaticLandPassabilitySteepness/aquaticWaterPassabilitySteepness flatten the aquaticAdaptation
 // gene's own effect too (SPEC.md Addendum 12) — see axisIsolation.test.ts's NEUTRAL for why
 // waterPassabilitySteepness alone doesn't neutralize it (the land-side cost survives that override).
+// carnivoryHuntingThreshold: 1.01 flattens predation as a confounding disruptive axis (SPEC.md
+// Addendum 14) — see axisIsolation.test.ts's NEUTRAL for the full reasoning.
 const NEUTRAL: Partial<Params> = {
   patchBimodality: 0,
   regrowthCycleAmplitude: 0,
@@ -31,6 +33,7 @@ const NEUTRAL: Partial<Params> = {
   waterPassabilitySteepness: 0,
   aquaticLandPassabilitySteepness: DEFAULT_PARAMS.passabilitySteepness,
   aquaticWaterPassabilitySteepness: 0,
+  carnivoryHuntingThreshold: 1.01,
 };
 
 function speciationEvents(state: ReturnType<typeof runSimulationFromConfig>) {
@@ -59,15 +62,37 @@ describe("golden scenario: neutral control", () => {
 describe("golden scenario: foraging-axis disruption", () => {
   // Was failing/skipped — see axisIsolation.test.ts's "foraging axis in isolation" for what was
   // wrong and what actually fixed it (Addendum 7's attackCooldownTicks, not a foraging-specific
-  // change). Seed re-swept to 1 after SPEC.md Addendum 9's terrain generation change reshuffled
-  // which seed splits reliably — same reasoning as the axisIsolation.test.ts counterpart.
+  // change). Seed re-swept to 2 (was 1) after SPEC.md Addendum 14 added carnivoryHuntingThreshold
+  // to NEUTRAL — same reasoning as the axisIsolation.test.ts counterpart.
   it(
     "produces a persistent foraging-driven split when patchBimodality is maxed and the other axes are flat",
     () => {
-      const config = createRunConfig(1, { ...DEFAULT_PARAMS, ...NEUTRAL, patchBimodality: 1.0 }, []);
+      const config = createRunConfig(2, { ...DEFAULT_PARAMS, ...NEUTRAL, patchBimodality: 1.0 }, []);
       const state = runSimulationFromConfig(config, 10_000);
 
       expect(speciationEvents(state).length).toBeGreaterThan(0);
+      expect(state.observations.taxonomy.species.size).toBeGreaterThan(1);
+    },
+    120_000,
+  );
+});
+
+describe("golden scenario: carnivory-axis disruption", () => {
+  // SPEC.md Addendum 14 — proves the carnivory fix's actual goal (a real herbivore/carnivore
+  // fork), not just the underlying mechanics. Deliberately NOT axis-isolated (no NEUTRAL) — the
+  // whole point is that this happens in ordinary, non-isolated gameplay under DEFAULT_PARAMS, the
+  // same standard aquaticAdaptation's own milestone (Addendum 12) was held to. Seed found via a
+  // seed sweep: 3 of 6 seeds checked produced a genuine carnivory-dominant split within 30,000
+  // ticks under these exact defaults; seed 3 is the fastest/smallest of those (split by tick 6,700,
+  // final population 331 — keeps this test's runtime reasonable).
+  it(
+    "produces a persistent herbivore/carnivore split under ordinary (non-isolated) DEFAULT_PARAMS gameplay",
+    () => {
+      const config = createRunConfig(3, DEFAULT_PARAMS, []);
+      const state = runSimulationFromConfig(config, 10_000);
+
+      const carnivorySplit = speciationEvents(state).find((e) => e.event.dominantDivergentGene === "carnivory");
+      expect(carnivorySplit).toBeDefined();
       expect(state.observations.taxonomy.species.size).toBeGreaterThan(1);
     },
     120_000,

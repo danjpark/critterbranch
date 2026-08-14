@@ -71,7 +71,7 @@ Every creature has exactly 10 heritable numbers. A child's genes are its parent'
 
 | Gene | Range | What it does |
 |---|---|---|
-| `carnivory` | 0 (herbivore) – 1 (carnivore) | How much of its diet comes from meat vs. fruit. A generalist (0.5) is actually **worse** at both than a specialist at either extreme — that penalty is what makes diet a real evolutionary fork, not a free choice. |
+| `carnivory` | 0 (herbivore) – 1 (carnivore) | How much of its diet comes from meat vs. fruit. A generalist (0.5) is actually **worse** at both than a specialist at either extreme — that penalty is what makes diet a real evolutionary fork, not a free choice. Only a creature well past the herbivore end (a real hunting threshold, not "any nonzero value") ever senses or attempts prey at all, and a committed specialist genuinely fights better, not just eats better on a kill — so half-measures don't pay off. |
 | `speed` | 0.2 – 3.0 | How far it moves per tick (modulated by terrain passability). |
 | `senseRadius` | 0 – 20 | How far it can detect food or prey. |
 | `wanderPersistence` | 0 – 1 | How much it keeps heading the same direction vs. changing course randomly. |
@@ -160,7 +160,7 @@ Critterbranch is being built in milestones. Everything above this line is real a
 ### ✅ Built
 - **Core simulation**: deterministic tick loop, 10-gene creatures, mutation, reproduction, metabolism, energy.
 - **Persistent fruit-tree food economy**: trees mature, spread, and die on their own — not a static grid.
-- **Predation**: carnivory as a real trade-off, hunting, combat contest, meat as a second food source, cannibalism allowed.
+- **Predation**: carnivory as a real trade-off, with a genuine hunting threshold (only creatures with real carnivory investment sense/attempt prey at all — no more diffuse background attacking) and a combat contest where a real specialist actually outfights a barely-qualifying opportunist, not just earning more meat per kill. Meat as a second food source, cannibalism allowed.
 - **Speciation detection**: gap-based bimodality test, confirmation passes, allopatric/sympatric/founder-effect classification with evidence.
 - **Terrain as a real force**: elevation, movement/food penalties, procedurally-generated natural water at world-gen, and a player-facing Raise/Lower Sea Level tool.
 - **Water as a real niche with a genetic edge**: shallow coastal water grows real fruit trees using the exact same mechanics as land. A creature's `aquaticAdaptation` gene now makes water passability personal — a water specialist can cross deep, open water nearly as easily as land, at the cost of being genuinely awkward on land, mirroring `carnivory`'s "specialist beats generalist" shape.
@@ -171,11 +171,12 @@ Critterbranch is being built in milestones. Everything above this line is real a
 - **Game Mode**: Terraform → Evolution → Discovery loop, Terraform Points budget, Era Summaries, checkpoints, 6 prototype challenges.
 - **Visualization**: World map (parchment terrain style), phylogenetic Tree view, Muller plot, gene-space scatter, gene-flow chart, trait-over-time chart, event feed.
 - **Scenario export/import/replay**, deterministic headless replay verified to match live play exactly.
+- **Desktop layout**: the sidebar's panels flow into a multi-column grid on a wide screen instead of one long stacked list, so a real monitor reads landscape instead of a narrow phone-width column. Component styling (buttons, panel chrome) is unchanged — this is a layout-shape fix only.
 
 ### 🔭 Planned, not yet built (in rough order)
 | Milestone | What it adds |
 |---|---|
-| **M7 — Procedural creature appearance** | Species get real visual bodies derived from phenotype (species cards, not per-dot rendering) — including watching a lineage visibly sprout new features (fins, wings) as it evolves toward a new capability. Also where the "2.5D" visual upgrade and the desktop-layout rework land. |
+| **M7 — Procedural creature appearance** | Species get real visual bodies derived from phenotype (species cards, not per-dot rendering) — including watching a lineage visibly sprout new features (fins, wings) as it evolves toward a new capability. Also where the "2.5D" visual upgrade lands. |
 | **M8 — 10-20 handcrafted challenges** | Real, tuned challenge content (today's 6 are first-pass scaffolding). |
 | **M9 — Flight** | Another emergent capability from morphology × environment, same pattern as amphibious speciation. |
 | **M10 — Ecosystem expansion** | Climate, seasons, migration, and any other systems layered on top once the core loop is proven. |

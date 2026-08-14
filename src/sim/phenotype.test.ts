@@ -25,22 +25,37 @@ function phenotype(overrides: Partial<Phenotype> = {}): Phenotype {
 
 describe("derivePhenotype", () => {
   it("is a pure pass-through of speed and size", () => {
-    const p = derivePhenotype(genome({ speed: 1.5, size: 0.8 }));
+    const p = derivePhenotype(genome({ speed: 1.5, size: 0.8 }), DEFAULT_PARAMS);
     expect(p.speed).toBe(1.5);
     expect(p.size).toBe(0.8);
   });
 
   // SPEC.md Addendum 11 (Milestone 5): attackPower/evasionPower moved here from predation.ts's
   // standalone effectiveAttackPower/effectiveEvasionPower functions, same values, one seam.
-  it("derives attackPower from size and evasionPower from speed", () => {
-    const p = derivePhenotype(genome({ speed: 2.3, size: 1.7 }));
-    expect(p.attackPower).toBe(1.7);
+  // evasionPower stays a pure pass-through of speed; attackPower no longer is (see below) — SPEC.md
+  // Addendum 14 made it also scale with carnivory, so a carnivory=0 genome is the byte-identical
+  // baseline (attackPower = size * carnivoryAttackMultiplierMin) rather than pure size.
+  it("derives evasionPower from speed, and attackPower from size scaled by carnivoryAttackMultiplierMin at carnivory=0", () => {
+    const p = derivePhenotype(genome({ speed: 2.3, size: 1.7, carnivory: 0 }), DEFAULT_PARAMS);
+    expect(p.attackPower).toBeCloseTo(1.7 * DEFAULT_PARAMS.carnivoryAttackMultiplierMin);
     expect(p.evasionPower).toBe(2.3);
+  });
+
+  // SPEC.md Addendum 14 — the actual carnivory-fix mechanism: a real specialist genuinely
+  // outfights a barely-qualifying opportunist of the same size, not just a size/speed contest.
+  it("attackPower increases with carnivory, from carnivoryAttackMultiplierMin up to carnivoryAttackMultiplierMax", () => {
+    const none = derivePhenotype(genome({ size: 1, carnivory: 0 }), DEFAULT_PARAMS);
+    const half = derivePhenotype(genome({ size: 1, carnivory: 0.5 }), DEFAULT_PARAMS);
+    const full = derivePhenotype(genome({ size: 1, carnivory: 1 }), DEFAULT_PARAMS);
+    expect(none.attackPower).toBeCloseTo(DEFAULT_PARAMS.carnivoryAttackMultiplierMin);
+    expect(full.attackPower).toBeCloseTo(DEFAULT_PARAMS.carnivoryAttackMultiplierMax);
+    expect(half.attackPower).toBeGreaterThan(none.attackPower);
+    expect(half.attackPower).toBeLessThan(full.attackPower);
   });
 
   // SPEC.md Addendum 12 (Milestone 6).
   it("passes aquaticAdaptation through unchanged", () => {
-    expect(derivePhenotype(genome({ aquaticAdaptation: 0.73 })).aquaticAdaptation).toBe(0.73);
+    expect(derivePhenotype(genome({ aquaticAdaptation: 0.73 }), DEFAULT_PARAMS).aquaticAdaptation).toBe(0.73);
   });
 });
 
