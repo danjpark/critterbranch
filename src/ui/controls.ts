@@ -430,7 +430,10 @@ export function createLegend(): HTMLElement {
   root.append(sectionTitle("Legend"));
 
   const entries: [HTMLElement, string][] = [
-    [squareSwatch(FRUIT_COLOR), "Fruit — square size shows how much is left there. Comes from trees, which grow, spread, and die on their own."],
+    [
+      circleSwatch(FRUIT_COLOR),
+      "A fruit tree — canopy size shows how grown up it is (a bare sprout starts small and fills out by the time it starts bearing fruit), and canopy color fades toward pale/olive as its own fruit gets eaten down, then back to vivid green as it regrows. Richer trees grow bigger canopies. Trees spread and die on their own.",
+    ],
     [dotSwatch(), "A creature — dot color encodes its genome (diet, foraging style, life history). Carnivores hunt nearby creatures for meat instead of eating fruit. Click one to inspect it."],
   ];
   for (const [swatch, text] of entries) {
@@ -449,6 +452,14 @@ function squareSwatch(color: string): HTMLElement {
   const el = document.createElement("span");
   el.className = "legend-swatch";
   el.style.background = color;
+  return el;
+}
+
+function circleSwatch(color: string): HTMLElement {
+  const el = document.createElement("span");
+  el.className = "legend-swatch";
+  el.style.background = color;
+  el.style.borderRadius = "50%";
   return el;
 }
 
