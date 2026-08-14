@@ -1,5 +1,6 @@
 import type { Params } from "../params.ts";
 import type { Genome } from "./genome.ts";
+import { deriveMorphology, type MorphologyProfile } from "./morphology.ts";
 import { lerp } from "./util.ts";
 import { passabilityFromSteepness } from "./terrain.ts";
 
@@ -30,6 +31,9 @@ export interface Phenotype {
    * attackPower, not movementEfficiency (SPEC.md Addendum 15). */
   energyCapacity: number;
   metabolicCost: number;
+  /** Five body-proportion dimensions for a future renderer — no rendering consumer yet. See
+   * sim/morphology.ts (SPEC.md Addendum 17). */
+  morphology: MorphologyProfile;
 }
 
 /**
@@ -40,7 +44,7 @@ export interface Phenotype {
  */
 export function derivePhenotype(genome: Genome, params: Params): Phenotype {
   const attackMultiplier = lerp(params.carnivoryAttackMultiplierMin, params.carnivoryAttackMultiplierMax, genome.carnivory);
-  return {
+  const base = {
     speed: genome.speed,
     size: genome.size,
     senseRadius: genome.senseRadius,
@@ -51,6 +55,7 @@ export function derivePhenotype(genome: Genome, params: Params): Phenotype {
     energyCapacity: params.baseEnergyCapacity * genome.size,
     metabolicCost: params.baseCost * genome.size + params.moveCost * genome.speed * genome.speed * genome.size + params.senseCost * genome.senseRadius,
   };
+  return { ...base, morphology: deriveMorphology(base) };
 }
 
 /** Raw terrain facts a mover needs — not a precomputed passability, since Addendum 12 makes

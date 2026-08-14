@@ -30,6 +30,7 @@ function phenotype(overrides: Partial<Phenotype> = {}): Phenotype {
     aquaticAdaptation: 0,
     energyCapacity: 20,
     metabolicCost: 0.1,
+    morphology: { bodyScale: 1, limbLength: 0.5, jawSize: 0.5, earSize: 0.5, tailForm: 0 },
     ...overrides,
   };
 }
@@ -100,6 +101,14 @@ describe("derivePhenotype", () => {
   // SPEC.md Addendum 12 (Milestone 6).
   it("passes aquaticAdaptation through unchanged", () => {
     expect(derivePhenotype(genome({ aquaticAdaptation: 0.73 }), DEFAULT_PARAMS).aquaticAdaptation).toBe(0.73);
+  });
+
+  // SPEC.md Addendum 17 — deriveMorphology's own unit tests live in morphology.test.ts; this just
+  // confirms derivePhenotype actually wires it up rather than leaving morphology stale/default.
+  it("computes morphology from the same genome, not a placeholder", () => {
+    const p = derivePhenotype(genome({ speed: 3.0, carnivory: 1 }), DEFAULT_PARAMS);
+    expect(p.morphology.limbLength).toBeGreaterThan(0.9);
+    expect(p.morphology.jawSize).toBeCloseTo(1.0);
   });
 });
 

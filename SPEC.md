@@ -1794,3 +1794,100 @@ panel showed "Critterdex — newly discovered: Herbivore (species 0) — Draws 1
 fruit.", exactly on schedule for a founding population whose carnivory drifted toward 0 across both
 eras (-79% era 1, -22% era 2, per the same panel's trait-shift lines). Zero console errors
 throughout. Not yet committed/pushed.
+
+## Addendum 17 — mammal morphology, V1: five body-proportion dimensions, purely formula-derived
+
+Design note, written before implementation. Third item of the reordered mega-doc plan, picked up
+right after Item 2 shipped — the first piece of what the original roadmap called M7 ("procedural
+creature appearance"), scoped as a pure data layer with no rendering yet, same "one system at a
+time" discipline as every prior pass. Real product surface (the mega-doc itself flags "approve a
+canonical founding mammal and 8-12 morphology dimensions" as one of its highest-risk decisions), so
+this got the same AskUserQuestion treatment as M3/M4/M6. Two decisions confirmed (both
+"Recommended" chosen):
+
+1. **A small essential set — five dimensions, not the mega-doc's full 12-16.** Matches how
+   `Phenotype` itself started at two fields and grew one or two at a time (Addenda 9/11/12/15).
+   Each dimension must have a real existing phenotype/genome driver — no dimension gets invented
+   just to round out a number.
+2. **Purely formula-derived, no hand-authored founding mammal.** Whatever the formulas produce at a
+   genome sitting mid-range on every gene IS the founder's shape — no special case, no reference
+   silhouette to hit. Consistent with every other derived value in this pipeline (Addenda 9/11/15):
+   the founder is not exempt from its own genome.
+
+### The five dimensions and their drivers
+
+Each dimension needed a REAL existing signal, not an invented one — this ruled out a fur/coat
+dimension for V1 (the honest driver would be temperature/climate, which doesn't exist until Item 9)
+rather than fake one against `size` just to hit a round number.
+
+| Dimension | Driver | Why |
+|---|---|---|
+| `bodyScale` | `phenotype.size` (pass-through) | The overall silhouette scale everything else reads relative to. |
+| `limbLength` | `phenotype.speed` | Cursorial payoff — the same gene `movementEfficiency` already rewards gets a visible leggy/stocky signal. |
+| `jawSize` | `phenotype.carnivory` | Mirrors `attackPower`'s own carnivory-scaling (Addendum 14) — a real specialist should look like one. |
+| `earSize` | `phenotype.senseRadius` | The one existing sensory gene with no visual expression at all until now. |
+| `tailForm` | `phenotype.aquaticAdaptation` | Closes a gap Addendum 12 explicitly flagged and deferred: "no dedicated visual encoding... M7's job." 0 = short land tail, 1 = long/paddle-like. |
+
+### Concrete design
+
+```ts
+// sim/morphology.ts
+export interface MorphologyProfile {
+  bodyScale: number;
+  limbLength: number;
+  jawSize: number;
+  earSize: number;
+  tailForm: number;
+}
+
+export function deriveMorphology(phenotype: Phenotype, params: Params): MorphologyProfile;
+```
+
+Each non-pass-through dimension normalizes its driving value against that gene's own `GENE_RANGES`
+entry, then `lerp`s between authored min/max morphology extremes — same shape `movementEfficiency`
+and `derivePhenotype`'s `attackPower` already use. `MorphologyProfile` becomes a nested field on
+`Phenotype` itself (`phenotype.morphology`), computed inside `derivePhenotype`, rather than a
+parallel seam a caller has to remember to invoke separately — one entry point stays authoritative,
+matching the mega-doc's own proposed shape (`Phenotype.morphology: MorphologyProfile`) and this
+project's established "don't touch call sites again" pattern (Addendum 11's doc comment).
+
+The five extreme-value constants (e.g. `MIN_LIMB_LENGTH`/`MAX_LIMB_LENGTH`) are local constants in
+`morphology.ts`, not `Params` fields — they're purely presentational (feed no simulation behavior,
+never read by `movementEfficiency`/`combatSuccessProbability`/anything fitness-relevant) and don't
+affect determinism or replay, same non-`Params` treatment `speciesProfile.ts`'s
+`SURVIVAL_HISTORY_WINDOW` and `discoveryJournal.ts`'s `DISCOVERY_CONFIRMATION_ERAS` already get.
+
+### Deliberately out of scope for this pass
+
+No rendering — `MorphologyProfile` is a bag of five numbers with no consumer yet; Item 5
+(procedural appearance) is what actually draws something from it. No fur/coat dimension (no honest
+driver until climate exists — Item 9). No `MammalBodyPlan` anatomical constraint/validation layer
+(bilateral symmetry, non-self-intersection) — everything here is a bounded lerp between authored
+extremes, so it's safe by construction without one; real constraint validation is Item 5's problem
+once there's a renderer for a bad value to actually break. No sexual dimorphism, no per-individual
+jitter beyond the creature's own genome, no new genes (all five dimensions reuse existing
+genome/phenotype fields — the same "zero new genes" discipline M4 followed).
+
+### Dependencies
+
+Requires Addendum 15 (the `Phenotype` fields this reads — `carnivory`/`senseRadius` specifically
+only exist because of that pass). Feeds Item 5 (procedural appearance) and Item 6 (2.5D diorama)
+directly; neither has started yet.
+
+**Implementation status (2026-08-14, same session): built as designed.**
+
+New `sim/morphology.ts` (`MorphologyProfile`, `MorphologySource` — a narrow five-field interface so
+`derivePhenotype` can call `deriveMorphology` from its still-being-built base object without a cast
+before `morphology` itself exists on it — and `deriveMorphology`). `Phenotype` gained a nested
+`morphology: MorphologyProfile` field, computed inside `derivePhenotype` from the same base object
+every other field already comes from. `phenotype.test.ts`'s fixture helper updated for the new
+required field, plus one integration test confirming `derivePhenotype` actually wires morphology up
+rather than leaving it default. New `sim/morphology.test.ts`: pass-through correctness for
+`bodyScale`/`tailForm`, monotonicity for `limbLength`/`jawSize`/`earSize` against their driving
+genes, bounds across the full gene-range cross product, determinism.
+
+Typecheck clean. Full suite green (345 passed — up from 337, +8 new — 1 pre-existing documented
+skip). **Zero tests needed reseeding** — expected, since morphology is purely additive/
+presentational and is never read by anything fitness-relevant (movement, combat, foraging), same
+proof-of-behavior-neutrality Addendum 15 relied on. Not live-verified in browser (there's no
+rendering consumer yet — nothing to observe) and not committed/pushed.
