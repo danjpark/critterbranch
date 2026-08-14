@@ -28,6 +28,7 @@ import {
   createTraitChart,
   createTreePanel,
 } from "./ui/controls.ts";
+import { enablePanelWorkspace } from "./ui/panelWorkspace.ts";
 
 const CANVAS_SIZE = 640;
 type ViewName = "world" | "tree" | "muller" | "scatter";
@@ -58,8 +59,8 @@ app.append(classicRoot, gameRoot);
 function setAppMode(mode: AppMode): void {
   classicModeButton.classList.toggle("active", mode === "classic");
   gameModeButton.classList.toggle("active", mode === "game");
-  classicRoot.style.display = mode === "classic" ? "flex" : "none";
-  gameRoot.style.display = mode === "game" ? "flex" : "none";
+  classicRoot.style.display = mode === "classic" ? "grid" : "none";
+  gameRoot.style.display = mode === "game" ? "grid" : "none";
   if (mode === "game") renderGame();
 }
 
@@ -330,6 +331,7 @@ sidebar.append(
   eventFeed.root,
   controls.inspectorRoot,
 );
+enablePanelWorkspace(sidebar, "classic");
 
 const worldCameraControls = attachCameraControls(
   worldCanvas,
@@ -520,6 +522,7 @@ const checkpointsPanel = createCheckpointsPanel({
 });
 
 gameSidebar.append(gameControls.root, gameGodModePanel.root, objectivesPanel.root, eraSummaryPanel.root, checkpointsPanel.root);
+enablePanelWorkspace(gameSidebar, "game");
 
 const gameCameraControls = attachCameraControls(
   gameCanvas,
