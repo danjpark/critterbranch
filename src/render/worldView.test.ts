@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createDefaultCamera, type CameraState, type WorldExtent } from "./camera.ts";
 import { findCreatureAt } from "./worldView.ts";
 import { createCreature, type Creature } from "../sim/creature.ts";
 import { randomGenome } from "../sim/genome.ts";
@@ -7,6 +8,11 @@ import { createSimState } from "../sim/sim.ts";
 import { DEFAULT_PARAMS } from "../params.ts";
 
 const CANVAS_SIZE = 640;
+const EXTENT: WorldExtent = { worldWidth: DEFAULT_PARAMS.worldWidth, worldHeight: DEFAULT_PARAMS.worldHeight };
+
+function defaultCamera(): CameraState {
+  return createDefaultCamera(EXTENT, CANVAS_SIZE, CANVAS_SIZE);
+}
 
 function makeCreatureAt(id: number, x: number, y: number): Creature {
   const rng = new RNG(id + 1);
@@ -19,7 +25,7 @@ describe("findCreatureAt", () => {
     state.evolution.creatures = [makeCreatureAt(0, 100, 100)];
     const scale = CANVAS_SIZE / DEFAULT_PARAMS.worldWidth;
 
-    const found = findCreatureAt(state, DEFAULT_PARAMS, 100 * scale, 100 * scale, CANVAS_SIZE, CANVAS_SIZE);
+    const found = findCreatureAt(state, DEFAULT_PARAMS, defaultCamera(), 100 * scale, 100 * scale);
     expect(found?.id).toBe(0);
   });
 
@@ -27,7 +33,7 @@ describe("findCreatureAt", () => {
     const { state } = createSimState(1, DEFAULT_PARAMS);
     state.evolution.creatures = [makeCreatureAt(0, 10, 10)];
 
-    const found = findCreatureAt(state, DEFAULT_PARAMS, CANVAS_SIZE - 1, CANVAS_SIZE - 1, CANVAS_SIZE, CANVAS_SIZE);
+    const found = findCreatureAt(state, DEFAULT_PARAMS, defaultCamera(), CANVAS_SIZE - 1, CANVAS_SIZE - 1);
     expect(found).toBeNull();
   });
 
@@ -36,7 +42,7 @@ describe("findCreatureAt", () => {
     state.evolution.creatures = [makeCreatureAt(0, 100, 100), makeCreatureAt(1, 102, 100)];
     const scale = CANVAS_SIZE / DEFAULT_PARAMS.worldWidth;
 
-    const found = findCreatureAt(state, DEFAULT_PARAMS, 101 * scale, 100 * scale, CANVAS_SIZE, CANVAS_SIZE);
+    const found = findCreatureAt(state, DEFAULT_PARAMS, defaultCamera(), 101 * scale, 100 * scale);
     expect(found?.id).toBe(1);
   });
 
@@ -46,7 +52,7 @@ describe("findCreatureAt", () => {
     state.evolution.creatures = [makeCreatureAt(0, DEFAULT_PARAMS.worldWidth - 1, 100)];
     const scale = CANVAS_SIZE / DEFAULT_PARAMS.worldWidth;
 
-    const found = findCreatureAt(state, DEFAULT_PARAMS, 0, 100 * scale, CANVAS_SIZE, CANVAS_SIZE);
+    const found = findCreatureAt(state, DEFAULT_PARAMS, defaultCamera(), 0, 100 * scale);
     expect(found?.id).toBe(0);
   });
 });

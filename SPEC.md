@@ -1891,3 +1891,113 @@ skip). **Zero tests needed reseeding** — expected, since morphology is purely 
 presentational and is never read by anything fitness-relevant (movement, combat, foraging), same
 proof-of-behavior-neutrality Addendum 15 relied on. Not live-verified in browser (there's no
 rendering consumer yet — nothing to observe) and not committed/pushed.
+
+## Addendum 18 — procedural creature rendering and a real camera, designed together
+
+Design note, written before implementation, after a genuine back-and-forth conversation rather than
+a solo design note (Dan explicitly asked to talk this one through — the most taste-driven piece of
+the whole roadmap). Three decisions settled in conversation:
+
+1. **Vector/canvas-primitive rig, not pixel art.** Cheaper, and a natural extension of this
+   session's own fruit-tree glyph work (deterministic, cached, layered canvas primitives) rather
+   than a different asset pipeline (pre-authored pixel parts, or procedurally-drawn pixels) that
+   would also compromise morphology's "purely formula-derived" property from Addendum 17.
+2. **Item 5 (creature appearance) and Item 6 (2.5D world/population-scale rendering) are designed
+   together, not sequenced** — Dan wants population-scale rendering and the camera/"lens" built
+   side by side from the start, not circles-with-a-rig-later followed by a separate zoom system.
+3. **The day/night sun-arc idea (an earlier brainstorm aside) stays parked under Item 6** — it needs
+   real pseudo-3D depth this pass doesn't build.
+
+### What this pass actually builds vs. what it defers
+
+The mega-doc's full "2.5D diorama" vision (elevation-based screen-height offset, herd clustering at
+extreme zoom-out, biome-aware semantic LOD, toroidal-wrap tiling at the pan edge) is a lot more than
+one pass, and there's no biome/climate system yet for LOD to key off (Item 9, unstarted). This pass
+builds the real foundation both later items sit on — a working camera and one honest creature
+renderer used at every zoom level — and defers the rest explicitly rather than half-building it:
+
+**Built this pass:**
+- `render/camera.ts` — `CameraState` (center, zoom, viewport size), pure `worldToScreen`/
+  `screenToWorld` projection, and a default camera that reproduces today's full-canvas-fit exactly
+  at zoom=1 — so nothing visually regresses until a player actually pans or zooms.
+- `render/creatureGlyph.ts` — one procedural rig per creature, built from `phenotype.morphology`
+  (Addendum 17) plus the existing genotype color: a body ellipse scaled by `bodyScale`, leg
+  strokes by `limbLength`, a jaw/head shape by `jawSize`, ear marks by `earSize`, a tail by
+  `tailForm`. Deterministic (the same `pseudoRandom(id * salt)` hash pattern `drawTrees` already
+  uses, not `Math.random()`), cheap enough to draw every frame with no caching, same "don't cache
+  what's this cheap" call Addendum 15/M5 already made for `derivePhenotype`.
+- **One rig, every zoom level — no separate simplified/detailed LOD tiers yet.** The same glyph
+  just scales with camera zoom. This is deliberately how "population-scale and the lens together"
+  gets satisfied without building two rendering paths on day one: zoomed out, you see many small
+  but real bodies instead of many small but real circles; zoomed in, the same draw call reads as an
+  individual. If a real population (thousands of creatures) turns out to cost too much per-frame
+  once measured, a simplified far-zoom tier is the natural follow-up — not pre-built speculatively.
+- Pan (drag) and zoom (wheel) on both the Classic Sandbox `worldCanvas` and Game Mode `gameCanvas`,
+  each with its own independent `CameraState` so switching app modes doesn't fight over one camera.
+- `findCreatureAt` and the god-mode tool click handlers updated to route through the camera's
+  `screenToWorld` instead of each canvas's own inline scaleX/scaleY math.
+- **Camera panning is clamped to the world's bounds** — you can pan and zoom around freely but never
+  scroll past the edge into blank space. Simplest honest V1 policy for a toroidal world with no
+  wraparound-tile rendering yet.
+
+**Deliberately deferred, not forgotten:**
+- Elevation-based screen-height offset / depth-sorted terrain (the actual "2.5D" tilt) — terrain
+  still paints flat, just now panned/zoomed like everything else.
+- Toroidal wraparound tiling at the pan edge (seeing a second copy of the map when you pan past
+  the seam) — panning just clamps instead.
+- Herd/population clustering glyphs, biome-aware semantic zoom tiers, occlusion depth-sorting —
+  all explicitly Item 6 work once there's a reason (a real measured perf problem, or Item 9's
+  climate/biome system) to build them.
+- The day/night arc (parked under Item 6 per the conversation above).
+- Age/condition visual variation, juvenile scaling, markings/palette beyond existing genotype
+  color — Item 5's own later refinement, not this pass.
+
+### Dependencies
+
+Requires Addendum 17 (`Phenotype.morphology`) and the existing fruit-tree glyph pattern
+(`render/worldView.ts`'s `drawTrees`, this session's earlier commit) as the proven technique to
+extend. Feeds directly into whatever Item 6 deepening comes next.
+
+**Implementation status (2026-08-14, same session): built as designed.**
+
+New `render/camera.ts` (`CameraState`, `worldToScreen`/`screenToWorld`, `clampCamera`, `zoomCamera`
+— zoom-toward-pointer, `panCamera`, `screenScale`). New `render/creatureGlyph.ts`
+(`drawCreatureGlyph`, a torso/head/snout/ears/legs/tail rig from `MorphologyProfile`, deterministic
+jitter via the same `pseudoRandom(seed)` hash `drawTrees` already used). `worldView.ts` rewritten to
+route every position/size/hit-test through the camera instead of a flat per-call scaleX/scaleY: the
+terrain cache moved from viewport-sized to a fixed native resolution (`TERRAIN_CACHE_CELL_PX = 32`,
+independent of zoom) blitted through `drawTerrainLayer`'s camera-projected `drawImage`;
+`drawCreatures` replaced the flat circle with two `drawCreatureGlyph` calls (a semi-transparent
+black silhouette, then the genotype-colored glyph) scaled by `bodyScale`; `findCreatureAt` takes a
+`camera` instead of `canvasWidth`/`canvasHeight`. `main.ts` gained a shared `attachCameraControls`
+helper (drag-to-pan via `mousedown`/`mousemove`/`mouseup`, wheel-to-zoom, a `consumeDrag()` gate so a
+real drag doesn't also fire the canvas's existing click-to-select/click-to-use-tool handler) wired
+onto both Classic Sandbox's `worldCanvas` and Game Mode's `gameCanvas`, each with its own
+independent `CameraState` reset to default on restart.
+
+One real bug found and fixed via the new unit tests, not live testing: `zoomCamera`'s
+"zoom toward pointer" correction had a sign error (added the screen-position error back into the
+world-space center shift instead of subtracting it), caught immediately by
+`camera.test.ts`'s "keeps the world point under the cursor at the same screen position after
+zooming" test — a good example of why that test was worth writing rather than trusting the geometry
+by inspection.
+
+Typecheck clean. Full suite green (359 passed — up from 345, +14 new — 1 pre-existing documented
+skip). `worldView.test.ts` updated for the new `camera`-based `findCreatureAt` signature. Benchmark
+(headless, measures `tick()` only, not rendering) shows the exact same final populations at every
+founding size as before this pass — expected, since nothing sim-side changed; the actual render-cost
+question (creature rigs vs. flat circles at population scale) isn't something this script measures,
+and no perf problem showed up in live testing at the default founding size.
+
+**Live-verified in browser via direct pixel/DOM inspection** (screenshots don't composite in this
+particular preview pane, a known environment quirk — canvas pixel sampling and DOM/console checks
+are the reliable path here): fresh load renders real terrain variety (600+ distinct sampled colors)
+plus visible tree canopies and creature-colored pixels, zero console errors. Wheel-zoom and
+drag-to-pan both confirmed by sampling canvas pixels before/after a dispatched event and seeing the
+expected shift. A genuine click correctly selected creature id63 and populated the inspector with
+its full genome (including a real `aquaticAdaptation: 0.973` individual). A dispatched drag followed
+by a click at the drag's endpoint left the inspector showing the SAME creature — direct proof
+`consumeDrag()` suppresses the click after a real pan, not just working "by code review." The
+"Raise terrain" god-mode tool, clicked through the new camera projection, visibly darkened the
+correct world cell (a real elevation change, not a no-op). Game Mode's independent camera zoomed
+correctly on its own canvas. Not committed/pushed as of this note.

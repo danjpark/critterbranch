@@ -2,6 +2,7 @@ import "./style.css";
 import { GameRunner } from "./app/gameRunner.ts";
 import { SimRunner } from "./app/simRunner.ts";
 import { PROTOTYPE_CHALLENGES } from "./game/challenges/prototypeChallenges.ts";
+import { createDefaultCamera, panCamera, screenToWorld, zoomCamera, type CameraState, type WorldExtent } from "./render/camera.ts";
 import type { ColorOptions } from "./render/color.ts";
 import { renderMuller } from "./render/mullerView.ts";
 import { renderCompetitionHeatmap } from "./render/overlays.ts";
@@ -84,6 +85,73 @@ function makeCanvas(): HTMLCanvasElement {
   return c;
 }
 
+function canvasCoords(canvas: HTMLCanvasElement, event: MouseEvent): { x: number; y: number } {
+  const rect = canvas.getBoundingClientRect();
+  return { x: ((event.clientX - rect.left) / rect.width) * canvas.width, y: ((event.clientY - rect.top) / rect.height) * canvas.height };
+}
+
+const DRAG_THRESHOLD_PX = 4;
+const WHEEL_ZOOM_STEP = 1.15;
+
+/** Wires drag-to-pan and wheel-to-zoom onto a World canvas (SPEC.md Addendum 18) — shared by both
+ * Classic Sandbox's worldCanvas and Game Mode's gameCanvas, each with its own independent camera.
+ * Returns consumeDrag(), which the canvas's existing "click" listener calls first: a real drag
+ * (past DRAG_THRESHOLD_PX) suppresses that click's tool-use/creature-selection action, since a
+ * mousedown+move+up on the same element still fires a native click otherwise. */
+function attachCameraControls(
+  canvas: HTMLCanvasElement,
+  getCamera: () => CameraState,
+  setCamera: (camera: CameraState) => void,
+  getExtent: () => WorldExtent,
+  onChange: () => void,
+): { consumeDrag: () => boolean } {
+  let panning = false;
+  let dragged = false;
+  let last = { x: 0, y: 0 };
+
+  canvas.addEventListener("mousedown", (event) => {
+    panning = true;
+    dragged = false;
+    last = canvasCoords(canvas, event);
+  });
+
+  window.addEventListener("mousemove", (event) => {
+    if (!panning) return;
+    const p = canvasCoords(canvas, event);
+    const dx = p.x - last.x;
+    const dy = p.y - last.y;
+    if (Math.abs(dx) > DRAG_THRESHOLD_PX || Math.abs(dy) > DRAG_THRESHOLD_PX) dragged = true;
+    if (dragged) {
+      setCamera(panCamera(getCamera(), getExtent(), dx, dy));
+      last = p;
+      onChange();
+    }
+  });
+
+  window.addEventListener("mouseup", () => {
+    panning = false;
+  });
+
+  canvas.addEventListener(
+    "wheel",
+    (event) => {
+      event.preventDefault();
+      const p = canvasCoords(canvas, event);
+      setCamera(zoomCamera(getCamera(), getExtent(), p.x, p.y, event.deltaY < 0 ? WHEEL_ZOOM_STEP : 1 / WHEEL_ZOOM_STEP));
+      onChange();
+    },
+    { passive: false },
+  );
+
+  return {
+    consumeDrag: () => {
+      const was = dragged;
+      dragged = false;
+      return was;
+    },
+  };
+}
+
 const worldCanvas = makeCanvas();
 const treeCanvas = makeCanvas();
 const mullerCanvas = makeCanvas();
@@ -108,6 +176,7 @@ const mullerCtx = mullerCanvas.getContext("2d")!;
 const scatterCtx = scatterCanvas.getContext("2d")!;
 
 const runner = new SimRunner(12345);
+let worldCamera: CameraState = createDefaultCamera({ worldWidth: runner.sim.params.worldWidth, worldHeight: runner.sim.params.worldHeight }, CANVAS_SIZE, CANVAS_SIZE);
 let activeView: ViewName = "world";
 let scatterXGene: keyof Genome = "speed";
 let scatterYGene: keyof Genome = "senseRadius";
@@ -145,6 +214,7 @@ const controls = createControls({
     godModePanel.setUndoEnabled(false);
     treePanel.setSelectedSpecies(null, 0, runner.colorOptions, runner.sim.state.evolution.foundingCentroid, []);
     treePanel.setLineageFilterActive(false);
+    worldCamera = createDefaultCamera({ worldWidth: runner.sim.params.worldWidth, worldHeight: runner.sim.params.worldHeight }, CANVAS_SIZE, CANVAS_SIZE);
     render();
   },
   onDeuteranopiaToggle: (enabled) => {
@@ -261,21 +331,27 @@ sidebar.append(
   controls.inspectorRoot,
 );
 
+const worldCameraControls = attachCameraControls(
+  worldCanvas,
+  () => worldCamera,
+  (camera) => (worldCamera = camera),
+  () => ({ worldWidth: runner.sim.params.worldWidth, worldHeight: runner.sim.params.worldHeight }),
+  render,
+);
+
 worldCanvas.addEventListener("click", (event) => {
-  const rect = worldCanvas.getBoundingClientRect();
-  const canvasX = ((event.clientX - rect.left) / rect.width) * worldCanvas.width;
-  const canvasY = ((event.clientY - rect.top) / rect.height) * worldCanvas.height;
+  if (worldCameraControls.consumeDrag()) return;
+  const { x: canvasX, y: canvasY } = canvasCoords(worldCanvas, event);
 
   if (runner.activeTool) {
-    const scaleX = worldCanvas.width / runner.sim.params.worldWidth;
-    const scaleY = worldCanvas.height / runner.sim.params.worldHeight;
-    runner.useToolAt(canvasX / scaleX, canvasY / scaleY);
+    const world = screenToWorld(worldCamera, { worldWidth: runner.sim.params.worldWidth, worldHeight: runner.sim.params.worldHeight }, canvasX, canvasY);
+    runner.useToolAt(world.x, world.y);
     godModePanel.setUndoEnabled(runner.canUndoMeteor());
     render();
     return;
   }
 
-  const creature = findCreatureAt(runner.sim.state, runner.sim.params, canvasX, canvasY, worldCanvas.width, worldCanvas.height);
+  const creature = findCreatureAt(runner.sim.state, runner.sim.params, worldCamera, canvasX, canvasY);
   runner.select(creature?.id ?? null);
   controls.setInspected(creature);
   render();
@@ -318,6 +394,7 @@ function render(): void {
       colorOptions: runner.colorOptions,
       selectedCreatureId: runner.selectedCreatureId,
       lineageFilter: runner.lineageFilter,
+      camera: worldCamera,
     });
     if (showCompetitionHeatmap) {
       renderCompetitionHeatmap(worldCtx, runner.sim.state, runner.sim.params, runner.colorOptions);
@@ -391,6 +468,7 @@ gameSidebar.className = "sidebar";
 gameRoot.append(gameCanvasArea, gameSidebar);
 
 let gameRunner = new GameRunner("sandbox", 12345);
+let gameCamera: CameraState = createDefaultCamera({ worldWidth: gameRunner.game.sim.params.worldWidth, worldHeight: gameRunner.game.sim.params.worldHeight }, CANVAS_SIZE, CANVAS_SIZE);
 
 const gameGodModePanel = createGodModePanel(
   {
@@ -409,6 +487,7 @@ const gameControls = createGameControlsPanel(PROTOTYPE_CHALLENGES, {
     const challenge = challengeId ? PROTOTYPE_CHALLENGES.find((c) => c.id === challengeId) : undefined;
     gameRunner = new GameRunner(mode, seed, challenge);
     gameGodModePanel.setActiveTool(null);
+    gameCamera = createDefaultCamera({ worldWidth: gameRunner.game.sim.params.worldWidth, worldHeight: gameRunner.game.sim.params.worldHeight }, CANVAS_SIZE, CANVAS_SIZE);
     renderGame();
   },
   onAdvanceEra: () => {
@@ -442,14 +521,20 @@ const checkpointsPanel = createCheckpointsPanel({
 
 gameSidebar.append(gameControls.root, gameGodModePanel.root, objectivesPanel.root, eraSummaryPanel.root, checkpointsPanel.root);
 
+const gameCameraControls = attachCameraControls(
+  gameCanvas,
+  () => gameCamera,
+  (camera) => (gameCamera = camera),
+  () => ({ worldWidth: gameRunner.game.sim.params.worldWidth, worldHeight: gameRunner.game.sim.params.worldHeight }),
+  renderGame,
+);
+
 gameCanvas.addEventListener("click", (event) => {
+  if (gameCameraControls.consumeDrag()) return;
   if (!gameRunner.activeTool) return;
-  const rect = gameCanvas.getBoundingClientRect();
-  const canvasX = ((event.clientX - rect.left) / rect.width) * gameCanvas.width;
-  const canvasY = ((event.clientY - rect.top) / rect.height) * gameCanvas.height;
-  const scaleX = gameCanvas.width / gameRunner.game.sim.params.worldWidth;
-  const scaleY = gameCanvas.height / gameRunner.game.sim.params.worldHeight;
-  gameRunner.useToolAt(canvasX / scaleX, canvasY / scaleY);
+  const { x: canvasX, y: canvasY } = canvasCoords(gameCanvas, event);
+  const world = screenToWorld(gameCamera, { worldWidth: gameRunner.game.sim.params.worldWidth, worldHeight: gameRunner.game.sim.params.worldHeight }, canvasX, canvasY);
+  gameRunner.useToolAt(world.x, world.y);
   renderGame();
 });
 
@@ -459,6 +544,7 @@ function renderGame(): void {
     colorOptions: GAME_COLOR_OPTIONS,
     selectedCreatureId: null,
     lineageFilter: null,
+    camera: gameCamera,
   });
 
   let livingSpeciesCount = 0;

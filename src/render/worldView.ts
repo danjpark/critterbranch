@@ -1,10 +1,13 @@
 import type { Creature } from "../sim/creature.ts";
+import { derivePhenotype } from "../sim/phenotype.ts";
 import type { SimState } from "../sim/sim.ts";
 import type { TerrainGrid } from "../sim/terrain.ts";
 import { cellIndexAt } from "../sim/trees.ts";
 import { clamp01, lerp, torDelta } from "../sim/util.ts";
 import type { Params } from "../params.ts";
+import { type CameraState, screenScale, screenToWorld, type WorldExtent, worldToScreen } from "./camera.ts";
 import { cachedGenotypeColor, type ColorOptions } from "./color.ts";
+import { drawCreatureGlyph } from "./creatureGlyph.ts";
 import { CONTOUR_LINE_COLOR, elevationBand, type ElevationBand, terrainCellColor } from "./terrainPalette.ts";
 
 export interface RenderOptions {
@@ -13,48 +16,60 @@ export interface RenderOptions {
   /** null = show every creature; otherwise only creatures whose species (lineageId) is in the
    * set are drawn — set by clicking a branch in the tree view ("show only this lineage"). */
   lineageFilter: Set<number> | null;
+  /** SPEC.md Addendum 18 — pan/zoom camera. Callers own the CameraState (one per canvas); this
+   * module only reads it. */
+  camera: CameraState;
+}
+
+function worldExtent(params: Params): WorldExtent {
+  return { worldWidth: params.worldWidth, worldHeight: params.worldHeight };
 }
 
 export function renderWorld(ctx: CanvasRenderingContext2D, state: SimState, params: Params, options: RenderOptions): void {
   const canvasWidth = ctx.canvas.width;
   const canvasHeight = ctx.canvas.height;
-  const scaleX = canvasWidth / params.worldWidth;
-  const scaleY = canvasHeight / params.worldHeight;
+  const extent = worldExtent(params);
 
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-  ctx.drawImage(getTerrainLayer(state.evolution.terrain, params, scaleX, scaleY, canvasWidth, canvasHeight), 0, 0);
-  drawTrees(ctx, state, params, scaleX, scaleY);
-  drawCreatures(ctx, state, options, scaleX, scaleY);
+  drawTerrainLayer(ctx, options.camera, extent, state.evolution.terrain, params);
+  drawTrees(ctx, state, params, options.camera, extent);
+  drawCreatures(ctx, state, params, options, extent);
 }
 
-// Terrain is static for most of a SimState's lifetime, so redrawing all ~2,500 cells every frame
-// is pure waste. Render it once per (terrain grid, canvas size, terrain revision) and blit the
-// cached layer. Keyed by object identity via WeakMap, so a restart (which builds a new
-// TerrainGrid) naturally misses the cache — no manual reset needed. Staleness from an in-place
-// terrain edit (a god-mode brush stroke, an in-progress barrier ramp) is detected the same
-// automatic way, by comparing revision numbers — see TerrainGrid.revision in sim/terrain.ts.
-// Nothing outside this module needs to know a cache exists here at all, let alone invalidate it.
-const terrainLayerCache = new WeakMap<TerrainGrid, { canvas: HTMLCanvasElement; width: number; height: number; revision: number }>();
+// Terrain is static for most of a SimState's lifetime, so repainting all ~2,500 cells every frame
+// is pure waste. Rendered once per (terrain grid, terrain revision) at a fixed NATIVE resolution
+// independent of the viewport/camera — unlike the pre-Addendum-18 cache (keyed by canvas size too),
+// this same cached bitmap now serves every zoom level, blitted+scaled by drawTerrainLayer below via
+// the camera's own projection. Keyed by object identity via WeakMap, so a restart (new TerrainGrid)
+// naturally misses the cache; staleness from an in-place edit is caught by comparing revisions.
+// Known simplification, not hidden: TERRAIN_CACHE_CELL_PX is a fixed native resolution, so zooming
+// in close to MAX_ZOOM shows some upscale blur on terrain (creatures/trees stay crisp — they draw
+// fresh every frame in screen-space, only terrain is a raster cache). Revisit with a zoom-aware
+// cache resolution if that blur turns out to matter in practice.
+const TERRAIN_CACHE_CELL_PX = 32;
+const terrainLayerCache = new WeakMap<TerrainGrid, { canvas: HTMLCanvasElement; revision: number }>();
 
-function getTerrainLayer(
-  terrain: TerrainGrid,
-  params: Params,
-  scaleX: number,
-  scaleY: number,
-  canvasWidth: number,
-  canvasHeight: number,
-): HTMLCanvasElement {
+function getTerrainLayer(terrain: TerrainGrid, params: Params): HTMLCanvasElement {
   const cached = terrainLayerCache.get(terrain);
-  if (cached && cached.width === canvasWidth && cached.height === canvasHeight && cached.revision === terrain.revision) {
-    return cached.canvas;
-  }
+  if (cached && cached.revision === terrain.revision) return cached.canvas;
 
   const layer = document.createElement("canvas");
-  layer.width = canvasWidth;
-  layer.height = canvasHeight;
-  paintTerrain(layer.getContext("2d")!, terrain, params, scaleX, scaleY);
-  terrainLayerCache.set(terrain, { canvas: layer, width: canvasWidth, height: canvasHeight, revision: terrain.revision });
+  layer.width = terrain.cols * TERRAIN_CACHE_CELL_PX;
+  layer.height = terrain.rows * TERRAIN_CACHE_CELL_PX;
+  const nativeScale = TERRAIN_CACHE_CELL_PX / params.gridCellSize;
+  paintTerrain(layer.getContext("2d")!, terrain, params, nativeScale, nativeScale);
+  terrainLayerCache.set(terrain, { canvas: layer, revision: terrain.revision });
   return layer;
+}
+
+/** Blits the cached native-resolution terrain bitmap, positioned and scaled by the camera's own
+ * projection — at the default camera (zoom=1, centered) this draws the cache stretched to exactly
+ * fill the canvas, the same visual result the old fixed-fit renderer produced. */
+function drawTerrainLayer(ctx: CanvasRenderingContext2D, camera: CameraState, extent: WorldExtent, terrain: TerrainGrid, params: Params): void {
+  const layer = getTerrainLayer(terrain, params);
+  const topLeft = worldToScreen(camera, extent, 0, 0);
+  const bottomRight = worldToScreen(camera, extent, extent.worldWidth, extent.worldHeight);
+  ctx.drawImage(layer, topLeft.x, topLeft.y, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y);
 }
 
 /**
@@ -62,7 +77,9 @@ function getTerrainLayer(
  * at band boundaries — a map-editor-style readable relief rather than a smooth gradient. Terrain
  * still stays background, never competing with creature hue (see render/terrainPalette.ts); a
  * barrier stamp's passability change (independent of elevation) still darkens a cell so a
- * hand-drawn barrier remains visible regardless of band.
+ * hand-drawn barrier remains visible regardless of band. `scaleX`/`scaleY` here are the NATIVE
+ * cache's own pixels-per-world-unit (see getTerrainLayer), not the camera's — this function knows
+ * nothing about the camera at all, matching how it never knew about canvas size before Addendum 18.
  */
 function paintTerrain(ctx: CanvasRenderingContext2D, terrain: TerrainGrid, params: Params, scaleX: number, scaleY: number): void {
   const cellW = params.gridCellSize * scaleX;
@@ -140,11 +157,12 @@ function pseudoRandom(seed: number): number {
  * blends from a pale, depleted tone toward a vivid green as the tree's OWN current fruit
  * (world.fruit at its cell, against its own capacity-and-fertility ceiling) fills back up — so one
  * glyph carries both "how developed is this tree" and "how much food is on it right now," instead
- * of two separate, potentially-overlapping visual layers.
+ * of two separate, potentially-overlapping visual layers. Positioned/scaled through the camera
+ * (SPEC.md Addendum 18) instead of a flat canvas-fit scale.
  */
-function drawTrees(ctx: CanvasRenderingContext2D, state: SimState, params: Params, scaleX: number, scaleY: number): void {
+function drawTrees(ctx: CanvasRenderingContext2D, state: SimState, params: Params, camera: CameraState, extent: WorldExtent): void {
   const { world, terrain, trees, tick } = state.evolution;
-  const cellSize = Math.min(params.gridCellSize * scaleX, params.gridCellSize * scaleY);
+  const cellSize = params.gridCellSize * screenScale(camera, extent);
   const minRadius = cellSize * MIN_CANOPY_RADIUS_FRAC;
   // Typical poor-tree capacity is ~15% of treeFruitCapacity (see sim/trees.ts's poorTreeCapacity);
   // a shallow-water or rich tree sits at 100%. Clamped so an even-poorer-than-usual capacity
@@ -168,16 +186,15 @@ function drawTrees(ctx: CanvasRenderingContext2D, state: SimState, params: Param
     const grownRadius = cellSize * lerp(MAX_CANOPY_RADIUS_FRAC * POOR_TREE_RADIUS_SCALE, MAX_CANOPY_RADIUS_FRAC, richnessFrac);
     const canopyRadius = lerp(minRadius, grownRadius, growth);
 
-    const baseX = tree.x * scaleX;
-    const baseY = tree.y * scaleY;
+    const base = worldToScreen(camera, extent, tree.x, tree.y);
     const trunkHeight = lerp(canopyRadius * 0.3, canopyRadius * 0.9, growth);
-    const canopyCenterY = baseY - trunkHeight;
+    const canopyCenterY = base.y - trunkHeight;
 
     ctx.strokeStyle = TRUNK_COLOR;
     ctx.lineWidth = Math.max(1, canopyRadius * 0.18);
     ctx.beginPath();
-    ctx.moveTo(baseX, baseY);
-    ctx.lineTo(baseX, canopyCenterY);
+    ctx.moveTo(base.x, base.y);
+    ctx.lineTo(base.x, canopyCenterY);
     ctx.stroke();
 
     const [fr, fg, fb] = CANOPY_FULL_COLOR;
@@ -194,7 +211,7 @@ function drawTrees(ctx: CanvasRenderingContext2D, state: SimState, params: Param
     for (let i = 0; i < blobCount; i++) {
       const angle = pseudoRandom(tree.id * 7 + i) * Math.PI * 2;
       const offset = canopyRadius * 0.35 * pseudoRandom(tree.id * 13 + i);
-      const blobX = baseX + Math.cos(angle) * offset;
+      const blobX = base.x + Math.cos(angle) * offset;
       const blobY = canopyCenterY + Math.sin(angle) * offset * 0.6;
       const blobRadius = canopyRadius * lerp(0.55, 0.8, pseudoRandom(tree.id * 19 + i));
 
@@ -205,30 +222,36 @@ function drawTrees(ctx: CanvasRenderingContext2D, state: SimState, params: Param
   }
 }
 
-function drawCreatures(ctx: CanvasRenderingContext2D, state: SimState, options: RenderOptions, scaleX: number, scaleY: number): void {
-  const radius = Math.max(2, Math.min(scaleX, scaleY) * 1.1);
+const BASE_CREATURE_RADIUS_FRAC = 1.1;
+
+/** Draws every living creature as a procedural mammal glyph (SPEC.md Addendum 18) instead of the
+ * old flat colored circle — same genotype color, positioned/scaled through the camera. bodyScale
+ * (Addendum 17) modulates the base radius so larger-genomed creatures visibly read as bigger. */
+function drawCreatures(ctx: CanvasRenderingContext2D, state: SimState, params: Params, options: RenderOptions, extent: WorldExtent): void {
+  const { camera } = options;
+  const baseRadius = Math.max(2, screenScale(camera, extent) * BASE_CREATURE_RADIUS_FRAC);
 
   for (const creature of state.evolution.creatures) {
     if (options.lineageFilter && !options.lineageFilter.has(creature.lineageId)) continue;
 
-    const cx = creature.x * scaleX;
-    const cy = creature.y * scaleY;
+    const screen = worldToScreen(camera, extent, creature.x, creature.y);
+    const morphology = derivePhenotype(creature.genome, params).morphology;
+    const radius = baseRadius * morphology.bodyScale;
     const fill = cachedGenotypeColor(creature, state.evolution.foundingCentroid, options.colorOptions);
 
-    // Thin dark outline underneath so light-lightness individuals don't vanish over pale ground.
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius + 1, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
-    ctx.fill();
+    // Thin dark silhouette underneath so light-lightness individuals don't vanish over pale ground
+    // — drawn as a slightly larger copy of the same glyph rather than a stroke, since the glyph's
+    // outline isn't a simple circle anymore.
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    drawCreatureGlyph(ctx, screen.x, screen.y, radius * 1.12, creature.heading, morphology, "#000000", creature.id);
+    ctx.restore();
 
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-    ctx.fillStyle = fill;
-    ctx.fill();
+    drawCreatureGlyph(ctx, screen.x, screen.y, radius, creature.heading, morphology, fill, creature.id);
 
     if (options.selectedCreatureId === creature.id) {
       ctx.beginPath();
-      ctx.arc(cx, cy, radius + 3, 0, Math.PI * 2);
+      ctx.arc(screen.x, screen.y, radius + 4, 0, Math.PI * 2);
       ctx.strokeStyle = "#ffffff";
       ctx.lineWidth = 2;
       ctx.stroke();
@@ -236,27 +259,18 @@ function drawCreatures(ctx: CanvasRenderingContext2D, state: SimState, options: 
   }
 }
 
-/** Nearest creature to a canvas-space click, or null if nothing is close enough. */
-export function findCreatureAt(
-  state: SimState,
-  params: Params,
-  canvasX: number,
-  canvasY: number,
-  canvasWidth: number,
-  canvasHeight: number,
-): Creature | null {
-  const scaleX = canvasWidth / params.worldWidth;
-  const scaleY = canvasHeight / params.worldHeight;
-  const worldX = canvasX / scaleX;
-  const worldY = canvasY / scaleY;
-  const pickRadius = 8 / Math.min(scaleX, scaleY);
+/** Nearest creature to a camera-projected screen-space click, or null if nothing is close enough. */
+export function findCreatureAt(state: SimState, params: Params, camera: CameraState, screenX: number, screenY: number): Creature | null {
+  const extent = worldExtent(params);
+  const world = screenToWorld(camera, extent, screenX, screenY);
+  const pickRadius = 8 / screenScale(camera, extent);
 
   let closest: Creature | null = null;
   let closestDist = pickRadius;
 
   for (const creature of state.evolution.creatures) {
-    const dx = torDelta(creature.x, worldX, params.worldWidth);
-    const dy = torDelta(creature.y, worldY, params.worldHeight);
+    const dx = torDelta(creature.x, world.x, params.worldWidth);
+    const dy = torDelta(creature.y, world.y, params.worldHeight);
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist < closestDist) {
       closestDist = dist;
