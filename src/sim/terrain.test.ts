@@ -1,7 +1,46 @@
 import { describe, expect, it } from "vitest";
-import { generateTerrain, passabilityFromSteepness, terrainDerivedFields } from "./terrain.ts";
+import { elevationBand, generateTerrain, passabilityFromSteepness, terrainDerivedFields } from "./terrain.ts";
 import { RNG } from "./rng.ts";
 import { DEFAULT_PARAMS } from "../params.ts";
+
+const ROUGHNESS = 0.3;
+
+// Moved from render/terrainPalette.test.ts — elevationBand's definition moved here too (SPEC.md
+// Addendum 15), since it's pure domain classification, not a rendering concern.
+describe("elevationBand", () => {
+  it("classifies elevation below sea level as water", () => {
+    expect(elevationBand(-0.01, 0, ROUGHNESS)).toBe("water");
+    expect(elevationBand(0, 0.05, ROUGHNESS)).toBe("water");
+  });
+
+  it("classifies low elevation above sea level as lowland", () => {
+    expect(elevationBand(0, 0, ROUGHNESS)).toBe("lowland");
+    expect(elevationBand(ROUGHNESS * 0.2, 0, ROUGHNESS)).toBe("lowland");
+  });
+
+  it("bands are measured relative to sea level, not absolute elevation", () => {
+    // Same absolute elevation, different sea level: right at the waterline reads as lowland
+    // (norm 0), well above it reads as hill — the point of measuring relative to seaLevel.
+    expect(elevationBand(0.2, 0.2, ROUGHNESS)).toBe("lowland");
+    expect(elevationBand(0.2, 0, ROUGHNESS)).toBe("hill");
+  });
+
+  it("classifies mid elevation as hill", () => {
+    expect(elevationBand(ROUGHNESS * 0.5, 0, ROUGHNESS)).toBe("hill");
+  });
+
+  it("classifies high elevation as mountain", () => {
+    expect(elevationBand(ROUGHNESS * 0.9, 0, ROUGHNESS)).toBe("mountain");
+  });
+
+  it("clamps a hand-raised peak far above terrainRoughness into mountain, not a new category", () => {
+    expect(elevationBand(3, 0, ROUGHNESS)).toBe("mountain");
+  });
+
+  it("treats zero/negative roughness as an edge case that still returns a valid band", () => {
+    expect(elevationBand(0.1, 0, 0)).toBe("mountain");
+  });
+});
 
 describe("generateTerrain", () => {
   it("is deterministic for a given RNG sequence", () => {

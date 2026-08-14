@@ -125,14 +125,15 @@ export function resolvePredation(
     const prey = byId.get(attempt.preyId);
     if (!predator || !prey) continue;
 
-    const successProb = combatSuccessProbability(derivePhenotype(predator.genome, params), derivePhenotype(prey.genome, params));
+    const predatorPhenotype = derivePhenotype(predator.genome, params);
+    const successProb = combatSuccessProbability(predatorPhenotype, derivePhenotype(prey.genome, params));
 
     if (rng.next() < successProb) {
       // How much of the prey's energy the predator actually converts — a pure carnivore
       // (carnivory 1) gets the full amount, a poorly-specialized attacker gets a fraction, the
       // same specialization curve fruit-eating uses (see genome.ts's specializationFactor), just
       // applied against a whole creature's energy instead of a small per-tick bite.
-      const meatEfficiency = specializationFactor(predator.genome.carnivory, 1, params);
+      const meatEfficiency = specializationFactor(predatorPhenotype.carnivory, 1, params);
       const energyGained = prey.energy * meatEfficiency;
       predator.energy += energyGained;
       killed.add(prey.id);

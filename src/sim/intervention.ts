@@ -1,5 +1,6 @@
-import { createCreature, energyCapacity } from "./creature.ts";
+import { createCreature } from "./creature.ts";
 import { type Genome, randomGenome } from "./genome.ts";
+import { derivePhenotype } from "./phenotype.ts";
 import type { RNG } from "./rng.ts";
 import type { EvolutionState } from "./sim.ts";
 import { terrainDerivedFields } from "./terrain.ts";
@@ -285,7 +286,7 @@ function applySeedFounders(state: EvolutionState, params: Params, rng: RNG, p: S
         genome,
         x,
         y,
-        energy: energyCapacity(genome, params) * 0.5,
+        energy: derivePhenotype(genome, params).energyCapacity * 0.5,
         birthTick: currentTick,
         rng,
       }),

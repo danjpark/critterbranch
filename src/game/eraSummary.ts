@@ -1,5 +1,6 @@
 import type { Genome, TraitSample } from "../sim/genome.ts";
 import { GENE_KEYS } from "../sim/genome.ts";
+import type { DiscoveryMatch } from "./discovery/discoveryJournal.ts";
 import type { Game } from "./game.ts";
 
 export interface EraSnapshot {
@@ -97,4 +98,6 @@ export interface EraSummary {
   endedEarly: boolean;
   /** The tick the era was originally targeting — equals after.tick unless endedEarly is true. */
   plannedTick: number;
+  /** Critterdex entries newly confirmed this era (SPEC.md Addendum 16) — empty most eras. */
+  newDiscoveries: DiscoveryMatch[];
 }

@@ -1,6 +1,5 @@
-import { elevationBand, type ElevationBand } from "../../render/terrainPalette.ts";
 import type { Creature } from "../../sim/creature.ts";
-import type { TerrainGrid } from "../../sim/terrain.ts";
+import { elevationBand, type ElevationBand, type TerrainGrid } from "../../sim/terrain.ts";
 import type { Species, TaxonomyState } from "../../sim/taxonomy.ts";
 import type { SpeciesBehaviorStats } from "../../sim/speciesBehaviorStats.ts";
 import { wrap } from "../../sim/util.ts";

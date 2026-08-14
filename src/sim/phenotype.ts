@@ -13,6 +13,11 @@ import { passabilityFromSteepness } from "./terrain.ts";
 export interface Phenotype {
   speed: number;
   size: number;
+  /** Pure pass-throughs, same treatment as speed/size — promoted from direct genome reads in
+   * creature.ts/predation.ts to close the last "one seam, one still ad hoc" gap (SPEC.md
+   * Addendum 15). */
+  senseRadius: number;
+  carnivory: number;
   /** SPEC.md Addendum 7's seam, relocated here in Addendum 11 rather than living as its own
    * genome-reading function in predation.ts — same reasoning Dan originally asked for: swapping
    * this for a real dedicated gene later shouldn't require touching any call site. */
@@ -20,6 +25,11 @@ export interface Phenotype {
   evasionPower: number;
   /** 0 = land specialist, 1 = water specialist — SPEC.md Addendum 12 (Milestone 6). */
   aquaticAdaptation: number;
+  /** Formerly standalone genome-reading functions in creature.ts (energyCapacity/metabolicCost) —
+   * relocated here since both depend on nothing but phenotype + params, same category as
+   * attackPower, not movementEfficiency (SPEC.md Addendum 15). */
+  energyCapacity: number;
+  metabolicCost: number;
 }
 
 /**
@@ -33,9 +43,13 @@ export function derivePhenotype(genome: Genome, params: Params): Phenotype {
   return {
     speed: genome.speed,
     size: genome.size,
+    senseRadius: genome.senseRadius,
+    carnivory: genome.carnivory,
     attackPower: genome.size * attackMultiplier,
     evasionPower: genome.speed,
     aquaticAdaptation: genome.aquaticAdaptation,
+    energyCapacity: params.baseEnergyCapacity * genome.size,
+    metabolicCost: params.baseCost * genome.size + params.moveCost * genome.speed * genome.speed * genome.size + params.senseCost * genome.senseRadius,
   };
 }
 

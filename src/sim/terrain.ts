@@ -2,6 +2,34 @@ import type { Params } from "../params.ts";
 import type { RNG } from "./rng.ts";
 import { clamp01, torDelta } from "./util.ts";
 
+export type ElevationBand = "water" | "lowland" | "hill" | "mountain";
+
+const HILL_THRESHOLD = 0.33;
+const MOUNTAIN_THRESHOLD = 0.7;
+
+/**
+ * Which discrete elevation band a raw elevation value falls into. Land bands are normalized
+ * against the run's own terrainRoughness (the parameter that actually controls how tall generated
+ * terrain gets) — not the hard [-3,3] god-mode clamp — and measured relative to seaLevel, not
+ * absolute 0, same as passability/fertility (SPEC.md Addendum 9): a hill barely above the waterline
+ * reads as lowland, not a head start into "hill." That keeps the bands meaningful whether the map
+ * is a gentle default hill-scape or a player has hand-raised a mountain far above what natural
+ * generation produces: a hand-raised peak past terrainRoughness just clamps into "mountain" rather
+ * than needing a fifth category.
+ *
+ * Lives in sim/, not render/, since it's pure domain classification (elevation/seaLevel/roughness
+ * in, a band out — no color/canvas concern) that game/observability's habitat profile needs too
+ * (SPEC.md Addendum 15) — render/terrainPalette.ts imports and re-exports this for its own callers
+ * rather than owning the definition.
+ */
+export function elevationBand(elevation: number, seaLevel: number, terrainRoughness: number): ElevationBand {
+  if (elevation < seaLevel) return "water";
+  const norm = clamp01((elevation - seaLevel) / Math.max(terrainRoughness, 1e-6));
+  if (norm <= HILL_THRESHOLD) return "lowland";
+  if (norm <= MOUNTAIN_THRESHOLD) return "hill";
+  return "mountain";
+}
+
 export interface TerrainGrid {
   cols: number;
   rows: number;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { createCreature, energyCapacity, gainPerUnit, isReadyToReproduce, metabolicCost, reproduce } from "./creature.ts";
+import { createCreature, gainPerUnit, isReadyToReproduce, reproduce } from "./creature.ts";
 import { GENE_RANGES, randomGenome, type Genome } from "./genome.ts";
+import { derivePhenotype } from "./phenotype.ts";
 import { RNG } from "./rng.ts";
 import { DEFAULT_PARAMS } from "../params.ts";
 
@@ -9,32 +10,7 @@ function testGenome(overrides: Partial<Genome> = {}): Genome {
   return { ...randomGenome(rng), ...overrides };
 }
 
-describe("energyCapacity", () => {
-  it("scales linearly with size", () => {
-    const params = DEFAULT_PARAMS;
-    const small = energyCapacity(testGenome({ size: 1 }), params);
-    const large = energyCapacity(testGenome({ size: 2 }), params);
-    expect(large).toBeCloseTo(small * 2);
-  });
-});
-
-describe("metabolicCost", () => {
-  it("is strictly positive for every gene combination in range — no trait is free", () => {
-    const params = DEFAULT_PARAMS;
-    const cheapest = testGenome({ size: GENE_RANGES.size[0], speed: GENE_RANGES.speed[0], senseRadius: GENE_RANGES.senseRadius[0] });
-    expect(metabolicCost(cheapest, params)).toBeGreaterThan(0);
-  });
-
-  it("grows quadratically with speed", () => {
-    const params = DEFAULT_PARAMS;
-    const slow = metabolicCost(testGenome({ speed: 1, size: 1, senseRadius: 0 }), params);
-    const fast = metabolicCost(testGenome({ speed: 2, size: 1, senseRadius: 0 }), params);
-    // moveCost*speed^2 term should roughly quadruple, not double, when speed doubles.
-    const slowMoveCost = slow - params.baseCost * 1;
-    const fastMoveCost = fast - params.baseCost * 1;
-    expect(fastMoveCost / slowMoveCost).toBeCloseTo(4, 1);
-  });
-});
+// energyCapacity/metabolicCost are now Phenotype fields — see phenotype.test.ts (SPEC.md Addendum 15).
 
 describe("gainPerUnit", () => {
   it("gives the maximum gain to a perfectly-matched specialist", () => {
@@ -64,7 +40,7 @@ describe("isReadyToReproduce / reproduce", () => {
   it("is not ready below its reproThreshold fraction of capacity", () => {
     const genome = testGenome({ reproThreshold: 0.5, size: 1 });
     const params = DEFAULT_PARAMS;
-    const capacity = energyCapacity(genome, params);
+    const capacity = derivePhenotype(genome, params).energyCapacity;
     const rng = new RNG(1);
     const creature = createCreature({
       id: 0,
@@ -83,7 +59,7 @@ describe("isReadyToReproduce / reproduce", () => {
   it("is ready at or above its reproThreshold fraction of capacity", () => {
     const genome = testGenome({ reproThreshold: 0.5, size: 1 });
     const params = DEFAULT_PARAMS;
-    const capacity = energyCapacity(genome, params);
+    const capacity = derivePhenotype(genome, params).energyCapacity;
     const rng = new RNG(1);
     const creature = createCreature({
       id: 0,
@@ -106,7 +82,7 @@ describe("isReadyToReproduce / reproduce", () => {
     const rng = new RNG(7);
     for (let trial = 0; trial < 200; trial++) {
       const genome = randomGenome(rng);
-      const capacity = energyCapacity(genome, params);
+      const capacity = derivePhenotype(genome, params).energyCapacity;
       const parent = createCreature({
         id: trial,
         parentId: null,
@@ -120,7 +96,7 @@ describe("isReadyToReproduce / reproduce", () => {
       });
       const children = reproduce(parent, rng, params, 0, () => trial + 1000);
       for (const child of children) {
-        const childCapacity = energyCapacity(child.genome, params);
+        const childCapacity = derivePhenotype(child.genome, params).energyCapacity;
         const minPossibleThreshold = GENE_RANGES.reproThreshold[0];
         expect(child.energy).toBeLessThan(minPossibleThreshold * childCapacity);
       }

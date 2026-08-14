@@ -2,7 +2,7 @@ import type { ConsumptionGrid } from "./consumption.ts";
 import { recordConsumption } from "./consumption.ts";
 import { gainPerUnit, mutate, type Genome } from "./genome.ts";
 import type { Params } from "../params.ts";
-import { derivePhenotype, movementEfficiency } from "./phenotype.ts";
+import { derivePhenotype, movementEfficiency, type Phenotype } from "./phenotype.ts";
 import { type CreatureIndex, findBestNearbyCreature, type PredationAttempt } from "./predation.ts";
 import type { RNG } from "./rng.ts";
 import { recordDiet, type SpeciesBehaviorStats } from "./speciesBehaviorStats.ts";
@@ -75,18 +75,6 @@ export function createCreature(options: NewCreatureOptions): Creature {
   };
 }
 
-export function energyCapacity(genome: Genome, params: Params): number {
-  return params.baseEnergyCapacity * genome.size;
-}
-
-export function metabolicCost(genome: Genome, params: Params): number {
-  return (
-    params.baseCost * genome.size +
-    params.moveCost * genome.speed * genome.speed * genome.size +
-    params.senseCost * genome.senseRadius
-  );
-}
-
 interface SenseResult {
   x: number;
   y: number;
@@ -99,18 +87,19 @@ interface SenseResult {
 
 function senseFoodOrPrey(
   creature: Creature,
+  phenotype: Phenotype,
   world: World,
   creatureIndex: CreatureIndex,
   params: Params,
   worldWidth: number,
   worldHeight: number,
 ): SenseResult | null {
-  const fruitGain = gainPerUnit(creature.genome.carnivory, 0, params);
+  const fruitGain = gainPerUnit(phenotype.carnivory, 0, params);
 
   const cellSize = params.gridCellSize;
   const cx = Math.floor(creature.x / cellSize);
   const cy = Math.floor(creature.y / cellSize);
-  const radiusCells = Math.ceil(creature.genome.senseRadius / cellSize);
+  const radiusCells = Math.ceil(phenotype.senseRadius / cellSize);
 
   let best: SenseResult | null = null;
   for (let dy = -radiusCells; dy <= radiusCells; dy++) {
@@ -121,7 +110,7 @@ function senseFoodOrPrey(
       const cellCenterX = gx * cellSize + cellSize / 2;
       const cellCenterY = gy * cellSize + cellSize / 2;
       const dist = torDist(creature.x, creature.y, cellCenterX, cellCenterY, worldWidth, worldHeight);
-      if (dist > creature.genome.senseRadius) continue;
+      if (dist > phenotype.senseRadius) continue;
 
       const amt = world.fruit[idx];
       if (amt > 1e-3) {
@@ -135,13 +124,13 @@ function senseFoodOrPrey(
   // Addendum 14) — without this floor, gainPerUnit's meat curve is nonzero for almost any
   // carnivory above ~0, so virtually the whole population ends up opportunistically attacking for
   // a near-zero payoff instead of predation being a genuine specialist behavior.
-  if (creature.genome.carnivory >= params.carnivoryHuntingThreshold) {
-    const meatGain = gainPerUnit(creature.genome.carnivory, 1, params);
+  if (phenotype.carnivory >= params.carnivoryHuntingThreshold) {
+    const meatGain = gainPerUnit(phenotype.carnivory, 1, params);
     const prey = findBestNearbyCreature(
       creatureIndex,
       creature.x,
       creature.y,
-      creature.genome.senseRadius,
+      phenotype.senseRadius,
       creature.id,
       (candidate, dist) => (candidate.energy * meatGain) / (dist + 1),
     );
@@ -172,7 +161,9 @@ export function stepCreature(
   const worldWidth = world.cols * params.gridCellSize;
   const worldHeight = world.rows * params.gridCellSize;
 
-  const target = senseFoodOrPrey(creature, world, creatureIndex, params, worldWidth, worldHeight);
+  const phenotype = derivePhenotype(creature.genome, params);
+
+  const target = senseFoodOrPrey(creature, phenotype, world, creatureIndex, params, worldWidth, worldHeight);
   if (target) {
     const dx = torDelta(target.x, creature.x, worldWidth);
     const dy = torDelta(target.y, creature.y, worldHeight);
@@ -189,12 +180,12 @@ export function stepCreature(
   const cellY = wrap(Math.floor(creature.y / params.gridCellSize), world.rows);
   const cellIdx = cellY * world.cols + cellX;
 
-  const travel = movementEfficiency(derivePhenotype(creature.genome, params), { elevation: terrain.elevation[cellIdx], seaLevel: terrain.seaLevel }, params);
+  const travel = movementEfficiency(phenotype, { elevation: terrain.elevation[cellIdx], seaLevel: terrain.seaLevel }, params);
   creature.x = wrap(creature.x + Math.cos(creature.heading) * travel, worldWidth);
   creature.y = wrap(creature.y + Math.sin(creature.heading) * travel, worldHeight);
   creature.distanceTraveled += travel;
 
-  creature.energy -= metabolicCost(creature.genome, params);
+  creature.energy -= phenotype.metabolicCost;
 
   let attempt: PredationAttempt | null = null;
   if (target?.preyTarget && tick >= creature.attackCooldownUntilTick) {
@@ -212,7 +203,7 @@ export function stepCreature(
 
   if (take > 0) {
     world.fruit[idx] -= take;
-    creature.energy += take * gainPerUnit(creature.genome.carnivory, 0, params);
+    creature.energy += take * gainPerUnit(phenotype.carnivory, 0, params);
     if (consumptionGrid) recordConsumption(consumptionGrid, creature.lineageId, idx, take);
     if (speciesBehavior) recordDiet(speciesBehavior, creature.lineageId, 0, take);
     trySeedSapling(treeState, creature.x, creature.y, rng, params, terrain, tick, world);
@@ -223,7 +214,7 @@ export function stepCreature(
 }
 
 export function isReadyToReproduce(creature: Creature, params: Params): boolean {
-  return creature.energy >= creature.genome.reproThreshold * energyCapacity(creature.genome, params);
+  return creature.energy >= creature.genome.reproThreshold * derivePhenotype(creature.genome, params).energyCapacity;
 }
 
 /**
@@ -246,7 +237,7 @@ export function reproduce(creature: Creature, rng: RNG, params: Params, tick: nu
   );
 
   const childGenomes = Array.from({ length: numOffspring }, () => mutate(creature.genome, rng));
-  const childEnergies = childGenomes.map((g) => investmentFraction * energyCapacity(g, params));
+  const childEnergies = childGenomes.map((g) => investmentFraction * derivePhenotype(g, params).energyCapacity);
   const totalCost = childEnergies.reduce((sum, e) => sum + e, 0);
 
   // Never let reproduction push the parent below zero, even if a lucky mutation briefly

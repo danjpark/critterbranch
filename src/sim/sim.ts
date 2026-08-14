@@ -1,9 +1,10 @@
-import { type Creature, createCreature, energyCapacity, isReadyToReproduce, reproduce, stepCreature } from "./creature.ts";
+import { type Creature, createCreature, isReadyToReproduce, reproduce, stepCreature } from "./creature.ts";
 import { cloneConsumptionGrid, type ConsumptionGrid, decayConsumption, initConsumptionGrid } from "./consumption.ts";
 import { cloneGeneFlow, type GeneFlowState, initGeneFlow, updateGeneFlow } from "./geneFlow.ts";
 import { type Genome, genomeCentroid, randomGenome, sampleTraits, type TraitSample } from "./genome.ts";
 import { compactHistory, DEFAULT_HISTORY_RETENTION } from "./historyRetention.ts";
 import { applyNursing } from "./nursing.ts";
+import { derivePhenotype } from "./phenotype.ts";
 import type { RunConfig } from "./runConfig.ts";
 import {
   cloneSpeciesBehaviorStats,
@@ -123,7 +124,7 @@ export function createSimState(seed: number, params: Params): SimInstance {
     const genome = randomGenome(rng);
     // Deliberately below the lowest possible reproThreshold (0.4) so founders must forage
     // before reproducing, rather than instantly cascading off their starting endowment.
-    const startEnergy = energyCapacity(genome, params) * 0.35;
+    const startEnergy = derivePhenotype(genome, params).energyCapacity * 0.35;
     creatures.push(
       createCreature({
         id: nextId++,

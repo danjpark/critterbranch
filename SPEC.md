@@ -1557,3 +1557,240 @@ dynamics genuinely differ now so an exact before/after comparison isn't meaningf
 every prior population-dynamics-affecting change has noted). Live-verified in browser: Classic
 Sandbox run to 64,000+ ticks at max speed with the new desktop sidebar grid active, zero console
 errors throughout, trait chart correctly selectable to carnivory.
+
+## Addendum 15 — completing the genotype→phenotype→performance contract: metabolism and foraging join movement and combat
+
+Design note, written before implementation. Same category as Addendum 11 (Milestone 5): an
+architecture to consolidate, not a new mechanic to design, with no real product fork for Dan to
+weigh in on — every value computed stays byte-identical, only where it's computed changes. This is
+the first piece of a larger externally-proposed roadmap extension Dan reviewed and partially
+approved (2026-08-14): reorder the plan so this contract-freeze work happens before resuming M7's
+visual work, while the doc's other headline change — replacing the current one-parent asexual
+`reproduce()` with two-parent sexual reproduction — stays explicitly parked, not approved. Nothing
+below depends on that parked decision; it's a refactor of how *existing* genes reach behavior, not a
+change to how reproduction itself works.
+
+### What's actually inconsistent today
+
+Addendum 9 gave movement a real seam (`movementEfficiency(phenotype, environment)`). Addendum 11
+gave combat the same treatment (`combatSuccessProbability(attacker, defender)`). Two more places
+still read `Genome` directly instead of `Phenotype`:
+
+1. **Metabolism.** `creature.ts`'s standalone `energyCapacity(genome, params)` and
+   `metabolicCost(genome, params)` read `genome.size`/`.speed`/`.senseRadius` directly, called from
+   `stepCreature`, `isReadyToReproduce`, `reproduce`, and (on bare genomes, before any `Creature`
+   exists) `sim.ts`'s founder seeding and `intervention.ts`'s god-mode seed-founders tool.
+2. **Foraging.** `creature.ts`'s `senseFoodOrPrey` reads `creature.genome.carnivory` (for
+   `gainPerUnit`) and `creature.genome.senseRadius` (for the sensing-radius scan) directly, plus the
+   `carnivoryHuntingThreshold` gate compares against `creature.genome.carnivory` directly.
+   `predation.ts`'s `resolvePredation` already derives a phenotype for `combatSuccessProbability`
+   but then reads `predator.genome.carnivory` directly two lines later for the kill's
+   `specializationFactor` — the exact same "one seam, one still ad hoc" gap Addendum 11 closed for
+   attack/evasion power, just missed for carnivory.
+
+Separately, a real layering violation: `game/observability/speciesProfile.ts` imports
+`elevationBand`/`ElevationBand` from `render/terrainPalette.ts` to build `HabitatProfile`. Habitat
+classification is a domain concept (it's a pure function of elevation/seaLevel/terrainRoughness, no
+canvas/color logic involved) that currently originates in the rendering module —
+`architectureBoundary.test.ts` only enforces `sim/` never importing `game/`, so this slipped through
+uncaught.
+
+### Concrete design
+
+**`Phenotype` grows four fields**: `senseRadius`, `carnivory` (both pure pass-throughs, same
+treatment `aquaticAdaptation` already gets), and `energyCapacity`, `metabolicCost` (both derived
+solely from phenotype + params, no environment needed — same category as `attackPower`, not
+`movementEfficiency`, so they become fields computed once in `derivePhenotype` rather than separate
+performance functions). `energyCapacity`/`metabolicCost` as standalone genome-reading functions are
+removed from `creature.ts` outright, not deprecated — every call site reads
+`derivePhenotype(genome, params).energyCapacity`/`.metabolicCost` instead, same pattern Addendum 11
+used for `effectiveAttackPower`/`effectiveEvasionPower`.
+
+**`stepCreature` derives phenotype once** near the top and reuses it for sensing, movement, and
+metabolism, instead of the current two separate inline `derivePhenotype` calls. `senseFoodOrPrey`
+takes the phenotype as a parameter rather than reading `creature.genome` itself.
+
+**`resolvePredation` reuses its already-derived phenotypes** for the `specializationFactor` meat-
+efficiency calculation instead of reading `predator.genome.carnivory` a second, inconsistent way.
+
+**`elevationBand`/`ElevationBand` move into `sim/terrain.ts`**, alongside `terrainDerivedFields` (the
+other elevation-relative-to-sea-level classification logic already living there).
+`render/terrainPalette.ts` imports and re-exports them so `worldView.ts`'s existing import keeps
+working unchanged; `speciesProfile.ts`'s import switches from `render/terrainPalette.ts` to
+`sim/terrain.ts` directly, the actual domain-correct source.
+
+### Deliberately out of scope for this pass
+
+No new genes, no morphology, no new Phenotype fields beyond the four above. Reproduction/life-history
+genes (`offspringInvestment`, `nursingDuration`, `reproThreshold`, `mutationRate`,
+`wanderPersistence`) deliberately stay genome-only, not promoted to Phenotype fields — the dividing
+line this pass draws is: genes evaluated against environment or an opponent (movement, combat,
+foraging) become phenotype fields with performance functions; genes consumed directly as behavioral
+dials with no environmental context stay genome reads. If that line needs to move later (e.g. a
+future morphology pass wants `reproductiveInvestment` as a derived trait), that's a new decision, not
+implied by this one. No change to `render/color.ts`, `scatterView.ts`, or trait-chart UI, which
+intentionally read raw genes for their own reasons (genotype-color math, trait time-series). No
+progress on the parked sexual-reproduction question, the finite Critterdex ontology, mammal
+morphology, or the 2.5D diorama — those stay queued behind this per the reordered plan above.
+
+**Implementation status (2026-08-14, same session): built exactly as designed, confirmed
+behavior-neutral — same success criterion and same confirmation method Addendum 11 used.**
+
+`Phenotype` gained `senseRadius`/`carnivory` (pass-throughs) and `energyCapacity`/`metabolicCost`
+(derived, moved from creature.ts's standalone functions of the same name, now deleted outright).
+`stepCreature` derives phenotype once and threads it through `senseFoodOrPrey`, movement, and
+metabolism instead of two separate inline `derivePhenotype` calls. `isReadyToReproduce`/`reproduce`
+read `derivePhenotype(...).energyCapacity`. `predation.ts`'s `resolvePredation` reuses its
+already-derived predator phenotype for `specializationFactor` instead of reading
+`predator.genome.carnivory` a second, inconsistent way. `intervention.ts`/`sim.ts`'s founder-seeding
+call sites updated to the new location. `elevationBand`/`ElevationBand` moved into `sim/terrain.ts`
+(next to `terrainDerivedFields`); `render/terrainPalette.ts` re-exports them for its own existing
+callers (`worldView.ts`); `speciesProfile.ts` now imports them from `sim/terrain.ts` directly,
+closing the layering violation. Tests followed the code: `creature.test.ts`'s `energyCapacity`/
+`metabolicCost` describe blocks moved to `phenotype.test.ts` (plus new senseRadius/carnivory
+pass-through coverage); `terrainPalette.test.ts`'s `elevationBand` describe block moved to
+`terrain.test.ts`.
+
+Full suite green (329 passed — up from 328, net +1 from new pass-through coverage — 1 pre-existing
+documented skip). Typecheck clean. **Zero tests needed reseeding or re-tuning** — every existing
+fixed-seed test, golden scenario, and bundled example scenario passed unchanged, the strongest
+available confirmation that no formula value or RNG-consumption order actually changed, only where
+each value is computed. Benchmark run clean (no errors, no perf regression); not diffed
+value-for-value against a prior snapshot since several population-dynamics-affecting milestones
+(M6, era pacing, the carnivory fix) sit between this pass and the last recorded benchmark baseline —
+the full suite's zero-reseed result is the more reliable signal here, same reasoning Addendum 11
+used.
+
+## Addendum 16 — the Critterdex, V1: a finite discovery layer over unlimited species
+
+Design note, written before implementation. Second item of the reordered mega-doc plan (see Addendum
+15's opening), picked up immediately after Item 3 closed. Unlike Addendum 15, this has real product
+surface — new persisted-during-a-run state, a new player-facing reward concept — so it got the same
+AskUserQuestion treatment as M3/M4/M6 rather than M5/Addendum 15's architecture-only skip. Two
+decisions confirmed (both "Recommended" chosen):
+
+1. **Persistence: run-local only for this pass.** No cross-run `PlayerProfile`, no browser storage
+   of any kind — this app has never silently persisted anything (named checkpoints are explicit,
+   manual, session-only, by Dan's own earlier choice; scenario export/import is an explicit
+   file-based action, not automatic). Cross-run collection is a real, separate decision (localStorage
+   vs. explicit export/import vs. something else) deferred to whenever this mechanic has actually
+   been played with, same pattern checkpoints followed.
+2. **First discovery set: reuse the 12 existing `CapabilityLabel` values directly**, not a curated
+   subset and not an empty registry. `SpeciesProfile`/`classifySpecies` (Addendum 5) already produce
+   exactly the evidence a discovery needs — herbivore, carnivore, omnivore, highland/lowland/
+   aquatic-adapted, fast-mover/sedentary, r/k-strategist, resilient/fragile — so V1 ships with a full,
+   real 12-entry collection at zero new tuning cost, the same "reuse what M3 already built" gift M4
+   got.
+
+### The core distinction this introduces
+
+`Species` (taxonomy.ts) is unlimited and run-local — a dynamically generated lineage ID. `Capability`
+(capabilityClassifier.ts) is an evidence-backed label a species can currently hold, and can gain or
+lose as its demonstrated behavior changes. Neither of those is a finite collectible. **`Discovery`**
+is new: a finite, authored entry (12 for V1) that a species *earns* once its capability has held
+*persistently*, not just been glimpsed once. Two different species can independently earn the same
+discovery; a species can lose a capability later without un-earning a discovery it already confirmed
+this run (an earned discovery is a fact about what happened, not a live status).
+
+### Concrete design
+
+```ts
+// game/discovery/discoveryDefinition.ts
+export type DiscoveryId = CapabilityLabel; // V1 only — see "deliberately out of scope"
+
+export interface DiscoveryDefinition {
+  id: DiscoveryId;
+  displayName: string;
+  category: "diet" | "habitat" | "movement" | "life-history" | "survival";
+  hint: string;
+}
+
+export const DISCOVERY_REGISTRY: DiscoveryDefinition[]; // 12 entries, one per CapabilityLabel
+
+// game/discovery/discoveryJournal.ts
+export interface DiscoveryMatch {
+  definitionId: DiscoveryId;
+  speciesId: number;
+  firstQualifiedEra: number;
+  confirmedEra: number;
+  evidence: string;
+}
+
+export interface DiscoveryJournal {
+  matches: Map<DiscoveryId, DiscoveryMatch>; // first confirming match per definition, this run
+  streaks: Map<string, number>; // `${speciesId}:${definitionId}` -> consecutive confirming eras
+}
+
+export function evaluateDiscoveries(
+  profiles: SpeciesProfileSet,
+  journal: DiscoveryJournal,
+  era: number,
+): { journal: DiscoveryJournal; newMatches: DiscoveryMatch[] };
+```
+
+**Confirmation reuses the era boundary as its sampling interval**, not a new continuous-window
+tracker. `evaluateDiscoveries` is called once per era (see wiring below): for every living species,
+`classifySpecies` is run against its current profile, and each held capability's streak increments;
+capabilities NOT held this era reset their streak to 0. A streak reaching `DISCOVERY_CONFIRMATION_ERAS`
+(2, a local constant — same non-Params treatment `SURVIVAL_HISTORY_WINDOW` already gets, and the same
+"two consecutive passes" philosophy taxonomy's own bimodality confirmation uses, Addendum 9) confirms
+a match. If `journal.matches` doesn't yet have an entry for that definition, this is the run's first
+confirmation — recorded and returned in `newMatches` for the caller to surface. If it already does
+(a second species independently qualifying), the streak still confirms internally (so a later
+"which species have earned X" query would be accurate if ever needed) but doesn't re-fire the reveal.
+
+**Wiring**: `Game` (game.ts) gains a `discoveryJournal: DiscoveryJournal` field, initialized empty in
+`createGame`. A new `evaluateEraDiscoveries(game: Game): DiscoveryMatch[]` in
+`game/discovery/discoveryJournal.ts` calls `computeSpeciesProfiles(sim)`, runs `evaluateDiscoveries`,
+mutates `game.discoveryJournal` in place, and returns the new matches — called identically from both
+`game.ts`'s headless `advanceGameEra` and `app/gameRunner.ts`'s animated `stepEraAdvance`, so the two
+paths can't drift. `EraSummary` gains `newDiscoveries: DiscoveryMatch[]`.
+
+### Deliberately out of scope for this pass
+
+No cross-run `PlayerProfile`, no browser storage (decision 1 above). No `Achievement` concept (one-time
+events like first cannibalism) — this pass is Discoveries only; Achievements are a distinct concept
+the mega-doc itself separates out, and nothing here forecloses adding them later. No dedicated
+Critterdex grid/silhouette UI — new discoveries surface as a short list in the existing era-summary
+panel this pass, same treatment notable trait shifts already get; a real collection screen is later
+content-layer work. No morphology-based or body-plan discoveries (there's no morphology system yet —
+Item 4 of the reordered plan). `DiscoveryId` is typed as exactly `CapabilityLabel` for V1 rather than
+its own independent string space — deliberate, not an oversight: keeps V1 honest that every entry
+really is "a capability, held persistently," and the type can be loosened to a plain `string` the
+moment a non-capability-backed discovery is actually designed, without disturbing these 12 entries.
+
+### Dependencies
+
+Requires Addendum 5 (`SpeciesProfile`/`CapabilityClassifier`) and Addendum 15 (nothing structural,
+but the reordered-plan sequencing puts this right after it). Sets up, but doesn't build, the
+mega-doc's later Critterdex UI/tree-reframing items.
+
+**Implementation status (2026-08-14, same session): built as designed.**
+
+New `game/discovery/discoveryDefinition.ts` (`DiscoveryId`/`DiscoveryDefinition`/
+`DISCOVERY_REGISTRY`, 12 entries) and `game/discovery/discoveryJournal.ts`
+(`DiscoveryJournal`/`DiscoveryMatch`/`createDiscoveryJournal`/`evaluateDiscoveries`/
+`evaluateEraDiscoveries`, `DISCOVERY_CONFIRMATION_ERAS = 2`). `Game` (game.ts) gained a
+`discoveryJournal` field; `EraSummary` gained `newDiscoveries`; both `game.ts`'s headless
+`advanceGameEra` and `app/gameRunner.ts`'s animated `finalizeEraAdvance` call the same
+`evaluateEraDiscoveries(game)` so the two paths can't drift. `ui/controls.ts`'s era summary panel
+lists newly confirmed discoveries by display name, species, and evidence, same treatment notable
+trait shifts already get.
+
+New `game/discovery/discoveryJournal.test.ts`: registry validation (12 entries, exactly one per
+`CapabilityLabel`, no duplicates), no-fluke confirmation (a single qualifying era doesn't confirm),
+streak reset on capability loss, first-confirming-species-only recording with later independent
+qualifiers tracked but not re-firing, determinism, and a multi-species/multi-axis integration case.
+One test-authoring bug caught and fixed during this pass (not an implementation bug): an early
+version of the multi-species test asserted exact-set equality against the shared fixture's default
+`profile()`, which — same as `capabilityClassifier.test.ts`'s own base fixture — incidentally clears
+the lowland-adapted/resilient thresholds too; switched to `toContain` for the axes actually under
+test, matching that file's existing convention.
+
+Typecheck clean. Full suite green (337 passed — up from 329, +8 new — 1 pre-existing documented
+skip). Live-verified in browser: Game Mode, Sandbox, default seed — era 1 completed with no
+discoveries yet (correct, one era isn't enough to confirm); era 2 completed and the Era Summary
+panel showed "Critterdex — newly discovered: Herbivore (species 0) — Draws 100% of intake from
+fruit.", exactly on schedule for a founding population whose carnivory drifted toward 0 across both
+eras (-79% era 1, -22% era 2, per the same panel's trait-shift lines). Zero console errors
+throughout. Not yet committed/pushed.

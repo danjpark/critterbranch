@@ -1,6 +1,7 @@
 import { DEFAULT_PARAMS } from "../params.ts";
 import type { ChallengeDefinition } from "../game/challenges/challenge.ts";
 import { evaluateChallenge, type ChallengeStatus } from "../game/challengeRuntime.ts";
+import { evaluateEraDiscoveries } from "../game/discovery/discoveryJournal.ts";
 import { beginEraEvolution, finishEra } from "../game/era.ts";
 import { captureEraSnapshot, computeEraDelta, computeNotableTraitShifts, type EraSnapshot, type EraSummary } from "../game/eraSummary.ts";
 import { continueToTerraform, createGame, type Game } from "../game/game.ts";
@@ -211,6 +212,7 @@ export class GameRunner {
     const plannedTick = this.eraTargetTick!;
     finishEra(this.game.gameState);
     const after = captureEraSnapshot(this.game);
+    const newDiscoveries = evaluateEraDiscoveries(this.game);
     this.lastEraSummary = {
       before,
       after,
@@ -218,6 +220,7 @@ export class GameRunner {
       notableTraitShifts: computeNotableTraitShifts(this.game, before.tick, after.tick),
       endedEarly,
       plannedTick,
+      newDiscoveries,
     };
     this.eraTargetTick = null;
     this.eraBeforeSnapshot = null;

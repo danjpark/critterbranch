@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PARAMS } from "../params.ts";
-import type { Genome } from "./genome.ts";
+import { GENE_RANGES, type Genome } from "./genome.ts";
 import { combatSuccessProbability, derivePhenotype, movementEfficiency, type Phenotype } from "./phenotype.ts";
 
 function genome(overrides: Partial<Genome> = {}): Genome {
@@ -20,7 +20,18 @@ function genome(overrides: Partial<Genome> = {}): Genome {
 }
 
 function phenotype(overrides: Partial<Phenotype> = {}): Phenotype {
-  return { speed: 1, size: 1, attackPower: 1, evasionPower: 1, aquaticAdaptation: 0, ...overrides };
+  return {
+    speed: 1,
+    size: 1,
+    senseRadius: 5,
+    carnivory: 0,
+    attackPower: 1,
+    evasionPower: 1,
+    aquaticAdaptation: 0,
+    energyCapacity: 20,
+    metabolicCost: 0.1,
+    ...overrides,
+  };
 }
 
 describe("derivePhenotype", () => {
@@ -28,6 +39,39 @@ describe("derivePhenotype", () => {
     const p = derivePhenotype(genome({ speed: 1.5, size: 0.8 }), DEFAULT_PARAMS);
     expect(p.speed).toBe(1.5);
     expect(p.size).toBe(0.8);
+  });
+
+  // SPEC.md Addendum 15 — senseRadius/carnivory promoted from direct genome reads in
+  // creature.ts/predation.ts to phenotype pass-throughs, same treatment as speed/size.
+  it("is a pure pass-through of senseRadius and carnivory", () => {
+    const p = derivePhenotype(genome({ senseRadius: 12, carnivory: 0.6 }), DEFAULT_PARAMS);
+    expect(p.senseRadius).toBe(12);
+    expect(p.carnivory).toBe(0.6);
+  });
+
+  // SPEC.md Addendum 15 — relocated from creature.ts's standalone energyCapacity(genome, params).
+  it("energyCapacity scales linearly with size", () => {
+    const small = derivePhenotype(genome({ size: 1 }), DEFAULT_PARAMS).energyCapacity;
+    const large = derivePhenotype(genome({ size: 2 }), DEFAULT_PARAMS).energyCapacity;
+    expect(large).toBeCloseTo(small * 2);
+  });
+
+  // SPEC.md Addendum 15 — relocated from creature.ts's standalone metabolicCost(genome, params).
+  describe("metabolicCost", () => {
+    it("is strictly positive for every gene combination in range — no trait is free", () => {
+      const cheapest = genome({ size: GENE_RANGES.size[0], speed: GENE_RANGES.speed[0], senseRadius: GENE_RANGES.senseRadius[0] });
+      expect(derivePhenotype(cheapest, DEFAULT_PARAMS).metabolicCost).toBeGreaterThan(0);
+    });
+
+    it("grows quadratically with speed", () => {
+      const params = DEFAULT_PARAMS;
+      const slow = derivePhenotype(genome({ speed: 1, size: 1, senseRadius: 0 }), params).metabolicCost;
+      const fast = derivePhenotype(genome({ speed: 2, size: 1, senseRadius: 0 }), params).metabolicCost;
+      // moveCost*speed^2 term should roughly quadruple, not double, when speed doubles.
+      const slowMoveCost = slow - params.baseCost * 1;
+      const fastMoveCost = fast - params.baseCost * 1;
+      expect(fastMoveCost / slowMoveCost).toBeCloseTo(4, 1);
+    });
   });
 
   // SPEC.md Addendum 11 (Milestone 5): attackPower/evasionPower moved here from predation.ts's

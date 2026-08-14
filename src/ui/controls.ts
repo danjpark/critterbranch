@@ -5,6 +5,7 @@ import { GENE_KEYS, type Genome, type TraitSample } from "../sim/genome.ts";
 import type { Species, SpeciationMechanism, TaxonomyEvent } from "../sim/taxonomy.ts";
 import type { ChallengeDefinition } from "../game/challenges/challenge.ts";
 import type { ChallengeStatus } from "../game/challengeRuntime.ts";
+import { DISCOVERY_REGISTRY } from "../game/discovery/discoveryDefinition.ts";
 import type { EraSummary } from "../game/eraSummary.ts";
 import type { GameMode, GamePhase } from "../game/gameState.ts";
 import type { GameObjective } from "../game/objectives/objective.ts";
@@ -960,7 +961,7 @@ export function createEraSummaryPanel(): EraSummaryHandle {
         return;
       }
 
-      const { before, after, delta, notableTraitShifts, endedEarly, plannedTick } = summary;
+      const { before, after, delta, notableTraitShifts, endedEarly, plannedTick, newDiscoveries } = summary;
       const lines: string[] = [
         `Era ${after.era} complete (tick ${before.tick.toLocaleString()} → ${after.tick.toLocaleString()})`,
         `Population: ${before.totalPopulation.toLocaleString()} → ${after.totalPopulation.toLocaleString()} (${delta.populationChange >= 0 ? "+" : ""}${delta.populationChange.toLocaleString()})`,
@@ -976,6 +977,13 @@ export function createEraSummaryPanel(): EraSummaryHandle {
         for (const shift of notableTraitShifts.slice(0, 5)) {
           const pct = (shift.fractionChange * 100).toFixed(0);
           lines.push(`  ${shift.gene}: ${shift.fractionChange >= 0 ? "+" : ""}${pct}%`);
+        }
+      }
+      if (newDiscoveries.length > 0) {
+        lines.push("Critterdex — newly discovered:");
+        for (const match of newDiscoveries) {
+          const definition = DISCOVERY_REGISTRY.find((d) => d.id === match.definitionId);
+          lines.push(`  ${definition?.displayName ?? match.definitionId} (species ${match.speciesId}) — ${match.evidence}`);
         }
       }
 

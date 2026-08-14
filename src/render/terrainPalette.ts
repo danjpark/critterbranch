@@ -1,27 +1,12 @@
 import { clamp01, lerp } from "../sim/util.ts";
+import { elevationBand, type ElevationBand } from "../sim/terrain.ts";
 
-export type ElevationBand = "water" | "lowland" | "hill" | "mountain";
+// Re-exported for this module's own existing callers (worldView.ts, terrainPalette.test.ts) —
+// the actual definition moved to sim/terrain.ts (SPEC.md Addendum 15), since it's pure domain
+// classification game/observability needs too, not a rendering concern.
+export { elevationBand, type ElevationBand };
 
-const HILL_THRESHOLD = 0.33;
 const MOUNTAIN_THRESHOLD = 0.7;
-
-/**
- * Which discrete elevation band a raw elevation value falls into. Land bands are normalized
- * against the run's own terrainRoughness (the parameter that actually controls how tall generated
- * terrain gets) — not the hard [-3,3] god-mode clamp — and measured relative to seaLevel, not
- * absolute 0, same as passability/fertility (SPEC.md Addendum 9): a hill barely above the waterline
- * reads as lowland, not a head start into "hill." That keeps the bands meaningful whether the map
- * is a gentle default hill-scape or a player has hand-raised a mountain far above what natural
- * generation produces: a hand-raised peak past terrainRoughness just clamps into "mountain" rather
- * than needing a fifth category.
- */
-export function elevationBand(elevation: number, seaLevel: number, terrainRoughness: number): ElevationBand {
-  if (elevation < seaLevel) return "water";
-  const norm = clamp01((elevation - seaLevel) / Math.max(terrainRoughness, 1e-6));
-  if (norm <= HILL_THRESHOLD) return "lowland";
-  if (norm <= MOUNTAIN_THRESHOLD) return "hill";
-  return "mountain";
-}
 
 /** Ink-on-parchment base tones per band — warm and desaturated so creature/food colors (which use
  * the full hue wheel) stay the visually "loud" layer; terrain is background, never competes with
