@@ -2,8 +2,10 @@ import type { Intervention } from "./intervention.ts";
 import {
   DEFAULT_PARAMS,
   DEFAULT_RUN_PARAMS,
+  flattenParams,
   groupParams,
   mergeRunParams,
+  sanitizeParams,
   type Params,
   type RunParams,
 } from "../params.ts";
@@ -110,15 +112,21 @@ export function parseRunConfig(value: unknown): RunConfig | null {
   // Merge onto defaults rather than trusting the file's params verbatim, so a config saved by an
   // older build that's missing a since-added field still gets a sane value instead of `undefined`
   // propagating into the sim.
-  const params = looksGrouped(rawParams)
+  const merged = looksGrouped(rawParams)
     ? mergeRunParams(DEFAULT_RUN_PARAMS, rawParams as Partial<Record<keyof RunParams, unknown>>)
     : groupParams({ ...DEFAULT_PARAMS, ...(rawParams as Partial<Params>) });
+
+  // Merging only guarantees every FIELD is present, never that its VALUE is usable — a file can
+  // still carry a string, a NaN, or a zero cadence in a field that silently disables or poisons a
+  // whole subsystem downstream. See params.ts's sanitizeParams for which values those are and why
+  // each one is dangerous rather than merely unusual.
+  const { params } = sanitizeParams(flattenParams(merged));
 
   return {
     schemaVersion: typeof candidate.schemaVersion === "number" ? candidate.schemaVersion : RUN_CONFIG_SCHEMA_VERSION,
     engineVersion: typeof candidate.engineVersion === "string" ? candidate.engineVersion : "unknown",
     seed: candidate.seed,
-    params,
+    params: groupParams(params),
     interventionLog: candidate.interventionLog,
   };
 }

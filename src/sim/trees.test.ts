@@ -127,6 +127,54 @@ describe("stepTrees — fruit regrowth", () => {
     stepTrees(trees, world, terrain, rng, params, 0);
     expect(Array.from(world.fruit).every((v) => v === 0)).toBe(true);
   });
+
+  // Regression: regrowth used to be written once per tree, each write a Math.min against that
+  // tree's OWN ceiling, so the last tree in array order decided the cell — and a poor tree sharing
+  // a rich tree's cell clamped the cell's fruit DOWN to poor levels.
+  describe("when several trees share one cell", () => {
+    function twoTreesInOneCell(order: "richFirst" | "poorFirst") {
+      const params = { ...DEFAULT_PARAMS, richTreeCount: 0, poorTreeCount: 0, shallowWaterTreeCount: 0, treeCrowdingCheckIntervalTicks: 1_000_000 };
+      const cols = 20;
+      const rows = 20;
+      const terrain = generateTerrain(new RNG(1), params, cols, rows);
+      terrain.fertility.fill(1);
+      const world = initWorld(cols, rows);
+      const rich = { id: 0, x: 10, y: 10, plantedTick: 0, maturedTick: 0, capacity: params.treeFruitCapacity };
+      const poor = { id: 1, x: 11, y: 11, plantedTick: 0, maturedTick: 0, capacity: params.treeFruitCapacity * 0.15 };
+      const trees: TreeState = { nextId: 2, trees: order === "richFirst" ? [rich, poor] : [poor, rich] };
+      // Both land in the same cell at the default gridCellSize of 4.
+      expect(cellIndexAt(rich.x, rich.y, params, world)).toBe(cellIndexAt(poor.x, poor.y, params, world));
+      return { params, terrain, world, trees, cellIndex: cellIndexAt(rich.x, rich.y, params, world) };
+    }
+
+    it("regrows toward the best ceiling standing in the cell, not the last tree's", () => {
+      const { params, terrain, world, trees, cellIndex } = twoTreesInOneCell("richFirst");
+      const rng = new RNG(3);
+      for (let t = 0; t < 500; t++) stepTrees(trees, world, terrain, rng, params, t);
+      expect(world.fruit[cellIndex]).toBeCloseTo(params.treeFruitCapacity, 6);
+    });
+
+    it("gives the same result regardless of the order the trees sit in the array", () => {
+      const richFirst = twoTreesInOneCell("richFirst");
+      const poorFirst = twoTreesInOneCell("poorFirst");
+      for (let t = 0; t < 500; t++) {
+        stepTrees(richFirst.trees, richFirst.world, richFirst.terrain, new RNG(3), richFirst.params, t);
+        stepTrees(poorFirst.trees, poorFirst.world, poorFirst.terrain, new RNG(3), poorFirst.params, t);
+      }
+      expect(poorFirst.world.fruit[poorFirst.cellIndex]).toBeCloseTo(richFirst.world.fruit[richFirst.cellIndex], 9);
+    });
+
+    it("a poor tree maturing on a stocked rich cell never knocks that cell's fruit down", () => {
+      const { params, terrain, world, trees, cellIndex } = twoTreesInOneCell("richFirst");
+      const rng = new RNG(3);
+      for (let t = 0; t < 500; t++) stepTrees(trees, world, terrain, rng, params, t);
+      const stocked = world.fruit[cellIndex];
+
+      trees.trees.push({ id: 2, x: 9, y: 9, plantedTick: 500, maturedTick: 500, capacity: params.treeFruitCapacity * 0.15 });
+      stepTrees(trees, world, terrain, rng, params, 500);
+      expect(world.fruit[cellIndex]).toBeGreaterThanOrEqual(stocked - 1e-9);
+    });
+  });
 });
 
 describe("stepTrees — crowdedness death", () => {

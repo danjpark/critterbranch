@@ -276,7 +276,7 @@ describe("GameRunner checkpoints", () => {
     runnerA.setSpeed("max");
     runnerA.advanceEra();
     while (runnerA.isAdvancingEra()) runnerA.stepEraAdvance();
-    const afterFirstPlay = runnerA.game.sim.state.evolution.tick;
+    const afterFirstPlay = hashState(runnerA.game.sim.state);
 
     runnerA.restoreCheckpoint(runnerA.listCheckpoints()[0].id);
     expect(runnerA.game.sim.state.evolution.tick).toBe(0);
@@ -287,8 +287,78 @@ describe("GameRunner checkpoints", () => {
     runnerA.advanceEra();
     while (runnerA.isAdvancingEra()) runnerA.stepEraAdvance();
 
-    expect(runnerA.game.sim.state.evolution.tick).toBe(afterFirstPlay);
+    // Compare the full hashed state, not just the tick count — a tick-only assertion passes even
+    // if every creature in the replay ended up somewhere else, which is precisely the divergence
+    // this test exists to rule out.
+    expect(hashState(runnerA.game.sim.state)).toBe(afterFirstPlay);
     expect(runnerA.game.sim.interventionLog).toHaveLength(1);
+  });
+
+  // A checkpoint is a BRANCH, not an undo (see restoreCheckpoint's doc) — so everything the
+  // abandoned branch accumulated has to come back to what it was, not just the sim state. The
+  // Critterdex journal was the field that didn't: it was neither captured nor restored, so
+  // rewinding to era 1 left the player holding discoveries earned in eras they'd just rewound out
+  // of, with no way to lose them again.
+  it("restoreCheckpoint rewinds the discovery journal along with the sim", () => {
+    const runner = new GameRunner("sandbox", 7);
+    runner.setSpeed("max");
+    const advance = () => {
+      runner.advanceEra();
+      while (runner.isAdvancingEra()) runner.stepEraAdvance();
+      runner.continueToTerraform();
+    };
+
+    advance();
+    runner.saveCheckpoint("after era 1");
+    const streaksAtCheckpoint = new Map(runner.game.discoveryJournal.streaks);
+    const matchesAtCheckpoint = new Map(runner.game.discoveryJournal.matches);
+    // Guard against a vacuous assertion: the journal has to actually be carrying something by now,
+    // otherwise "restored correctly" would pass on two empty maps.
+    expect(streaksAtCheckpoint.size).toBeGreaterThan(0);
+
+    advance();
+    advance();
+    expect(runner.game.discoveryJournal.matches.size).toBeGreaterThan(matchesAtCheckpoint.size);
+
+    runner.restoreCheckpoint(runner.listCheckpoints()[0].id);
+
+    expect(runner.game.discoveryJournal.streaks).toEqual(streaksAtCheckpoint);
+    expect(runner.game.discoveryJournal.matches).toEqual(matchesAtCheckpoint);
+  });
+
+  // Regression: fastForwardFromTick was the one piece of in-flight era-advance state
+  // restoreCheckpoint didn't clear alongside eraTargetTick/eraBeforeSnapshot. Left set, the next
+  // advanceEra() takes stepEraAdvance's "already fast-forwarding" branch on its very first frame
+  // and burns the whole era at the max-speed budget, ignoring the player's speed setting.
+  //
+  // Checked structurally rather than through observable ticking: the flag is only ever set in the
+  // one-frame window between equilibrium firing and the next stepEraAdvance() call finishing the
+  // era, and that window can't be held open from outside the class. The invariant being asserted
+  // is "restoreCheckpoint leaves NO in-flight era-advance state behind," which is exactly a
+  // statement about these private fields.
+  it("restoreCheckpoint clears every piece of in-flight era-advance state", () => {
+    const runner = new GameRunner("sandbox", 7);
+    runner.setSpeed("max");
+    runner.advanceEra();
+    while (runner.isAdvancingEra()) runner.stepEraAdvance();
+    runner.continueToTerraform();
+    runner.saveCheckpoint("after era 1");
+
+    const inFlight = runner as unknown as {
+      eraTargetTick: number | null;
+      eraBeforeSnapshot: unknown;
+      fastForwardFromTick: number | null;
+    };
+    runner.advanceEra();
+    inFlight.fastForwardFromTick = runner.game.sim.state.evolution.tick;
+
+    runner.restoreCheckpoint(runner.listCheckpoints()[0].id);
+
+    expect(runner.isAdvancingEra()).toBe(false);
+    expect(inFlight.eraTargetTick).toBeNull();
+    expect(inFlight.eraBeforeSnapshot).toBeNull();
+    expect(inFlight.fastForwardFromTick).toBeNull();
+    expect(runner.lastTerraformError).toBeNull();
   });
 
   it("restoreCheckpoint returns false for an unknown id and leaves state untouched", () => {

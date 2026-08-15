@@ -93,6 +93,19 @@ export interface RegrowthOverride {
   endTick: number;
 }
 
+/**
+ * Every distinct grid cell within `worldRadius` of (worldX, worldY), with each cell's toroidal
+ * distance from the centre.
+ *
+ * Each cell appears at most ONCE. A radius wider than half the world makes the wrapped scan reach
+ * the same cell from both directions, and callers apply their effect per entry — so before the
+ * dedupe below, raiseTerrain and meteor compounded their elevation delta on those cells, several
+ * times over, from a single click. Reachable via an imported scenario (nothing validates a
+ * RunConfig's worldWidth/gridCellSize against its brush radii) rather than the shipping brush
+ * slider, whose 60-unit maximum stays well inside a default 200-unit world. The scan window is
+ * also capped at one full turn of the torus so an absurd radius can't spin for a long time
+ * rediscovering cells it already has.
+ */
 function cellsWithinRadius(
   cols: number,
   rows: number,
@@ -104,21 +117,26 @@ function cellsWithinRadius(
   const gx = worldX / gridCellSize;
   const gy = worldY / gridCellSize;
   const gridRadius = Math.max(worldRadius / gridCellSize, 0.5);
-  const reach = Math.ceil(gridRadius);
+  const reachX = Math.min(Math.ceil(gridRadius), cols);
+  const reachY = Math.min(Math.ceil(gridRadius), rows);
   const baseX = Math.floor(gx);
   const baseY = Math.floor(gy);
 
   const indices: number[] = [];
   const distances: number[] = [];
-  for (let dy = -reach; dy <= reach; dy++) {
-    for (let dx = -reach; dx <= reach; dx++) {
+  const seen = new Set<number>();
+  for (let dy = -reachY; dy <= reachY; dy++) {
+    for (let dx = -reachX; dx <= reachX; dx++) {
       const cellX = wrap(baseX + dx, cols);
       const cellY = wrap(baseY + dy, rows);
+      const idx = cellY * cols + cellX;
+      if (seen.has(idx)) continue;
       const cdx = torDelta(cellX + 0.5, gx, cols);
       const cdy = torDelta(cellY + 0.5, gy, rows);
       const dist = Math.sqrt(cdx * cdx + cdy * cdy);
       if (dist <= gridRadius) {
-        indices.push(cellY * cols + cellX);
+        seen.add(idx);
+        indices.push(idx);
         distances.push(dist);
       }
     }
@@ -216,7 +234,9 @@ function applyPlantTree(state: EvolutionState, params: Params, rng: RNG, p: Plan
     const y = wrap(p.y + Math.sin(angle) * dist, params.worldHeight);
     state.trees.trees.push({ id: state.trees.nextId++, x, y, plantedTick: currentTick, maturedTick: currentTick, capacity: params.treeFruitCapacity });
     const idx = cellIndexAt(x, y, params, state.world);
-    state.world.fruit[idx] = params.treeFruitCapacity * state.terrain.fertility[idx];
+    // max, not assignment — same per-cell rule sim/trees.ts's stepTrees/initTrees use: a newly
+    // planted tree can only ever raise a cell's fruit, never knock it back down.
+    state.world.fruit[idx] = Math.max(state.world.fruit[idx], params.treeFruitCapacity * state.terrain.fertility[idx]);
   }
 }
 

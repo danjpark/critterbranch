@@ -46,6 +46,32 @@ describe("raiseTerrain / lowerTerrain", () => {
     expect(state.evolution.terrain.elevation[idx]).toBeLessThan(state.evolution.terrain.seaLevel);
     expect(state.evolution.terrain.fertility[idx]).toBe(0);
   });
+
+  // Regression: a radius wider than half the world let the wrapped cell scan reach the same cell
+  // from both directions and list it twice, and the elevation delta is applied once PER LISTED
+  // ENTRY — so one click compounded on those cells. Not reachable from the shipping brush slider
+  // (max 60 in a 200-wide world) but entirely reachable from an imported scenario, which nothing
+  // validates.
+  it("applies a world-spanning brush radius exactly once per cell, not twice on the wrapped cells", () => {
+    const params = { ...DEFAULT_PARAMS, terrainHillCount: 0 };
+    const { state, rng } = createSimState(1, params);
+    const flat = state.evolution.terrain.elevation[0];
+    expect(Array.from(state.evolution.terrain.elevation).every((e) => e === flat)).toBe(true);
+
+    // Radius covers the whole 200-unit world from its centre, so every cell is in range and the
+    // wrapped scan overlaps itself in both axes.
+    applyIntervention(state.evolution, rng, params, {
+      tick: 0,
+      tool: "raiseTerrain",
+      params: { x: params.worldWidth / 2, y: params.worldHeight / 2, radius: params.worldWidth, strength: 0.5 },
+    });
+
+    // The gaussian falloff makes each cell's rise distance-dependent, so what's checked is the
+    // ceiling: no cell can exceed one full-strength application.
+    for (const elevation of state.evolution.terrain.elevation) {
+      expect(elevation).toBeLessThanOrEqual(flat + 0.5 + 1e-9);
+    }
+  });
 });
 
 describe("raiseSeaLevel / lowerSeaLevel", () => {

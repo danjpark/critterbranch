@@ -504,3 +504,85 @@ export function mergeRunParams(defaults: RunParams, partial: Partial<Record<keyo
 }
 
 export const DEFAULT_RUN_PARAMS: RunParams = groupParams(DEFAULT_PARAMS);
+
+/**
+ * Lower bounds for the params where an out-of-range value doesn't produce a visibly wrong
+ * simulation but a silently broken one. This is not a general "sensible range" table — most params
+ * are free to be tuned to anything and the result is just a different-looking world, which is the
+ * point of exposing them. These are the ones where a bad value quietly disables or poisons a whole
+ * subsystem with nothing on screen to say so:
+ *
+ * - regrowthCyclePeriod at 0 makes stepTrees compute `sin(2*pi*tick/0)` = NaN, which flows into
+ *   every cell of world.fruit, then into creature energy, and then every creature fails its
+ *   `energy > 0` survival check. A total, silent extinction that reads as a balance problem.
+ * - The three `tick % interval` cadences at 0 evaluate to NaN, which never equals 0, so the guarded
+ *   work simply never runs: taxonomyIntervalTicks disables speciation detection AND all history
+ *   sampling; consumptionDecayIntervalTicks lets the heatmap accumulate forever; and
+ *   treeCrowdingCheckIntervalTicks removes tree mortality entirely.
+ * - gridCellSize at or below 0 makes cols/rows Infinity or negative, which throws inside
+ *   Float64Array's constructor from deep in createSimState rather than at the boundary.
+ */
+const PARAM_MINIMUMS: Partial<Record<keyof Params, number>> = {
+  worldWidth: 1,
+  worldHeight: 1,
+  gridCellSize: 0.5,
+  regrowthCyclePeriod: 1,
+  taxonomyIntervalTicks: 1,
+  consumptionDecayIntervalTicks: 1,
+  treeCrowdingCheckIntervalTicks: 1,
+  treeMaturityTicks: 1,
+  maxAge: 1,
+  maxTreeCount: 0,
+  foundingPopulationSize: 0,
+  minFounders: 1,
+};
+
+export interface ParamsSanitizationResult {
+  params: Params;
+  /** Human-readable description of each repair made, empty when the input was already valid.
+   * Returned rather than logged so the caller decides whether to surface it. */
+  repairs: string[];
+}
+
+/**
+ * Repairs params arriving from outside the app (an imported scenario file — see
+ * sim/runConfig.ts's parseRunConfig, the only place untrusted params can enter) into something the
+ * sim can actually run. Anything non-numeric or non-finite falls back to that field's default;
+ * anything below a PARAM_MINIMUMS entry is raised to it.
+ *
+ * Also snaps worldWidth/worldHeight to a whole number of grid cells. The sim otherwise carries two
+ * disagreeing notions of how wide the world is — createSimState derives `cols = round(worldWidth /
+ * gridCellSize)`, so creature.ts's movement wraps at `cols * gridCellSize` while reproduce(),
+ * trySeedSapling(), and the taxonomy's position averaging all wrap at `params.worldWidth`. Those
+ * agree only when the ratio is a whole number, which every shipping config satisfies and no
+ * imported one is required to.
+ */
+export function sanitizeParams(raw: Params): ParamsSanitizationResult {
+  const repairs: string[] = [];
+  const params = { ...raw };
+
+  for (const key of Object.keys(DEFAULT_PARAMS) as (keyof Params)[]) {
+    const value = params[key];
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      repairs.push(`${key}: ${JSON.stringify(value)} is not a finite number, using default ${DEFAULT_PARAMS[key]}`);
+      params[key] = DEFAULT_PARAMS[key];
+      continue;
+    }
+    const minimum = PARAM_MINIMUMS[key];
+    if (minimum !== undefined && value < minimum) {
+      repairs.push(`${key}: ${value} is below the minimum ${minimum}, raised to it`);
+      params[key] = minimum;
+    }
+  }
+
+  for (const axis of ["worldWidth", "worldHeight"] as const) {
+    const cells = Math.max(1, Math.round(params[axis] / params.gridCellSize));
+    const snapped = cells * params.gridCellSize;
+    if (Math.abs(snapped - params[axis]) > 1e-9) {
+      repairs.push(`${axis}: ${params[axis]} is not a whole number of ${params.gridCellSize}-unit cells, snapped to ${snapped}`);
+      params[axis] = snapped;
+    }
+  }
+
+  return { params, repairs };
+}

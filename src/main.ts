@@ -2,13 +2,11 @@ import "./style.css";
 import { GameRunner } from "./app/gameRunner.ts";
 import { SimRunner } from "./app/simRunner.ts";
 import { PROTOTYPE_CHALLENGES } from "./game/challenges/prototypeChallenges.ts";
-import { createDefaultCamera, panCamera, screenToWorld, withTilt, zoomCamera, type CameraState, type WorldExtent } from "./render/camera.ts";
 import type { ColorOptions } from "./render/color.ts";
 import { renderMuller } from "./render/mullerView.ts";
-import { renderCompetitionHeatmap } from "./render/overlays.ts";
 import { findPointAt, renderScatter } from "./render/scatterView.ts";
 import { findBranchAt, renderTree } from "./render/treeView.ts";
-import { findCreatureAt, renderWorld } from "./render/worldView.ts";
+import { createWorldRenderer, type WorldRenderer } from "./render3d/worldRenderer.ts";
 import type { Genome } from "./sim/genome.ts";
 import { parseRunConfig } from "./sim/runConfig.ts";
 import { classifySpecies } from "./game/observability/capabilityClassifier.ts";
@@ -27,7 +25,6 @@ import {
   createScenarioPanel,
   createTraitChart,
   createTreePanel,
-  sliderRow,
 } from "./ui/controls.ts";
 import { enablePanelWorkspace } from "./ui/panelWorkspace.ts";
 
@@ -93,57 +90,34 @@ function canvasCoords(canvas: HTMLCanvasElement, event: MouseEvent): { x: number
 }
 
 const DRAG_THRESHOLD_PX = 4;
-const WHEEL_ZOOM_STEP = 1.15;
 
-/** Wires drag-to-pan and wheel-to-zoom onto a World canvas (SPEC.md Addendum 18) — shared by both
- * Classic Sandbox's worldCanvas and Game Mode's gameCanvas, each with its own independent camera.
- * Returns consumeDrag(), which the canvas's existing "click" listener calls first: a real drag
- * (past DRAG_THRESHOLD_PX) suppresses that click's tool-use/creature-selection action, since a
- * mousedown+move+up on the same element still fires a native click otherwise. */
-function attachCameraControls(
-  canvas: HTMLCanvasElement,
-  getCamera: () => CameraState,
-  setCamera: (camera: CameraState) => void,
-  getExtent: () => WorldExtent,
-  onChange: () => void,
-): { consumeDrag: () => boolean } {
-  let panning = false;
+/** Distinguishes a genuine click from a camera-orbit drag on a World canvas (SPEC.md Addendum 21)
+ * — OrbitControls (see render3d/scene.ts) already handles the actual camera dragging itself by
+ * listening on the same canvas element, so this only needs to track whether the mouse moved past
+ * DRAG_THRESHOLD_PX between mousedown and mouseup, not perform any camera math itself. Returns
+ * consumeDrag(), which the canvas's existing "click" listener calls first: a real drag suppresses
+ * that click's tool-use/creature-selection action, since a mousedown+move+up on the same element
+ * still fires a native click otherwise. */
+function attachClickGuard(canvas: HTMLCanvasElement): { consumeDrag: () => boolean } {
+  let tracking = false;
   let dragged = false;
-  let last = { x: 0, y: 0 };
+  let start = { x: 0, y: 0 };
 
   canvas.addEventListener("mousedown", (event) => {
-    panning = true;
+    tracking = true;
     dragged = false;
-    last = canvasCoords(canvas, event);
+    start = canvasCoords(canvas, event);
   });
 
   window.addEventListener("mousemove", (event) => {
-    if (!panning) return;
+    if (!tracking) return;
     const p = canvasCoords(canvas, event);
-    const dx = p.x - last.x;
-    const dy = p.y - last.y;
-    if (Math.abs(dx) > DRAG_THRESHOLD_PX || Math.abs(dy) > DRAG_THRESHOLD_PX) dragged = true;
-    if (dragged) {
-      setCamera(panCamera(getCamera(), getExtent(), dx, dy));
-      last = p;
-      onChange();
-    }
+    if (Math.abs(p.x - start.x) > DRAG_THRESHOLD_PX || Math.abs(p.y - start.y) > DRAG_THRESHOLD_PX) dragged = true;
   });
 
   window.addEventListener("mouseup", () => {
-    panning = false;
+    tracking = false;
   });
-
-  canvas.addEventListener(
-    "wheel",
-    (event) => {
-      event.preventDefault();
-      const p = canvasCoords(canvas, event);
-      setCamera(zoomCamera(getCamera(), getExtent(), p.x, p.y, event.deltaY < 0 ? WHEEL_ZOOM_STEP : 1 / WHEEL_ZOOM_STEP));
-      onChange();
-    },
-    { passive: false },
-  );
 
   return {
     consumeDrag: () => {
@@ -172,28 +146,23 @@ sidebar.className = "sidebar";
 
 classicRoot.append(canvasArea, sidebar);
 
-const worldCtx = worldCanvas.getContext("2d")!;
+// worldCanvas is now a WebGL canvas (see render3d/scene.ts) — no 2D context here anymore, a canvas
+// can only ever hand out one context type in its lifetime.
 const treeCtx = treeCanvas.getContext("2d")!;
 const mullerCtx = mullerCanvas.getContext("2d")!;
 const scatterCtx = scatterCanvas.getContext("2d")!;
 
 const runner = new SimRunner(12345);
-let worldCamera: CameraState = createDefaultCamera({ worldWidth: runner.sim.params.worldWidth, worldHeight: runner.sim.params.worldHeight }, CANVAS_SIZE, CANVAS_SIZE);
+// SPEC.md Addendum 21 — real 3D World view on Three.js, replacing the flat 2D camera/projection
+// system (Addendum 18/20 are both superseded). No camera-reset-on-restart needed the way the old
+// 2D CameraState required: OrbitControls' camera position is a user viewing preference that has no
+// dependency on world content, and terrainMesh's syncToTerrain already detects a restart's fresh
+// TerrainGrid object (see its own doc comment) and rebuilds automatically.
+const worldRenderer: WorldRenderer = createWorldRenderer(worldCanvas, runner.sim.params, runner.sim.state);
 let activeView: ViewName = "world";
 let scatterXGene: keyof Genome = "speed";
 let scatterYGene: keyof Genome = "senseRadius";
-let showCompetitionHeatmap = false;
 let traitChartGene: keyof Genome = "speed";
-
-// SPEC.md Addendum 20 spike — a live-adjustable tilt so the elevation-depth effect can be judged
-// at any strength (0 = today's flat look) rather than shipped as one fixed value. Only shown on the
-// World tab, next to the view-switcher, since it's meaningless on the other views.
-const worldTiltRow = sliderRow("Tilt", 0, 1, 0, 0.05, (value) => {
-  worldCamera = withTilt(worldCamera, value);
-  render();
-});
-worldTiltRow.row.classList.add("tilt-row");
-canvasArea.insertBefore(worldTiltRow.row, worldCanvas);
 
 function setActiveView(view: ViewName): void {
   activeView = view;
@@ -201,7 +170,6 @@ function setActiveView(view: ViewName): void {
   for (const [name, c] of Object.entries(canvases) as [ViewName, HTMLCanvasElement][]) {
     c.style.display = name === view ? "block" : "none";
   }
-  worldTiltRow.row.style.display = view === "world" ? "flex" : "none";
   render();
 }
 // Just the tab/visibility bookkeeping for now — render() isn't callable until every panel below
@@ -211,7 +179,6 @@ for (const [name, btn] of tabButtons) btn.classList.toggle("active", name === ac
 for (const [name, c] of Object.entries(canvases) as [ViewName, HTMLCanvasElement][]) {
   c.style.display = name === activeView ? "block" : "none";
 }
-worldTiltRow.row.style.display = activeView === "world" ? "flex" : "none";
 
 const controls = createControls({
   onPlayPause: () => controls.setPlaying(runner.togglePlaying()),
@@ -228,17 +195,16 @@ const controls = createControls({
     godModePanel.setUndoEnabled(false);
     treePanel.setSelectedSpecies(null, 0, runner.colorOptions, runner.sim.state.evolution.foundingCentroid, []);
     treePanel.setLineageFilterActive(false);
-    worldCamera = createDefaultCamera({ worldWidth: runner.sim.params.worldWidth, worldHeight: runner.sim.params.worldHeight }, CANVAS_SIZE, CANVAS_SIZE);
     render();
   },
   onDeuteranopiaToggle: (enabled) => {
     runner.setDeuteranopiaSafe(enabled);
     render();
   },
-  onCompetitionHeatmapToggle: (enabled) => {
-    showCompetitionHeatmap = enabled;
-    render();
-  },
+  // Not yet ported to the 3D World view (SPEC.md Addendum 21) — the old renderCompetitionHeatmap
+  // drew directly onto worldCanvas's 2D context, which no longer exists. Checkbox is left wired
+  // (not removed from ui/controls.ts) but currently has no visible effect on the World view.
+  onCompetitionHeatmapToggle: () => {},
   onAutoPaceToggle: (enabled) => runner.setAutoPace(enabled),
 });
 
@@ -346,27 +312,22 @@ sidebar.append(
 );
 enablePanelWorkspace(sidebar, "classic");
 
-const worldCameraControls = attachCameraControls(
-  worldCanvas,
-  () => worldCamera,
-  (camera) => (worldCamera = camera),
-  () => ({ worldWidth: runner.sim.params.worldWidth, worldHeight: runner.sim.params.worldHeight }),
-  render,
-);
+const worldClickGuard = attachClickGuard(worldCanvas);
 
 worldCanvas.addEventListener("click", (event) => {
-  if (worldCameraControls.consumeDrag()) return;
+  if (worldClickGuard.consumeDrag()) return;
   const { x: canvasX, y: canvasY } = canvasCoords(worldCanvas, event);
 
   if (runner.activeTool) {
-    const world = screenToWorld(worldCamera, { worldWidth: runner.sim.params.worldWidth, worldHeight: runner.sim.params.worldHeight }, canvasX, canvasY);
+    const world = worldRenderer.worldPointAt(canvasX, canvasY, worldCanvas.width, worldCanvas.height);
+    if (!world) return; // click landed off the terrain mesh entirely (e.g. past the world edge)
     runner.useToolAt(world.x, world.y);
     godModePanel.setUndoEnabled(runner.canUndoMeteor());
     render();
     return;
   }
 
-  const creature = findCreatureAt(runner.sim.state, runner.sim.params, worldCamera, canvasX, canvasY);
+  const creature = worldRenderer.findCreatureAt(runner.sim.state, canvasX, canvasY, worldCanvas.width, worldCanvas.height);
   runner.select(creature?.id ?? null);
   controls.setInspected(creature);
   render();
@@ -405,15 +366,12 @@ function render(): void {
   // scales with species count (small) rather than population (not small), but there's no reason
   // to pay even that when the tab isn't showing.
   if (activeView === "world") {
-    renderWorld(worldCtx, runner.sim.state, runner.sim.params, {
+    worldRenderer.render(runner.sim.state, runner.sim.params, {
       colorOptions: runner.colorOptions,
       selectedCreatureId: runner.selectedCreatureId,
       lineageFilter: runner.lineageFilter,
-      camera: worldCamera,
     });
-    if (showCompetitionHeatmap) {
-      renderCompetitionHeatmap(worldCtx, runner.sim.state, runner.sim.params, runner.colorOptions);
-    }
+    // showCompetitionHeatmap intentionally not read here — see its declaration above.
   } else if (activeView === "tree") {
     renderTree(treeCtx, runner.sim.state, {
       colorOptions: runner.colorOptions,
@@ -472,7 +430,7 @@ setInterval(frame, 16);
 const GAME_COLOR_OPTIONS: ColorOptions = { deuteranopiaSafe: false, divergenceScale: 0.35 };
 
 const gameCanvas = makeCanvas();
-const gameCtx = gameCanvas.getContext("2d")!;
+// gameCanvas is a WebGL canvas (see render3d/scene.ts) — no 2D context here, same as worldCanvas.
 const gameCanvasArea = document.createElement("div");
 gameCanvasArea.className = "canvas-area";
 gameCanvasArea.appendChild(gameCanvas);
@@ -483,17 +441,12 @@ gameSidebar.className = "sidebar";
 gameRoot.append(gameCanvasArea, gameSidebar);
 
 let gameRunner = new GameRunner("sandbox", 12345);
-let gameCamera: CameraState = createDefaultCamera({ worldWidth: gameRunner.game.sim.params.worldWidth, worldHeight: gameRunner.game.sim.params.worldHeight }, CANVAS_SIZE, CANVAS_SIZE);
-
-// SPEC.md Addendum 20 spike — same live-adjustable tilt as Classic Sandbox's World tab, on Game
-// Mode's own independent camera. No view-switcher here (Game Mode only has the one canvas), so it
-// stays visible unconditionally rather than needing show/hide bookkeeping.
-const gameTiltRow = sliderRow("Tilt", 0, 1, 0, 0.05, (value) => {
-  gameCamera = withTilt(gameCamera, value);
-  renderGame();
-});
-gameTiltRow.row.classList.add("tilt-row");
-gameCanvasArea.prepend(gameTiltRow.row);
+// SPEC.md Addendum 21 — same 3D World renderer as Classic Sandbox, its own independent instance
+// (own camera/controls/terrain-mesh cache). Reassigning gameRunner on restart (below) doesn't need
+// a matching reassignment here — render() always passes the CURRENT gameRunner.game.sim
+// state/params in fresh each call, and the terrain mesh cache already detects a restart's new
+// TerrainGrid object on its own (see terrainMesh.ts's syncToTerrain doc comment).
+const gameWorldRenderer: WorldRenderer = createWorldRenderer(gameCanvas, gameRunner.game.sim.params, gameRunner.game.sim.state);
 
 const gameGodModePanel = createGodModePanel(
   {
@@ -512,7 +465,6 @@ const gameControls = createGameControlsPanel(PROTOTYPE_CHALLENGES, {
     const challenge = challengeId ? PROTOTYPE_CHALLENGES.find((c) => c.id === challengeId) : undefined;
     gameRunner = new GameRunner(mode, seed, challenge);
     gameGodModePanel.setActiveTool(null);
-    gameCamera = createDefaultCamera({ worldWidth: gameRunner.game.sim.params.worldWidth, worldHeight: gameRunner.game.sim.params.worldHeight }, CANVAS_SIZE, CANVAS_SIZE);
     renderGame();
   },
   onAdvanceEra: () => {
@@ -547,30 +499,24 @@ const checkpointsPanel = createCheckpointsPanel({
 gameSidebar.append(gameControls.root, gameGodModePanel.root, objectivesPanel.root, eraSummaryPanel.root, checkpointsPanel.root);
 enablePanelWorkspace(gameSidebar, "game");
 
-const gameCameraControls = attachCameraControls(
-  gameCanvas,
-  () => gameCamera,
-  (camera) => (gameCamera = camera),
-  () => ({ worldWidth: gameRunner.game.sim.params.worldWidth, worldHeight: gameRunner.game.sim.params.worldHeight }),
-  renderGame,
-);
+const gameClickGuard = attachClickGuard(gameCanvas);
 
 gameCanvas.addEventListener("click", (event) => {
-  if (gameCameraControls.consumeDrag()) return;
+  if (gameClickGuard.consumeDrag()) return;
   if (!gameRunner.activeTool) return;
   const { x: canvasX, y: canvasY } = canvasCoords(gameCanvas, event);
-  const world = screenToWorld(gameCamera, { worldWidth: gameRunner.game.sim.params.worldWidth, worldHeight: gameRunner.game.sim.params.worldHeight }, canvasX, canvasY);
+  const world = gameWorldRenderer.worldPointAt(canvasX, canvasY, gameCanvas.width, gameCanvas.height);
+  if (!world) return;
   gameRunner.useToolAt(world.x, world.y);
   renderGame();
 });
 
 function renderGame(): void {
   const { game } = gameRunner;
-  renderWorld(gameCtx, game.sim.state, game.sim.params, {
+  gameWorldRenderer.render(game.sim.state, game.sim.params, {
     colorOptions: GAME_COLOR_OPTIONS,
     selectedCreatureId: null,
     lineageFilter: null,
-    camera: gameCamera,
   });
 
   let livingSpeciesCount = 0;

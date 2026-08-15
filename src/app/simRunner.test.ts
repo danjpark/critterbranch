@@ -3,7 +3,7 @@ import { SimRunner } from "./simRunner.ts";
 import { applyIntervention } from "../sim/intervention.ts";
 import { createRunConfig, LEGACY_SCHEMA_VERSION, parseRunConfig, RUN_CONFIG_SCHEMA_VERSION } from "../sim/runConfig.ts";
 import { hashState } from "../sim/testHash.ts";
-import { createSimState, tick } from "../sim/sim.ts";
+import { createSimState, runSimulationFromConfig, tick } from "../sim/sim.ts";
 import { DEFAULT_PARAMS, DEFAULT_RUN_PARAMS } from "../params.ts";
 
 describe("parseRunConfig", () => {
@@ -49,6 +49,42 @@ describe("parseRunConfig", () => {
     expect(parseRunConfig({ seed: "not a number", interventionLog: [] })).toBeNull();
     expect(parseRunConfig({ seed: 1, interventionLog: "not an array" })).toBeNull();
     expect(parseRunConfig({ seed: 1, interventionLog: [{ tick: 5 }] })).toBeNull();
+  });
+
+  // Shape-checking every field is present says nothing about whether its VALUE can be run. These
+  // are the values that used to sail straight through into the sim and break it silently rather
+  // than loudly — see params.ts's sanitizeParams for what each one does downstream.
+  it("repairs individually-dangerous param VALUES that a shape check alone lets through", () => {
+    const config = createRunConfig(1, DEFAULT_PARAMS, []);
+    const poisoned = {
+      ...config,
+      params: {
+        ...config.params,
+        // NaN through every fruit cell, then every creature's energy, then a total silent extinction.
+        world: { ...config.params.world, regrowthCyclePeriod: 0 },
+        // `tick % 0` is NaN, which never equals 0 — speciation detection and all history sampling
+        // simply never run again, with nothing on screen to say so.
+        taxonomy: { ...config.params.taxonomy, taxonomyIntervalTicks: 0 },
+      },
+    };
+
+    const parsed = parseRunConfig(JSON.parse(JSON.stringify(poisoned)));
+
+    expect(parsed).not.toBeNull();
+    expect(parsed!.params.world.regrowthCyclePeriod).toBeGreaterThan(0);
+    expect(parsed!.params.taxonomy.taxonomyIntervalTicks).toBeGreaterThan(0);
+  });
+
+  it("runs a repaired config to completion instead of NaN-poisoning the whole population", () => {
+    const config = createRunConfig(1, DEFAULT_PARAMS, []);
+    const poisoned = { ...config, params: { ...config.params, world: { ...config.params.world, regrowthCyclePeriod: 0 } } };
+
+    const parsed = parseRunConfig(JSON.parse(JSON.stringify(poisoned)))!;
+    const state = runSimulationFromConfig(parsed, 200);
+
+    expect(state.evolution.creatures.length).toBeGreaterThan(0);
+    expect(Array.from(state.evolution.world.fruit).every((f) => Number.isFinite(f))).toBe(true);
+    expect(state.evolution.creatures.every((c) => Number.isFinite(c.energy))).toBe(true);
   });
 });
 
@@ -157,15 +193,24 @@ describe("SimRunner autoPace", () => {
     expect(runner.sim.state.evolution.tick - tickAfterIntervention).toBe(1);
   });
 
-  it("fast-forwards once the ecosystem has been stable for a while (empirically confirmed for this exact seed by absolute tick 5700 — see sim/equilibrium.ts's tuning note, same underlying data as gameRunner.test.ts's early-end test; re-swept from seed 1 to seed 7 after SPEC.md Addendum 14's carnivory fix shifted population dynamics under DEFAULT_PARAMS)", () => {
+  // Empirically confirmed for this exact seed — see sim/equilibrium.ts's tuning note, same
+  // underlying data as gameRunner.test.ts's early-end test. Re-swept from seed 1 to seed 7 after
+  // SPEC.md Addendum 14's carnivory fix shifted population dynamics under DEFAULT_PARAMS. Window
+  // moved from 5000/5700 to 3000/5000 after sim/trees.ts's per-cell regrowth fix: seed 7 now
+  // settles at tick 4901 rather than ~5700, so the old "still changing" checkpoint at 5000 had
+  // fallen on the far side of equilibrium. The seed and the contract are unchanged — a stable
+  // ecosystem still has to read unstable while it's genuinely still moving, then stable once it
+  // isn't. The 3000-tick lower bound is well past DEFAULT_RAMP_CONFIG.rampTicks (300), so it tests
+  // the equilibrium check itself, not the opening ramp.
+  it("fast-forwards once the ecosystem has been stable for a while, and not before", () => {
     const runner = new SimRunner(7);
-    for (let i = 0; i < 5000; i++) runner.stepOnce();
+    for (let i = 0; i < 3000; i++) runner.stepOnce();
 
     runner.setAutoPace(true);
     runner.setSpeed(10);
     expect(runner.isFastForwarding()).toBe(false); // still actively changing this early
 
-    for (let i = 0; i < 700; i++) runner.stepOnce();
+    for (let i = 0; i < 2000; i++) runner.stepOnce();
     expect(runner.isFastForwarding()).toBe(true);
 
     // Fast-forwarding routes through the same time-boxed budget "max" speed uses (see advance()),

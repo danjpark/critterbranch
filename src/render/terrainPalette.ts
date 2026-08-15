@@ -26,14 +26,29 @@ const PEAK_HIGHLIGHT_COLOR: [number, number, number] = [0.82, 0.8, 0.78];
 export const CONTOUR_LINE_COLOR = "rgba(59, 46, 31, 0.55)";
 
 /**
- * The fill color for one terrain cell: a discrete elevation band (the map-editor-style "zones"),
- * plus fertility/passability still subtly modulating shade within that band so information a
- * band alone would hide isn't lost — a barrier stamp only ever touches passability (never
- * elevation), so without this a hand-drawn barrier would be invisible on the map. Water darkens
- * with depth via the same passability signal (deep water has near-zero passability), so a strait
- * reads visibly shallower than open ocean without a separate depth lookup.
+ * The color math for one terrain cell, as normalized 0-1 RGB: a discrete elevation band (the
+ * map-editor-style "zones"), plus fertility/passability still subtly modulating shade within that
+ * band so information a band alone would hide isn't lost — a barrier stamp only ever touches
+ * passability (never elevation), so without this a hand-drawn barrier would be invisible on the
+ * map. Water darkens with depth via the same passability signal (deep water has near-zero
+ * passability), so a strait reads visibly shallower than open ocean without a separate depth
+ * lookup.
+ *
+ * Split out from terrainCellColor's CSS-string formatting because render3d/terrainMesh.ts wants
+ * these as floats for a vertex-color buffer, and was formatting each cell into `rgb(...)` only to
+ * immediately parse it back with a regex — 2,500 string builds and 2,500 regex executions per mesh
+ * rebuild, and rebuilds run once per frame for the whole duration of a barrier formation or crater
+ * recovery (intervention.ts bumps terrain.revision every tick while either is in flight). Writes
+ * into a caller-supplied tuple so a per-cell loop allocates nothing.
  */
-export function terrainCellColor(elevation: number, seaLevel: number, fertility: number, passability: number, terrainRoughness: number): string {
+export function terrainCellColorRgb(
+  elevation: number,
+  seaLevel: number,
+  fertility: number,
+  passability: number,
+  terrainRoughness: number,
+  out: [number, number, number] = [0, 0, 0],
+): [number, number, number] {
   const roughness = Math.max(terrainRoughness, 1e-6);
   const band = elevationBand(elevation, seaLevel, roughness);
 
@@ -46,23 +61,20 @@ export function terrainCellColor(elevation: number, seaLevel: number, fertility:
     b = lerp(b, PEAK_HIGHLIGHT_COLOR[2], peakiness * 0.5);
   }
 
-  if (band === "water") {
-    // Same fertility tint land gets (SPEC.md Addendum 10) — shallow water with real food gets a
-    // faint green cast, so "this coastline has something worth eating" is legible without a
-    // separate visual language. Deep water (fertility always 0) is untouched by this term.
-    const tint = fertility * 0.06;
-    const darken = (1 - passability) * 0.5;
-    r = clamp01(r - tint * 0.5 - darken * 0.35);
-    g = clamp01(g + tint * 0.3 - darken * 0.3);
-    b = clamp01(b - tint * 0.3 - darken * 0.2);
-    return `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`;
-  }
-
+  // Same fertility tint in water as on land (SPEC.md Addendum 10) — shallow water with real food
+  // gets a faint green cast, so "this coastline has something worth eating" is legible without a
+  // separate visual language. Deep water (fertility always 0) is untouched by this term. Water
+  // darkens harder with lost passability, which is what makes depth read.
   const tint = fertility * 0.06;
-  const darken = (1 - passability) * 0.3;
-  r = clamp01(r - tint * 0.5 - darken * 0.35);
-  g = clamp01(g + tint * 0.3 - darken * 0.3);
-  b = clamp01(b - tint * 0.3 - darken * 0.25);
+  const darken = (1 - passability) * (band === "water" ? 0.5 : 0.3);
+  out[0] = clamp01(r - tint * 0.5 - darken * 0.35);
+  out[1] = clamp01(g + tint * 0.3 - darken * 0.3);
+  out[2] = clamp01(b - tint * 0.3 - darken * (band === "water" ? 0.2 : 0.25));
+  return out;
+}
 
+/** terrainCellColorRgb formatted as a CSS color, for the 2D canvas views. */
+export function terrainCellColor(elevation: number, seaLevel: number, fertility: number, passability: number, terrainRoughness: number): string {
+  const [r, g, b] = terrainCellColorRgb(elevation, seaLevel, fertility, passability, terrainRoughness);
   return `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`;
 }

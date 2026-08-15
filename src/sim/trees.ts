@@ -91,7 +91,9 @@ export function initTrees(rng: RNG, params: Params, terrain: TerrainGrid, world:
     const wy = wrap(y, params.worldHeight);
     trees.push({ id: nextId++, x: wx, y: wy, plantedTick: 0, maturedTick: 0, capacity });
     const idx = cellIndexAt(wx, wy, params, world);
-    world.fruit[idx] = capacity * terrain.fertility[idx];
+    // max, not assignment: a poor tree landing on a cell a rich tree already stocked must not
+    // knock that cell back down to poor levels. Same per-cell rule stepTrees regrows under.
+    world.fruit[idx] = Math.max(world.fruit[idx], capacity * terrain.fertility[idx]);
   }
 
   function uniformPoint(): [number, number] {
@@ -254,35 +256,67 @@ function countNeighborsWithinRadius(tree: FruitTree, buckets: Map<number, FruitT
   return count;
 }
 
-/** Advances every tree by one tick in place: maturity progression, fruit regrowth into World.fruit
- * for mature trees (toward EACH TREE'S OWN capacity, not a shared flat ceiling), and (only on
- * treeCrowdingCheckIntervalTicks-multiple ticks) crowdedness-scaled death. Mutates
- * treeState.trees and world.fruit in place. */
+/**
+ * Advances every tree by one tick in place: maturity progression, fruit regrowth into World.fruit,
+ * and (only on treeCrowdingCheckIntervalTicks-multiple ticks) crowdedness-scaled death. Mutates
+ * treeState.trees and world.fruit in place.
+ *
+ * Regrowth accumulates every mature tree's contribution in a cell and clamps ONCE, against the
+ * best ceiling standing there — rather than writing `Math.min(thisTree'sCeiling, ...)` once per
+ * tree. Trees regularly share a cell: saplingSpreadRadius (12) is three cells wide at the default
+ * gridCellSize (4), so a tree's own offspring routinely land back on top of it, and at 3,000 ticks
+ * under DEFAULT_PARAMS 29 of 182 occupied cells held more than one mature tree.
+ *
+ * The per-tree write had a real bug in it: because each write clamped to the ceiling of whichever
+ * tree was being processed, a poor tree sharing a rich tree's cell pulled that cell's fruit DOWN
+ * to poor levels, and which value survived depended on array order. What it got RIGHT — and what
+ * is deliberately preserved here — is that N trees in a cell regrow it N times as fast, which is
+ * both sensible and load-bearing for the foraging axis (removing it flattened the food landscape
+ * enough to break the foraging-disruption and carnivory golden scenarios outright).
+ *
+ * Summing then clamping once keeps that: for the overwhelmingly common case of trees sharing a
+ * cell at the SAME capacity it is exactly equivalent to the old repeated `min` (min is monotone,
+ * so N applications of `f = min(C, f + rC)` and one `f = min(C, f + N*rC)` agree), and it differs
+ * only in the mixed-capacity case the old code got wrong.
+ */
 export function stepTrees(treeState: TreeState, world: World, terrain: TerrainGrid, rng: RNG, params: Params, tick: number): void {
   const cyclical = clamp(1 + params.regrowthCycleAmplitude * Math.sin((2 * Math.PI * tick) / params.regrowthCyclePeriod), 0, 2);
   const checkCrowding = tick % params.treeCrowdingCheckIntervalTicks === 0;
   const buckets = checkCrowding ? bucketTrees(treeState.trees, params, world) : null;
 
-  const survivors: FruitTree[] = [];
+  const regrowthByCell = new Map<number, { maxCeiling: number; totalCeiling: number }>();
   for (const tree of treeState.trees) {
     if (tree.maturedTick === null && tick - tree.plantedTick >= params.treeMaturityTicks) {
       tree.maturedTick = tick;
     }
-
+    if (tree.maturedTick === null) continue;
     const idx = cellIndexAt(tree.x, tree.y, params, world);
-
-    if (tree.maturedTick !== null) {
-      const ceiling = tree.capacity * terrain.fertility[idx];
-      const rate = params.treeFruitRegrowthRate * cyclical * world.regrowthModifier[idx];
-      world.fruit[idx] = Math.min(ceiling, world.fruit[idx] + rate * ceiling);
-
-      if (checkCrowding) {
-        const neighbors = countNeighborsWithinRadius(tree, buckets!, params, world);
-        const deathChance = params.baseDeathChancePerCheck * (1 + params.crowdingDeathMultiplier * neighbors);
-        if (rng.next() < deathChance) continue; // dies — not carried into survivors
-      }
+    const ceiling = tree.capacity * terrain.fertility[idx];
+    const cell = regrowthByCell.get(idx);
+    if (cell) {
+      cell.totalCeiling += ceiling;
+      if (ceiling > cell.maxCeiling) cell.maxCeiling = ceiling;
+    } else {
+      regrowthByCell.set(idx, { maxCeiling: ceiling, totalCeiling: ceiling });
     }
+  }
 
+  for (const [idx, { maxCeiling, totalCeiling }] of regrowthByCell) {
+    const rate = params.treeFruitRegrowthRate * cyclical * world.regrowthModifier[idx];
+    world.fruit[idx] = Math.min(maxCeiling, world.fruit[idx] + rate * totalCeiling);
+  }
+
+  if (!checkCrowding) return;
+
+  // Rolled in tree order, exactly as before the regrowth split above — same trees, same sequence,
+  // so the RNG stream this consumes is unchanged.
+  const survivors: FruitTree[] = [];
+  for (const tree of treeState.trees) {
+    if (tree.maturedTick !== null) {
+      const neighbors = countNeighborsWithinRadius(tree, buckets!, params, world);
+      const deathChance = params.baseDeathChancePerCheck * (1 + params.crowdingDeathMultiplier * neighbors);
+      if (rng.next() < deathChance) continue; // dies — not carried into survivors
+    }
     survivors.push(tree);
   }
   treeState.trees = survivors;

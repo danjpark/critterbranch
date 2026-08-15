@@ -17,6 +17,43 @@ describe("determinism", () => {
   it("produces different states for different seeds", () => {
     expect(runToTick(1, 2000)).not.toBe(runToTick(2, 2000));
   });
+
+  // The determinism tests above are only as strong as what hashState actually looks at. Each case
+  // below perturbs exactly one field that drives the next tick and asserts the hash notices —
+  // otherwise a real divergence in that field passes every determinism test in the suite silently.
+  // heading in particular was genuinely uncovered: it decides where a creature moves next, but a
+  // heading-only difference shows up in positions a tick LATER, so a hash compared at a run's final
+  // tick could never see one introduced on that tick.
+  describe("hashState covers the state that drives the next tick", () => {
+    function perturbed(mutate: (state: ReturnType<typeof createSimState>["state"]) => void): string {
+      const { state, rng } = createSimState(42, DEFAULT_PARAMS);
+      for (let i = 0; i < 50; i++) tick(state, rng, DEFAULT_PARAMS);
+      mutate(state);
+      return hashState(state);
+    }
+    const baseline = perturbed(() => {});
+
+    it.each([
+      ["creature heading", (s: ReturnType<typeof createSimState>["state"]) => (s.evolution.creatures[0].heading += 0.5)],
+      ["creature nursingUntilTick", (s: ReturnType<typeof createSimState>["state"]) => (s.evolution.creatures[0].nursingUntilTick += 10)],
+      ["the creature id allocator", (s: ReturnType<typeof createSimState>["state"]) => (s.evolution.nextId += 1)],
+      ["the tree id allocator", (s: ReturnType<typeof createSimState>["state"]) => (s.evolution.trees.nextId += 1)],
+      ["the species id allocator", (s: ReturnType<typeof createSimState>["state"]) => (s.observations.taxonomy.nextSpeciesId += 1)],
+      ["a drought/bloom regrowth modifier", (s: ReturnType<typeof createSimState>["state"]) => (s.evolution.world.regrowthModifier[0] = 0.5)],
+      [
+        "an in-flight barrier transition",
+        (s: ReturnType<typeof createSimState>["state"]) =>
+          s.evolution.activeTransitions.push({ field: "passability", cellIndices: [0], fromValues: [1], toValues: [0], startTick: 0, durationTicks: 100 }),
+      ],
+      [
+        "an active drought override",
+        (s: ReturnType<typeof createSimState>["state"]) =>
+          s.evolution.activeRegrowthOverrides.push({ cellIndices: [0], multiplier: 0.5, startTick: 0, endTick: 100 }),
+      ],
+    ])("notices a change to %s", (_label, mutate) => {
+      expect(perturbed(mutate)).not.toBe(baseline);
+    });
+  });
 });
 
 describe("population dynamics", () => {

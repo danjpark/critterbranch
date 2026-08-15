@@ -2168,3 +2168,323 @@ restored the exact original pixels — a clean, fully reversible toggle, confirm
 diffing, not eyeballing. Game Mode's independent tilt slider confirmed working on its own canvas
 too (~56k bytes changed on its own toggle). Zero console errors throughout. Not committed/pushed as
 of this note.
+
+**Superseded (2026-08-14, same session, committed as 9e6b145 before this became clear).** Dan tried
+the tilt spike live and reported it plainly: "the tilt does nothing. i dont see ANYTHING like a 2.5d
+camera rotation." He was right — the spike only nudged creatures/trees vertically by elevation;
+terrain itself stayed flat, and nothing about it was ever a camera rotation. What he actually wants
+("move the camera back and forth and around") is real 3D navigation, which this addendum's own
+"Scope" section already named as needing a real engine — Dan chose that path once the cheap
+alternative visibly fell short. See Addendum 21.
+
+## Addendum 21 — the World view becomes real 3D, on Three.js
+
+Design note, written before implementation. Scraps Addendum 18/20's 2D camera-and-canvas approach
+for the World view entirely — not deepened, replaced. Three decisions, two already settled in
+conversation, one confirmed via AskUserQuestion before writing this:
+
+1. **Library: Three.js.** The standard for web 3D — biggest ecosystem/docs, ships `OrbitControls`
+   (real pan/dolly/orbit camera control, exactly "back and forth and around") as a drop-in, pure
+   JS/TS with no framework requirement (fits this project's existing vanilla-TS + Vite stack with
+   no detour, unlike react-three-fiber), and has `InstancedMesh` available if population-scale
+   performance ever needs it. Babylon.js was the runner-up (more batteries-included, TS-native) but
+   loses on ecosystem size/reference material for this project's needs.
+2. **This is a rendering-layer swap, not a rewrite of the game.** `sim/` has been kept completely
+   decoupled from `render/` since Milestone 0 — nothing about genetics, taxonomy, terraforming, or
+   the game loop changes. Only the World view's presentation is being replaced. Tree/Muller/Scatter
+   views are untouched, separate 2D canvases with no relationship to the World view's rendering.
+3. **Creature "models" stay purely procedural — no authored 3D assets.** Confirmed via
+   AskUserQuestion: 3D creature shapes are built from primitive geometry (capsules, spheres, cones)
+   sized by the same `MorphologyProfile` (Addendum 17) the 2D rig already used, not hand-modeled
+   meshes. Keeps the "every value is computed, nothing is hand-drawn, an evolving lineage's shape
+   changes live with zero new assets" property that's been a deliberate principle all session.
+
+### Concrete design
+
+**Coordinate mapping**: world `(x, y)` → Three.js `(x, z)` (ground plane), with Three.js `y`
+(the up-axis) driven by `terrain.elevation` — a direct, natural fit for this sim's existing
+ground-plane convention, no remapping needed elsewhere.
+
+**`render3d/scene.ts`** — one reusable setup: `PerspectiveCamera` + `OrbitControls` (real rotate/
+pan/dolly out of the box), a `WebGLRenderer` bound to a `<canvas>`, ambient + directional lighting.
+Instantiated independently per canvas (Classic Sandbox and Game Mode each get their own scene/
+camera/controls, matching the existing "independent camera per canvas" precedent from Addendum 18).
+
+**`render3d/terrainMesh.ts`** — a heightmap mesh, one vertex per terrain cell, Y-displaced by
+`terrain.elevation`, vertex-colored by reusing `terrainPalette.ts`'s existing pure color logic
+(`terrainCellColor`/`elevationBand` — the color MATH is reused, not the canvas-painting code around
+it). Rebuilt only when `terrain.revision` changes, same caching principle Addendum 18 already
+established for the 2D terrain layer.
+
+**`render3d/creatureModel.ts`** / **`treeModel.ts`** — one `Object3D` group per living entity,
+built once from its `MorphologyProfile`/tree state and cached by id (`Map<id, Object3D>`), updated
+in place each frame (position, Y-axis rotation from heading, color/size as they change) rather than
+rebuilt from scratch — removed and disposed when the entity dies. Same "reused, not recreated" cost
+discipline the 2D creature glyph cache used, adapted to 3D objects instead of canvas draw calls.
+
+**Hit-testing and terraform-tool clicks** move from the 2D `screenToWorld`/`findCreatureAt` math to
+real `Raycaster` queries — against creature objects for selection, against the terrain mesh for
+where a god-mode tool click lands in world space.
+
+**Superseded/deleted once this lands and is verified**: `render/camera.ts`, `render/worldView.ts`,
+`render/creatureGlyph.ts`, their tests, and the Tilt slider UI from Addendum 20 — not kept as
+parallel dead code once the Three.js path is the only path. `render/terrainPalette.ts`'s color
+functions survive (reused by the new terrain mesh); `render/color.ts`'s `cachedGenotypeColor`
+survives unchanged (already returns a CSS `rgb()` string, which Three.js's `Color` constructor
+accepts directly).
+
+### Deliberately out of scope for this pass
+
+No `InstancedMesh` optimization up front — reused-but-individual `Object3D`s per entity first,
+instancing only if a real measured population-scale frame-rate problem shows up (same "don't
+pre-build for a cost that hasn't been measured" discipline as every prior perf-adjacent decision
+this session). No authored assets, no physics, no shadows/post-processing polish beyond basic
+lighting — a working, correct 3D world first, visual polish after. No change to Tree/Muller/Scatter
+views. No terrain-texture detail (grass/rock textures) — vertex colors only, matching the existing
+flat-band parchment aesthetic's level of detail for now.
+
+### Dependencies
+
+Requires `three` (installed, `^0.185.1`) + its bundled/`@types/three` type definitions. Supersedes
+Addenda 18 and 20 for the World view specifically; Addendum 17's `Phenotype.morphology` and
+Addendum 15's phenotype contract are unaffected and directly reused.
+
+### Art direction, given mid-implementation: low-poly flat-shaded, constrained orbit
+
+Dan pointed at *Thronefall* and *Bad North* as reference look/control, with the explicit caveat
+that this project's toroidal, much-larger world needs different scale/framing than either game's
+small contained islands — borrow the STYLE and CAMERA FEEL, not the map shape. Concretely:
+
+- **Flat-shaded, low-poly geometry everywhere** — `flatShading: true` materials, low
+  segment-count primitives (creature/tree parts) and an unsubdivided per-cell terrain mesh (the
+  grid's own natural cell faceting IS the low-poly look once flat-shaded, no extra smoothing or
+  extra geometry needed to get there).
+- **A constrained orbit, not a free-fly camera** — `OrbitControls` with a bounded polar angle (no
+  looking from directly overhead or from ground level) and a bounded zoom/dolly range, so it always
+  reads as "orbiting around a diorama" the way both reference games do, not an open 3D flight sim.
+- Existing parchment/ink color palette carries over via vertex/material color, not texture — both
+  reference games also lean on clean, limited palettes rather than detailed surface texture, so this
+  is a stylistic match, not a compromise.
+
+**Implementation status (2026-08-14, same session): built as designed, live-verified working end to
+end, including catching one real gap the unit-test-only approach this session usually relies on
+could never have caught.**
+
+`npm install three` (`^0.185.1`, no separate `@types/three` conflict). New `render3d/scene.ts`
+(`createWorldScene` — camera, `OrbitControls` with the constrained polar-angle/zoom range above,
+lighting, a `render()` that calls `controls.update()` then `renderer.render()`), `terrainMesh.ts`
+(heightmap `BufferGeometry`, one vertex per terrain cell, vertex-colored via
+`terrainPalette.ts`'s reused `terrainCellColor`, rebuilt on terrain object-identity-OR-revision
+change — see below), `creatureModel.ts` (procedural low-poly rig from `MorphologyProfile`, shared
+geometries + per-creature material), `treeModel.ts` (procedural low-poly trunk+canopy, same
+deterministic per-tree jitter the 2D glyph used), and `worldRenderer.ts` (ties it together: syncs
+terrain, diffs living creatures/trees against cached `Object3D` maps creating/disposing as needed,
+screen-projects creature positions for forgiving click-to-select instead of raycasting thin
+geometry directly, raycasts the terrain mesh for terraform-tool clicks). `main.ts` rewired for both
+Classic Sandbox and Game Mode: the old `attachCameraControls`/2D pan-zoom replaced by a much
+smaller `attachClickGuard` (OrbitControls handles the actual camera dragging itself; this only
+still needs to distinguish a real drag from a stationary click so a drag doesn't also fire
+tool-use/selection). `render/camera.ts`, `render/worldView.ts`, `render/creatureGlyph.ts`, and
+their tests deleted outright — fully superseded, not kept as parallel dead code. `render/overlays.ts`
+(the competition-heatmap 2D-canvas overlay) intentionally left in place but disconnected — it drew
+directly onto a 2D context the World canvas no longer has; the checkbox stays wired to a no-op with
+a comment explaining why, porting it to 3D is real future work, not silently dropped.
+
+**One real bug caught before it ever reached the browser, not by a unit test — by simply asking "what
+happens on Restart":** the terrain mesh's cache-invalidation check originally compared only
+`terrain.revision`, the same field the old 2D cache used — but the old cache was a `WeakMap` keyed
+by object identity, so a fresh `TerrainGrid` after Restart was automatically a cache miss regardless
+of its revision number. A plain revision-number comparison has no such guarantee: two fresh,
+never-edited worlds both start at revision 0, so restarting could silently keep rendering the
+PREVIOUS world's terrain. Fixed by checking object identity as well as revision — caught during
+design/implementation review, not live testing, worth remembering as a case where reasoning through
+"what does the old code's guarantee actually depend on" mattered more than any test would have.
+
+Typecheck clean. Full suite green (367 passed — down from 394, the difference being exactly the 27
+tests that belonged to the three deleted 2D-specific files, not a regression). **Live-verified in
+browser via the drawImage-onto-a-2D-canvas technique for reading WebGL pixel content** (screenshots
+still don't composite in this pane): fresh load renders real terrain geometry and coloring (700+
+distinct sampled colors, correct parchment palette) plus creature/tree presence, zero console
+errors. **Camera orbit** (drag) changed ~58% of the frame's pixel bytes in one gesture — confirmed on
+both Classic Sandbox's and Game Mode's canvases independently. **Zoom** (wheel/dolly) changed ~48%
+of the frame. **Click-to-select** correctly picked a real creature via screen-space projection (not
+raycasting) and populated its full genome in the inspector. **The "Raise terrain" god-mode tool**,
+clicked through a real terrain raycast, visibly reshaped the mesh (300-430k pixel bytes changed
+across both canvases). One test-methodology snag along the way, not an app bug: a synthetic
+`PointerEvent`'s `pointerId` has to be a browser-recognized value (`1` worked, arbitrary IDs like
+`2`/`5` made `Element.setPointerCapture` throw `NotFoundError`) — cost real debugging time before
+being correctly diagnosed as a test-script issue via the browser's own uncaught-exception log, not
+an OrbitControls or scene-setup problem.
+
+**Tuning pass, same session, after Dan actually tried it live:** two adjustments, both pure
+rendering constants — no sim-side elevation/tree math touched, matching the "the sim never
+changed, only the exaggeration" principle this file has used for every prior height-scale
+constant. (1) `terrainMesh.ts`'s `HEIGHT_SCALE` dropped `60 → 20` — Dan's exact words: "lower and
+raise terrain needs to be much smaller scale. right now its too large." Confirmed live: 5 clicks of
+"Raise terrain" at canvas center went from 300-430k changed pixel bytes down to ~128k, roughly the
+3x reduction the constant change implies. (2) `worldRenderer.ts`'s tree canopy radius fractions
+raised `0.09/0.4 → 0.13/0.55` (trunk height derives from canopy radius, so it scales with it
+automatically) — Dan: "I think we should scale the trees slightly bigger too." Full suite still
+green (367 passed, unchanged — pure constants, no new logic to test), typecheck clean, zero console
+errors live. Not committed/pushed as of this note — Dan is looking at it live via the local dev
+server first.
+
+## Addendum 22 — a correctness/hardening pass over the existing code, not a new feature
+
+Prompted by Dan asking for a Staff-level review of the code written so far, with explicit weight on
+simulation determinism, state transitions, population/speciation logic, tick ordering, and whether
+identical initial state plus identical player actions always produce identical results. No new
+capability is added here. What follows is the set of things that turned out to be genuinely wrong,
+plus the reasoning behind each fix, so it survives the diff.
+
+### The bugs that mattered
+
+**1. A checkpoint restore was not restoring the whole game.** `GameRunner.saveCheckpoint` never
+captured `discoveryJournal`, and `restoreCheckpoint` never restored it — so rewinding to an earlier
+era left the Critterdex holding entries earned on the branch just abandoned, permanently, with no
+way to lose them again. That directly contradicts the "a branch, not an undo" contract the class
+doc makes. `restoreCheckpoint` also left `fastForwardFromTick` set while clearing every other
+in-flight era-advance field; with it set, the next `advanceEra()` takes `stepEraAdvance`'s
+"already fast-forwarding" branch on its first frame and burns the entire era at the max-speed
+budget regardless of the player's chosen speed. Both now covered by regression tests that were
+confirmed to fail against the old code before being kept.
+
+**2. A tree could make its own cell produce LESS food.** `stepTrees` wrote fruit once per tree, each
+write a `Math.min` against *that tree's* ceiling — so with several trees in a cell the last one in
+array order dictated the result, and a poor tree sharing a rich tree's cell actively clamped the
+cell's yield down to poor levels. This is not a rare configuration: `saplingSpreadRadius` (12) is
+three cells wide at the default `gridCellSize` (4), so a tree's own offspring routinely land back on
+top of it; measured at 3,000 ticks under `DEFAULT_PARAMS`, 29 of 182 occupied cells held more than
+one mature tree. `initTrees` and the `plantTree` god-tool had the same shape of bug, assigning
+rather than taking a maximum.
+
+The fix is worth recording carefully because the **first attempt was wrong and the golden scenarios
+caught it**. Resolving each cell once against the best ceiling standing in it removed the clamp-down
+— and also removed something the per-tree loop had been getting *right*: N trees in a cell regrew it
+N times as fast. That property is load-bearing. Flattening it broke the foraging-disruption golden
+scenario, the foraging axis-isolation test, and the carnivory scenario outright. The shipped fix
+accumulates every mature tree's contribution and clamps **once** against the max ceiling, which is
+provably identical to the old repeated `min` whenever trees in a cell share a capacity (min is
+monotone, so N applications of `f = min(C, f + rC)` and one `f = min(C, f + N*rC)` agree) and differs
+only in the mixed-capacity case that was actually broken.
+
+That episode is why those golden tests exist, and it is the second time this file has had to record
+that a "clearly correct" simplification of the food model was not, in fact, behavior-preserving.
+
+**3. History compaction was eating history it claimed to keep.** `compactHistory` thinned the older
+bands by position within the band ("keep every 5th sample"), but `sim.ts` calls it repeatedly over
+its own output as a run grows — every 5,000 ticks, forever. Each pass re-thinned samples an earlier
+pass had already thinned, so retained density collapsed geometrically in the number of passes rather
+than settling where the config said. Measured on a 150,000-tick run at the real cadence: **115
+samples survived where a single pass over the same raw history keeps 305**, and the gap widens the
+longer a run goes. The bands are now expressed as tick *spacings* rather than sample ratios, which
+makes the rule a fixed point — running it twice at the same tick is a no-op.
+
+A first attempt derived the spacing from the history's own densest observed interval, which was
+*also* not idempotent (compacting changes the smallest gap in the array). Caught by the idempotence
+test rather than by inspection, which is the argument for having written that test first.
+
+**4. Params from an imported scenario could silently poison the sim.** `parseRunConfig` shape-checked
+that fields exist but never checked that values were runnable, and `mergeRunParams` casts `unknown`
+straight through. The sharp case: `regrowthCyclePeriod: 0` makes `stepTrees` compute
+`sin(2*pi*tick/0)` = NaN, which flows into every cell of `world.fruit`, then into creature energy,
+then fails every creature's `energy > 0` survival check — a total, silent extinction that reads as a
+balance problem. The three `tick % interval` cadences at 0 evaluate to NaN, which never equals 0, so
+the guarded work simply never runs again: `taxonomyIntervalTicks` silently disables speciation
+detection *and* all history sampling. New `sanitizeParams` repairs these at the import boundary and
+reports what it repaired rather than swallowing it.
+
+It also snaps `worldWidth`/`worldHeight` to a whole number of grid cells, which closes a
+long-standing latent inconsistency: `createSimState` derives `cols = round(worldWidth /
+gridCellSize)`, so `creature.ts`'s movement wraps at `cols * gridCellSize` while `reproduce()`,
+`trySeedSapling()` and the taxonomy's position averaging all wrap at `params.worldWidth`. Those
+agree only when the ratio is a whole number — true of every shipping config, required of no
+imported one.
+
+**5. A wide brush applied itself more than once per cell.** `cellsWithinRadius` scans a window
+around the click and wraps each offset onto the torus; with a radius wider than half the world it
+reaches the same cell from both directions and lists it twice, and callers apply their effect *per
+listed entry*. So `raiseTerrain` and `meteor` compounded their elevation delta on those cells from a
+single click. Not reachable from the shipping brush slider (max 60 in a 200-unit world), entirely
+reachable from an imported scenario. Now deduped, which is exact — an earlier "clamp the scan
+window" attempt dropped the cell sitting at exactly half-world distance.
+
+### Determinism specifically
+
+`hashState` — the function every determinism and replay test in the suite compares through — was
+only looking at part of the state. Most significantly it omitted **`heading`**, which is the single
+largest input to where a creature ends up next tick. A heading-only divergence is invisible to a
+hash taken at that instant and only surfaces a tick later as a position difference, so a test
+comparing hashes at a run's final tick could not see a divergence introduced on that tick at all.
+Also missing: all three id allocators, `nursingUntilTick`, `regrowthModifier`, and the in-flight
+god-mode effect lists. All now included, each with a test that perturbs exactly that field and
+asserts the hash notices — a determinism test is only ever as strong as what its hash reads.
+
+No actual non-determinism was found in the sim itself. The RNG is a clean PCG32 whose snapshot
+includes the Box-Muller spare; `Math.random` is absent from `sim/`; `Array.prototype.sort` is used
+only where stability is either guaranteed or irrelevant; `Float64Array.prototype.sort` (in
+`seaLevelForTargetWaterFraction`) is numeric by default rather than lexicographic, which is easy to
+get wrong and is right here; and the Map deletions-during-iteration in `decayConsumption`,
+`decaySpeciesBehaviorStats` and `updateGeneFlow` are all the spec-safe "delete the entry you are
+currently visiting" form. Ordering is order-*dependent* in several places (fruit depletion follows
+array order, nursing serves children in array order, predation resolves in queue order) but every
+one of those is deterministic and already documented at its site.
+
+### Performance
+
+`buildTerrainGeometry` was formatting each cell's color into a CSS `rgb(...)` string and immediately
+parsing it back with a regex — 2,500 string builds and 2,500 regex executions per mesh rebuild. That
+is not a cold path: `processActiveTransitions` bumps `terrain.revision` every tick while a barrier
+formation or crater recovery is in flight, so the mesh rebuilds once per frame for the whole
+duration of either. The color math is now exposed directly as normalized floats
+(`terrainCellColorRgb`, writing into a caller-supplied tuple so the per-cell loop allocates
+nothing), with the CSS formatting left as a thin wrapper for the 2D views. Verified numerically
+equivalent to the old string round-trip across 1,200+ sampled inputs, to within the half-step of
+8-bit quantization the string form was itself imposing — i.e. the new path is strictly more precise.
+
+### Seed churn, and why two tests moved
+
+Two seed-pinned tests needed re-pointing after the tree fix, following the convention Addendum 12's
+note and the barrier golden scenario already established. Neither contract was weakened, and in both
+cases the contract was **re-measured rather than assumed**:
+
+- The carnivory golden scenario re-swept from seed 3 to seed 5. A fresh 8-seed sweep after the fix
+  still produces a carnivory-dominant split on 3 of 8 seeds — the same rate the original sweep found
+  — so only that one seed moved, not the phenomenon.
+- `simRunner`'s auto-pace test moved its window from 5000/5700 to 3000/5000: seed 7 now settles at
+  tick 4901 rather than ~5700, so the old "still actively changing" checkpoint had landed on the far
+  side of equilibrium. Same seed, same contract, measured directly.
+
+### Verification
+
+Typecheck clean. Full suite green: **398 passed, 1 skipped, 43 files** — up from 367, i.e. 31 net new
+tests, with every regression test confirmed to fail against the pre-fix code before being kept.
+Live: the app loads and runs at max speed with zero console errors, the WebGL world renders the
+correct parchment palette, and the sim advanced past 6,400 ticks under the new tree model without
+incident.
+
+Full live *pixel* verification of the terraform tools was not possible this pass — the Browser pane
+was not displayed, so the page was not compositing frames, and both screenshots and
+`requestAnimationFrame`-driven redraws are inert in that state. Worth stating plainly rather than
+glossing: that check is outstanding. The rendering change most at risk from the gap (the color
+refactor) was instead verified numerically against the exact code it replaced, which is a sharper
+check than eyeballing a screenshot would have been, but it does not cover the terraform interaction
+path end to end.
+
+### Known remaining issues, deliberately not fixed here
+
+- **`computeSpeciesProfiles` mixes stale and live data.** `memberCount` and the reproduction rates
+  come from `species.memberCount`, updated only at taxonomy passes, while habitat and movement come
+  from the live creature list. At an era boundary those are up to `taxonomyIntervalTicks` apart, so a
+  species whose members all died since the last pass still gets a profile with a nonzero member count
+  and can keep accruing a discovery streak. Wants a decision about which one is authoritative rather
+  than a patch.
+- **`trySeedSapling` does a linear `trees.find()`** over every tree to identify the source cell's
+  owner, on every successful sapling roll. Bounded by `maxTreeCount` (350) so it is not currently
+  hot, but it is O(creatures x trees) in shape and the tree cap is the only thing holding it down.
+- **Extinct species are never removed from `taxonomy.species`**, so every pass iterates every species
+  that has ever existed. Cheap per entry (it `continue`s immediately) but unbounded over a very long
+  run.
+- **`sanitizeParams` returns its repair list and nobody surfaces it.** `parseRunConfig` currently
+  discards it; the scenario-load path in `main.ts` should probably tell the user their file was
+  repaired rather than silently running something different from what they handed it.

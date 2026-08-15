@@ -1,7 +1,7 @@
 import { DEFAULT_PARAMS } from "../params.ts";
 import type { ChallengeDefinition } from "../game/challenges/challenge.ts";
 import { evaluateChallenge, type ChallengeStatus } from "../game/challengeRuntime.ts";
-import { evaluateEraDiscoveries } from "../game/discovery/discoveryJournal.ts";
+import { evaluateEraDiscoveries, type DiscoveryJournal } from "../game/discovery/discoveryJournal.ts";
 import { beginEraEvolution, finishEra } from "../game/era.ts";
 import { captureEraSnapshot, computeEraDelta, computeNotableTraitShifts, type EraSnapshot, type EraSummary } from "../game/eraSummary.ts";
 import { continueToTerraform, createGame, type Game } from "../game/game.ts";
@@ -48,6 +48,11 @@ interface StoredCheckpoint extends GameCheckpoint {
   rngSnapshot: RNGSnapshot;
   interventionLogLength: number;
   budgetSnapshot: TerraformBudgetState | null;
+  /** Safe to store by reference: evaluateDiscoveries never mutates a journal, it returns a fresh
+   * one that game.ts/this class then assign over the old (see discovery/discoveryJournal.ts). A
+   * checkpoint that omitted this restored a branch whose Critterdex still held entries earned on
+   * the branch being abandoned — discoveries from a timeline the player just rewound out of. */
+  discoveryJournalSnapshot: DiscoveryJournal;
 }
 
 /**
@@ -270,6 +275,7 @@ export class GameRunner {
       rngSnapshot: game.sim.rng.snapshot(),
       interventionLogLength: game.sim.interventionLog.length,
       budgetSnapshot: game.budget ? { ...game.budget } : null,
+      discoveryJournalSnapshot: game.discoveryJournal,
     });
   }
 
@@ -292,10 +298,17 @@ export class GameRunner {
     game.sim.rng.restore(checkpoint.rngSnapshot);
     game.sim.interventionLog.length = checkpoint.interventionLogLength;
     game.budget = checkpoint.budgetSnapshot ? { ...checkpoint.budgetSnapshot } : null;
+    game.discoveryJournal = checkpoint.discoveryJournalSnapshot;
 
+    // Every piece of in-flight era-advance state has to clear together. fastForwardFromTick in
+    // particular is not cosmetic: leaving it set means the next advanceEra() takes stepEraAdvance's
+    // `this.fastForwardFromTick !== null` branch on its very first frame and blows through the
+    // whole era at the max-speed budget, ignoring the player's speed setting entirely.
     this.eraTargetTick = null;
     this.eraBeforeSnapshot = null;
+    this.fastForwardFromTick = null;
     this.lastEraSummary = null;
+    this.lastTerraformError = null;
     this.activeTool = null;
     this.barrierDragStart = null;
     return true;
