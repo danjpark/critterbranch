@@ -72,6 +72,11 @@ export class GameRunner {
    * stepEraAdvance() is ticking toward. */
   private eraTargetTick: number | null = null;
   private eraBeforeSnapshot: EraSnapshot | null = null;
+  /** Non-null once isEcosystemStable() has fired this era — the tick fast-forwarding began at.
+   * SPEC.md Addendum 19: this only changes ANIMATION speed for the rest of the era, never how many
+   * ticks actually get simulated — the era still always reaches eraTargetTick exactly, matching
+   * game.ts's headless advanceGameEra byte-for-byte instead of silently under-simulating. */
+  private fastForwardFromTick: number | null = null;
   private checkpoints: StoredCheckpoint[] = [];
   private nextCheckpointId = 1;
 
@@ -87,6 +92,7 @@ export class GameRunner {
     this.lastTerraformError = null;
     this.eraTargetTick = null;
     this.eraBeforeSnapshot = null;
+    this.fastForwardFromTick = null;
     this.checkpoints = [];
   }
 
@@ -169,17 +175,20 @@ export class GameRunner {
    * app/pacing.ts) so the eventful early ticks are actually watchable instead of blowing by at full
    * speed immediately; "max" bypasses the ramp entirely (a player who picked max already opted out
    * of watching slowly). No-op unless an era advance is in progress (see advanceEra()). Finalizes
-   * (increments era, enters discovery, builds the EraSummary) once the target tick is reached, OR
-   * early once the ecosystem has gone quiet for a while (see sim/equilibrium.ts and SPEC.md
-   * Addendum 13) — a dead tail with nothing left to watch shouldn't have to grind out its full
-   * tick budget just to reach the same summary a shorter run would already show. */
+   * (increments era, enters discovery, builds the EraSummary) once the target tick is reached —
+   * always exactly the target, never fewer (SPEC.md Addendum 19). Once the ecosystem has gone quiet
+   * for a while (see sim/equilibrium.ts and SPEC.md Addendum 13), animation switches to the same
+   * max-speed budget loop `speed === "max"` uses for the rest of the era instead of the ramped
+   * per-frame rate — a dead tail with nothing left to watch blows by in a couple of frames instead
+   * of grinding out slowly, but every tick between here and the target still actually runs, so the
+   * simulated outcome stays identical to a headless replay of the same log. */
   stepEraAdvance(): void {
     const target = this.eraTargetTick;
     if (target === null) return;
     const { state, rng, params } = this.game.sim;
     const before = this.eraBeforeSnapshot!;
 
-    if (this.speed === "max") {
+    if (this.speed === "max" || this.fastForwardFromTick !== null) {
       const start = performance.now();
       while (state.evolution.tick < target && performance.now() - start < MAX_SPEED_BUDGET_MS) {
         tick(state, rng, params);
@@ -193,9 +202,12 @@ export class GameRunner {
     }
 
     if (state.evolution.tick >= target) {
-      this.finalizeEraAdvance(false);
+      this.finalizeEraAdvance(this.fastForwardFromTick);
+      this.fastForwardFromTick = null;
       return;
     }
+
+    if (this.fastForwardFromTick !== null) return; // already fast-forwarding, nothing left to decide
 
     const totalEraTicks = target - before.tick;
     const elapsedFraction = (state.evolution.tick - before.tick) / totalEraTicks;
@@ -203,13 +215,12 @@ export class GameRunner {
 
     const obs = state.observations;
     if (isEcosystemStable(obs.populationHistory, obs.traitHistory, obs.taxonomyEvents)) {
-      this.finalizeEraAdvance(true);
+      this.fastForwardFromTick = state.evolution.tick;
     }
   }
 
-  private finalizeEraAdvance(endedEarly: boolean): void {
+  private finalizeEraAdvance(fastForwardedFromTick: number | null): void {
     const before = this.eraBeforeSnapshot!;
-    const plannedTick = this.eraTargetTick!;
     finishEra(this.game.gameState);
     const after = captureEraSnapshot(this.game);
     const newDiscoveries = evaluateEraDiscoveries(this.game);
@@ -218,8 +229,7 @@ export class GameRunner {
       after,
       delta: computeEraDelta(before, after),
       notableTraitShifts: computeNotableTraitShifts(this.game, before.tick, after.tick),
-      endedEarly,
-      plannedTick,
+      fastForwardedFromTick,
       newDiscoveries,
     };
     this.eraTargetTick = null;

@@ -93,11 +93,14 @@ export interface EraSummary {
   after: EraSnapshot;
   delta: EraDelta;
   notableTraitShifts: TraitShift[];
-  /** True when app/gameRunner.ts's stepEraAdvance stopped ticking before reaching plannedTick
-   * because the ecosystem had gone quiet (see sim/equilibrium.ts) — SPEC.md Addendum 13. */
-  endedEarly: boolean;
-  /** The tick the era was originally targeting — equals after.tick unless endedEarly is true. */
-  plannedTick: number;
+  /** Non-null when app/gameRunner.ts's stepEraAdvance switched to fast-forwarding once the
+   * ecosystem went quiet (see sim/equilibrium.ts) — the tick that happened at. The era still always
+   * simulates every tick up to its full planned target either way (SPEC.md Addendum 19, fixing a
+   * real divergence from headless replay that Addendum 13's original early-end design had); this
+   * only records that the tail was watched fast instead of at normal pace. Null for an era watched
+   * at its normal pace the whole way, and always null for game.ts's headless advanceGameEra, which
+   * has no animation to speed up. */
+  fastForwardedFromTick: number | null;
   /** Critterdex entries newly confirmed this era (SPEC.md Addendum 16) — empty most eras. */
   newDiscoveries: DiscoveryMatch[];
 }

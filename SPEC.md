@@ -2001,3 +2001,97 @@ by a click at the drag's endpoint left the inspector showing the SAME creature �
 "Raise terrain" god-mode tool, clicked through the new camera projection, visibly darkened the
 correct world cell (a real elevation change, not a no-op). Game Mode's independent camera zoomed
 correctly on its own canvas. Not committed/pushed as of this note.
+
+## Addendum 19 — era time coherence: equilibrium early-end was truncating simulated time, not just animation speed
+
+Design note, written before implementation. Item 7 of the reordered mega-doc plan. Investigating
+the mega-doc's own flagged inconsistency ("early equilibrium currently finalizes an era before the
+planned target tick while still incrementing the era number") turned up something more serious than
+a display nit: **`app/gameRunner.ts`'s equilibrium early-end doesn't just stop animating early, it
+stops simulating early.**
+
+### The actual bug, root-caused before proposing a fix
+
+`stepEraAdvance()`'s early-end branch called `finalizeEraAdvance(true)` the moment
+`isEcosystemStable()` returned true, which calls `finishEra()` — incrementing `gameState.era` and
+transitioning phase — **without ever ticking the sim the rest of the way to `eraTargetTick`**. The
+existing test suite already proved this directly (`gameRunner.test.ts`, since rewritten):
+`expect(runner.lastEraSummary!.after.tick).toBeLessThan(runner.lastEraSummary!.plannedTick)`. That
+assertion was passing — the bug was already covered, just never flagged as one.
+
+This is not merely a cosmetic "the summary text is confusing" issue. `game.ts`'s headless
+`advanceGameEra` (used for replay/scenario-export fidelity) always ticks the *entire* configured
+`eraConfig.ticksPerEra` — its own comment says so explicitly ("it always runs the full tick budget,
+so it can never end early"). If a live Game Mode session hits equilibrium early-end in the animated
+path, its sim state after that era has **fewer actual simulated ticks** than a headless replay of
+the identical seed + intervention log would produce for the same era. That's a real divergence
+between animated play and this project's own "same seed + params + intervention history → same
+outcome" determinism guarantee (this file's own top-level guardrail) — not yet caught by any
+existing determinism test, because those all either stay fully headless or never happen to trigger
+equilibrium early-end mid-comparison.
+
+`app/simRunner.ts`'s `autoPace` (Classic Sandbox) does NOT have this problem — checked before
+proposing a fix, not assumed: Classic Sandbox has no fixed per-era tick target to fall short of, so
+its fast-forward is purely a per-frame tick-count increase, nothing gets truncated.
+
+### The fix
+
+Matches the mega-doc's own recommended resolution exactly: **an era always reaches its full planned
+tick count. Equilibrium detection only changes animation SPEED for the remainder, never how much
+gets simulated.** Once `isEcosystemStable()` fires, `stepEraAdvance()` stops honoring the ramped
+per-frame budget and switches to the same time-boxed max-speed loop `speed === "max"` already uses,
+continuing every subsequent frame until `state.evolution.tick` reaches `eraTargetTick` exactly — at
+which point (and only then) the era finalizes. The player still gets the fast-forward payoff
+(a quiet tail blows by in a couple of frames instead of grinding out slowly), but the simulated
+outcome for that era is now provably identical to what a headless replay of the same log would
+produce, because it's the same number of `tick()` calls either way.
+
+**`EraSummary.endedEarly`/`plannedTick` are replaced with `fastForwardedFromTick: number | null`** —
+the old fields' own meaning (fewer ticks were actually simulated) stops being true, so keeping them
+around under their old names would be actively misleading, not just stale. The new field is null for
+an era watched at normal pace the whole way, or the tick fast-forwarding began at otherwise — asking
+"were fewer ticks simulated" no longer has a meaningful non-null answer, so there's nothing to keep
+that question's old field for. The era-summary UI line changes from "Ended early — the ecosystem
+settled into equilibrium (X of Y planned ticks)" (a claim that's no longer true) to something like
+"The back half of this era was fast-forwarded once the ecosystem settled (from tick N)."
+
+### Deliberately out of scope for this pass
+
+No fictional-year/`TimeScale` system (the mega-doc's larger Item 7 vision) — ticks stay the only
+unit of elapsed time anywhere in the game. No change to `EraConfig.ticksPerEra` itself, era pacing
+constants, or `sim/equilibrium.ts`'s tuned tolerances. No change to Classic Sandbox's `autoPace`,
+which was already correct. No terraform-draft/undo work — that's Item 8, a separate pass.
+
+### Dependencies
+
+None — this is a bug fix within already-shipped machinery (Addendum 13's equilibrium/pacing system).
+Closes a real determinism gap the mega-doc's own recommended design (Addendum 15 onward's rigor)
+would have wanted caught earlier.
+
+**Implementation status (2026-08-14, same session): built as designed, and the bug is real —
+confirmed by a new test, not just theorized.**
+
+`GameRunner` gained a private `fastForwardFromTick: number | null` field. `stepEraAdvance()`'s
+equilibrium branch now records this instead of finalizing immediately; the tick loop switches to
+the max-speed budget path for the rest of the era regardless of the player's chosen speed, and
+finalization only happens once `state.evolution.tick` actually reaches `eraTargetTick`.
+`EraSummary.endedEarly`/`plannedTick` replaced with `fastForwardedFromTick: number | null`
+throughout (`eraSummary.ts`, `game.ts`, `gameRunner.ts`, `ui/controls.ts`'s era-summary panel text).
+
+New test in `gameRunner.test.ts` — the actual proof this was a real bug, not a cosmetic one: the
+same seed (7) and era count (3) that trigger equilibrium early-end, run once through
+`GameRunner`'s animated path and once through `game.ts`'s headless `advanceGameEra`, now produce
+**byte-identical `hashState()` output**. Before this fix, that comparison would have failed — the
+animated path's sim state had genuinely fewer simulated ticks. The existing early-end test was
+rewritten to assert the new, correct invariant (`after.tick` reaches the target exactly, fast-forward
+or not) instead of the old test's own proof of the bug (`after.tick` being *less than* `plannedTick`
+was previously an assertion, not a red flag — worth remembering as a reminder that a green test only
+proves the code matches the test's own assumptions, not that those assumptions were right).
+
+Typecheck clean. Full suite green (385 passed — up from 384, +1 new — 1 pre-existing documented
+skip). Live browser check: switched to Game Mode, set max speed, advanced an era — zero console
+errors. Full 3-era equilibrium scenario wasn't watched to completion live (this preview pane's
+already-documented `requestAnimationFrame` throttling when not actively composited stalled the
+animation around tick ~900 of 2000 during manual polling) — not chased further, since the automated
+cross-path determinism test is strictly stronger proof for this specific bug than eyeballing a UI
+message would have been anyway. Not committed/pushed as of this note.

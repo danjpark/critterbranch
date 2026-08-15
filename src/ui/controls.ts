@@ -961,14 +961,14 @@ export function createEraSummaryPanel(): EraSummaryHandle {
         return;
       }
 
-      const { before, after, delta, notableTraitShifts, endedEarly, plannedTick, newDiscoveries } = summary;
+      const { before, after, delta, notableTraitShifts, fastForwardedFromTick, newDiscoveries } = summary;
       const lines: string[] = [
         `Era ${after.era} complete (tick ${before.tick.toLocaleString()} → ${after.tick.toLocaleString()})`,
         `Population: ${before.totalPopulation.toLocaleString()} → ${after.totalPopulation.toLocaleString()} (${delta.populationChange >= 0 ? "+" : ""}${delta.populationChange.toLocaleString()})`,
         `Species: ${delta.livingSpeciesCountBefore} → ${delta.livingSpeciesCountAfter}`,
       ];
-      if (endedEarly) {
-        lines.push(`Ended early — the ecosystem settled into equilibrium (${(after.tick - before.tick).toLocaleString()} of ${(plannedTick - before.tick).toLocaleString()} planned ticks).`);
+      if (fastForwardedFromTick !== null) {
+        lines.push(`The ecosystem settled into equilibrium at tick ${fastForwardedFromTick.toLocaleString()} — the rest of the era was fast-forwarded (every tick still simulated, just watched fast).`);
       }
       if (delta.newSpeciesIds.length > 0) lines.push(`New species: ${delta.newSpeciesIds.join(", ")}`);
       if (delta.extinctSpeciesIds.length > 0) lines.push(`Extinct: ${delta.extinctSpeciesIds.join(", ")}`);

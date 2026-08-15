@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { GameRunner } from "./gameRunner.ts";
 import { PROTOTYPE_CHALLENGES } from "../game/challenges/prototypeChallenges.ts";
+import { advanceGameEra, continueToTerraform, createGame } from "../game/game.ts";
+import { DEFAULT_PARAMS } from "../params.ts";
+import { hashState } from "../sim/testHash.ts";
 
 describe("GameRunner", () => {
   it("starts in sandbox mode with an unlimited budget, era 0, terraform phase", () => {
@@ -69,18 +72,20 @@ describe("GameRunner", () => {
     expect(runner.game.sim.state.evolution.tick - tickBeforeFullSpeed).toBe(10);
   });
 
-  it("a normal era (still actively growing, never reaches equilibrium) runs its full tick budget and reports endedEarly: false", () => {
+  it("a normal era (still actively growing, never reaches equilibrium) runs its full tick budget and reports fastForwardedFromTick: null", () => {
     const runner = new GameRunner("sandbox", 1);
     runner.setSpeed("max");
     runner.advanceEra();
     while (runner.isAdvancingEra()) runner.stepEraAdvance();
 
-    expect(runner.lastEraSummary!.endedEarly).toBe(false);
-    expect(runner.lastEraSummary!.plannedTick).toBe(runner.lastEraSummary!.after.tick);
+    expect(runner.lastEraSummary!.fastForwardedFromTick).toBeNull();
     expect(runner.lastEraSummary!.after.tick).toBe(2000);
   });
 
-  it("a later era can end early once the ecosystem settles into equilibrium (empirically confirmed for this exact seed — see sim/equilibrium.ts's tuning note; re-swept from seed 1 to seed 7 after SPEC.md Addendum 14's carnivory fix shifted population dynamics under DEFAULT_PARAMS)", () => {
+  // SPEC.md Addendum 19 — the whole point of the fix: equilibrium early-end used to leave
+  // after.tick BELOW the planned target (a real divergence from headless replay of the same log).
+  // Now it always reaches the exact target tick; only the animation speed for the tail changes.
+  it("a later era fast-forwards through a quiet tail once the ecosystem settles into equilibrium, but still simulates every tick up to the exact target (empirically confirmed for this exact seed — see sim/equilibrium.ts's tuning note; re-swept from seed 1 to seed 7 after SPEC.md Addendum 14's carnivory fix shifted population dynamics under DEFAULT_PARAMS)", () => {
     const runner = new GameRunner("sandbox", 7);
     runner.setSpeed("max");
     for (let era = 1; era <= 3; era++) {
@@ -89,9 +94,34 @@ describe("GameRunner", () => {
       if (era < 3) runner.continueToTerraform();
     }
 
-    expect(runner.lastEraSummary!.endedEarly).toBe(true);
-    expect(runner.lastEraSummary!.after.tick).toBeLessThan(runner.lastEraSummary!.plannedTick);
-    expect(runner.lastEraSummary!.plannedTick).toBe(6_000); // 3 eras x 2000 ticks/era
+    expect(runner.lastEraSummary!.fastForwardedFromTick).not.toBeNull();
+    expect(runner.lastEraSummary!.fastForwardedFromTick!).toBeLessThan(runner.lastEraSummary!.after.tick);
+    expect(runner.lastEraSummary!.after.tick).toBe(6_000); // 3 eras x 2000 ticks/era, reached exactly
+  });
+
+  // SPEC.md Addendum 19 — the actual bug this fix closes: before it, an era that fast-forwarded via
+  // equilibrium early-end left the animated GameRunner's sim state with FEWER simulated ticks than
+  // a headless replay of the identical seed/eraConfig would produce, silently breaking this
+  // project's own "same seed + params + intervention history -> same outcome" determinism
+  // guarantee. Same seed (7) and era count (3) as the fast-forward test above, which is exactly the
+  // scenario that used to diverge.
+  it("the animated path (with fast-forwarding) and the headless path produce byte-identical sim state for the same seed", () => {
+    const animated = new GameRunner("sandbox", 7);
+    animated.setSpeed("max");
+    for (let era = 1; era <= 3; era++) {
+      animated.advanceEra();
+      while (animated.isAdvancingEra()) animated.stepEraAdvance();
+      if (era < 3) animated.continueToTerraform();
+    }
+
+    const headless = createGame({ mode: "sandbox", seed: 7, params: DEFAULT_PARAMS, eraConfig: { ticksPerEra: 2000 } });
+    for (let era = 1; era <= 3; era++) {
+      advanceGameEra(headless);
+      if (era < 3) continueToTerraform(headless);
+    }
+
+    expect(hashState(animated.game.sim.state)).toBe(hashState(headless.sim.state));
+    expect(animated.game.gameState.era).toBe(headless.gameState.era);
   });
 
   it("stepEraAdvance finalizes into discovery with an EraSummary once the target tick is reached", () => {
