@@ -30,7 +30,7 @@ function phenotype(overrides: Partial<Phenotype> = {}): Phenotype {
     aquaticAdaptation: 0,
     energyCapacity: 20,
     metabolicCost: 0.1,
-    morphology: { bodyScale: 1, limbLength: 0.5, jawSize: 0.5, earSize: 0.5, tailForm: 0 },
+    morphology: { bodyScale: 1, limbLength: 0.5, jawSize: 0.5, earSize: 0.5, tailForm: 0, finProminence: 0, fangProminence: 0 },
     ...overrides,
   };
 }

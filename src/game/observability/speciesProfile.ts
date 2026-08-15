@@ -146,10 +146,15 @@ function survivalProfile(taxonomy: TaxonomyState, speciesId: number, populationH
   return { volatility, trend };
 }
 
-/** Computes a fresh SpeciesProfile for every currently-living species from the sim's current
- * state. Read-only, pure, and cheap enough (one pass over living creatures) to call on demand —
- * not wired into the tick loop, since aggregation logic belongs in game/, not sim/ (sim/ must
- * never import from game/, see architectureBoundary.test.ts). */
+/** Computes a fresh SpeciesProfile for every species with living members right now. Read-only,
+ * pure, and cheap enough (one pass over living creatures) to call on demand — not wired into the
+ * tick loop, since aggregation logic belongs in game/, not sim/ (sim/ must never import from game/,
+ * see architectureBoundary.test.ts).
+ *
+ * "Living" means members counted in THIS call, not `Species.extinctTick` being unset — extinction
+ * is only recorded on a taxonomy pass, so a species can be empty for up to
+ * params.taxonomyIntervalTicks before it is formally marked extinct. See the member-count comment
+ * inside for why that gap mattered. */
 export function computeSpeciesProfiles(sim: SimInstance): SpeciesProfileSet {
   const { evolution, observations } = sim.state;
   const params = sim.params;
@@ -169,12 +174,19 @@ export function computeSpeciesProfiles(sim: SimInstance): SpeciesProfileSet {
   for (const species of observations.taxonomy.species.values()) {
     if (species.extinctTick !== null) continue;
     const members = membersBySpecies.get(species.id) ?? [];
+    // Counted live, not from species.memberCount. That field is only refreshed on a taxonomy pass
+    // (every params.taxonomyIntervalTicks), so between passes it can describe a species whose
+    // members have ALL died — and an era boundary rarely lands on a pass. A profile built from it
+    // reported a healthy population for a lineage that no longer existed, and could carry that
+    // ghost far enough to earn a Critterdex discovery. Skipping empty species here is what makes
+    // "died out" take effect immediately rather than up to a full interval later.
+    if (members.length === 0) continue;
     const movement = movementProfile(members);
-    const reproduction = reproductionProfile(observations.speciesBehavior, species.id, species.memberCount);
+    const reproduction = reproductionProfile(observations.speciesBehavior, species.id, members.length);
 
     profiles.set(species.id, {
       speciesId: species.id,
-      memberCount: species.memberCount,
+      memberCount: members.length,
       diet: dietProfile(observations.speciesBehavior, species.id),
       habitat: habitatProfile(members, evolution.terrain, params),
       movement,

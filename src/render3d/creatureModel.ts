@@ -25,6 +25,10 @@ const earGeometry = new THREE.IcosahedronGeometry(0.5, HEAD_DETAIL);
 const snoutGeometry = new THREE.ConeGeometry(0.5, 1, CONE_RADIAL_SEGMENTS);
 const legGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1, LEG_RADIAL_SEGMENTS);
 const tailGeometry = new THREE.ConeGeometry(0.5, 1, CONE_RADIAL_SEGMENTS);
+// Emergent features (SPEC.md Addendum 25) — parts a creature grows rather than parts it always
+// has. 3 radial segments makes the fin read as a flat blade once squashed on one axis.
+const finGeometry = new THREE.ConeGeometry(0.5, 1, 3);
+const fangGeometry = new THREE.ConeGeometry(0.5, 1, 3);
 
 // bodyGeometry's capsule defaults to lying along Y — rotate its (shared) buffer once, up front, so
 // every creature's body mesh can just use identity-ish transforms afterward instead of every
@@ -61,10 +65,13 @@ export function createCreatureModel(): CreatureModel {
   const earR = part(earGeometry, material);
   const snout = part(snoutGeometry, material);
   const tail = part(tailGeometry, material);
+  const fin = part(finGeometry, material);
+  const fangL = part(fangGeometry, material);
+  const fangR = part(fangGeometry, material);
   const legs = [part(legGeometry, material), part(legGeometry, material), part(legGeometry, material), part(legGeometry, material)];
 
   const root = new THREE.Group();
-  root.add(body.mesh, head.mesh, earL.mesh, earR.mesh, snout.mesh, tail.mesh, ...legs.map((l) => l.mesh));
+  root.add(body.mesh, head.mesh, earL.mesh, earR.mesh, snout.mesh, tail.mesh, fin.mesh, fangL.mesh, fangR.mesh, ...legs.map((l) => l.mesh));
 
   function update(morphology: MorphologyProfile, colorCss: string): void {
     material.color.set(colorCss);
@@ -98,8 +105,44 @@ export function createCreatureModel(): CreatureModel {
     tail.mesh.rotation.z = Math.PI / 2;
     tail.mesh.position.set(-bodyLength * 0.55 - tailLength * 0.5, bodyRadius * 0.1, 0);
 
-    const legLength = r * (0.3 + 0.9 * morphology.limbLength);
-    const legRadius = r * 0.09;
+    // --- Emergent features (SPEC.md Addendum 25) ------------------------------------------------
+    // Hidden outright at zero rather than scaled to nothing: a zero-scaled mesh still costs a draw
+    // call, and a sub-pixel sliver of geometry reads as a rendering artifact rather than as
+    // absence. `visible` is the honest encoding of "this creature does not have one."
+    const finSize = morphology.finProminence;
+    fin.mesh.visible = finSize > 0.01;
+    if (fin.mesh.visible) {
+      const finHeight = r * 0.75 * finSize;
+      const finLength = bodyLength * 0.42 * (0.5 + 0.5 * finSize);
+      // Squashed flat across Z so the cone reads as a blade standing up out of the back, and
+      // seated slightly into the body so no gap opens up between fin and spine.
+      fin.mesh.scale.set(finLength, finHeight, r * 0.05);
+      fin.mesh.position.set(bodyLength * 0.02, bodyRadius * 0.85 + finHeight * 0.4, 0);
+    }
+
+    const fangSize = morphology.fangProminence;
+    fangL.mesh.visible = fangSize > 0.01;
+    fangR.mesh.visible = fangL.mesh.visible;
+    if (fangL.mesh.visible) {
+      const fangLength = r * 0.2 * fangSize;
+      const fangRadius = r * 0.045 * (0.6 + 0.4 * fangSize);
+      // Point DOWN (rotation.z = pi flips the cone), hanging from the end of the snout.
+      for (const [fang, side] of [
+        [fangL, 1],
+        [fangR, -1],
+      ] as const) {
+        fang.mesh.scale.set(fangRadius, fangLength, fangRadius);
+        fang.mesh.rotation.z = Math.PI;
+        fang.mesh.position.set(snout.mesh.position.x + snoutLength * 0.35, snout.mesh.position.y - fangLength * 0.45, side * headRadius * 0.28);
+      }
+    }
+
+    // Limbs broaden and shorten toward paddles as a lineage commits to water — the same four leg
+    // meshes, reshaped, so the change costs nothing and reads as the SAME limbs adapting rather
+    // than legs being swapped for something else.
+    const paddling = morphology.finProminence;
+    const legLength = r * (0.3 + 0.9 * morphology.limbLength) * (1 - 0.45 * paddling);
+    const legRadius = r * 0.09 * (1 + 1.5 * paddling);
     const legPositions: [number, number][] = [
       [bodyLength * 0.28, 1],
       [bodyLength * 0.28, -1],

@@ -54,10 +54,68 @@ describe("deriveMorphology", () => {
             expect(m.earSize).toBeLessThanOrEqual(1);
             expect(m.tailForm).toBeGreaterThanOrEqual(0);
             expect(m.tailForm).toBeLessThanOrEqual(1);
+            expect(m.finProminence).toBeGreaterThanOrEqual(0);
+            expect(m.finProminence).toBeLessThanOrEqual(1);
+            expect(m.fangProminence).toBeGreaterThanOrEqual(0);
+            expect(m.fangProminence).toBeLessThanOrEqual(1);
           }
         }
       }
     }
+  });
+
+  // The emergent dimensions (SPEC.md Addendum 25) — what makes evolution watchable. The
+  // proportional dimensions above always exist and only change size; these have to be genuinely
+  // ABSENT first, or a lineage adapting to water just gets a slightly longer tail and nothing on
+  // screen reads as "it grew something."
+  describe("emergent features", () => {
+    it("gives a land creature no fin at all, not a small one", () => {
+      expect(deriveMorphology(source({ aquaticAdaptation: 0 })).finProminence).toBe(0);
+      expect(deriveMorphology(source({ aquaticAdaptation: 0.3 })).finProminence).toBe(0);
+    });
+
+    it("gives a herbivore no fangs at all", () => {
+      expect(deriveMorphology(source({ carnivory: 0 })).fangProminence).toBe(0);
+      expect(deriveMorphology(source({ carnivory: 0.2 })).fangProminence).toBe(0);
+    });
+
+    it("grows a fin in continuously once past the threshold, rather than popping to full size", () => {
+      const partial = deriveMorphology(source({ aquaticAdaptation: 0.7 })).finProminence;
+      const full = deriveMorphology(source({ aquaticAdaptation: 1 })).finProminence;
+      expect(partial).toBeGreaterThan(0);
+      expect(partial).toBeLessThan(full);
+      expect(full).toBe(1);
+    });
+
+    it("grows fangs in continuously once past the threshold", () => {
+      const partial = deriveMorphology(source({ carnivory: 0.6 })).fangProminence;
+      const full = deriveMorphology(source({ carnivory: 1 })).fangProminence;
+      expect(partial).toBeGreaterThan(0);
+      expect(partial).toBeLessThan(full);
+      expect(full).toBe(1);
+    });
+
+    it("increases monotonically with the gene that drives it", () => {
+      let previousFin = -1;
+      let previousFang = -1;
+      for (let gene = 0; gene <= 1.0001; gene += 0.05) {
+        const m = deriveMorphology(source({ aquaticAdaptation: gene, carnivory: gene }));
+        expect(m.finProminence).toBeGreaterThanOrEqual(previousFin);
+        expect(m.fangProminence).toBeGreaterThanOrEqual(previousFang);
+        previousFin = m.finProminence;
+        previousFang = m.fangProminence;
+      }
+    });
+
+    it("drives fins and fangs off independent genes — a pure carnivore on land grows no fin", () => {
+      const landPredator = deriveMorphology(source({ carnivory: 1, aquaticAdaptation: 0 }));
+      expect(landPredator.fangProminence).toBe(1);
+      expect(landPredator.finProminence).toBe(0);
+
+      const aquaticHerbivore = deriveMorphology(source({ carnivory: 0, aquaticAdaptation: 1 }));
+      expect(aquaticHerbivore.finProminence).toBe(1);
+      expect(aquaticHerbivore.fangProminence).toBe(0);
+    });
   });
 
   it("is deterministic — identical input produces identical output", () => {

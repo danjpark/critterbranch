@@ -2725,3 +2725,90 @@ with correct swatch colours when on, and hides again on toggle off. Zero console
 - **Nothing tells you how to pursue a locked entry** beyond the hint. There is no "you are close"
   nudge outside the in-progress row, and no link from a hint to the terraforming that might provoke
   it — which is where mega-doc item 12 (the tree as explanation) would connect.
+
+## Addendum 25 — creatures grow features, and species headcounts are counted live
+
+Two things Dan chose from a pair of options: count species members fresh rather than trusting the
+periodic census, and build visible evolution next.
+
+### Species headcounts are now live
+
+`computeSpeciesProfiles` reported `species.memberCount`, which is only refreshed on a taxonomy pass
+(every `params.taxonomyIntervalTicks`, default 100). Era boundaries rarely land on a pass, so
+between them the field could describe a species whose members had ALL died — and a profile built on
+that stale count was enough to keep the ghost qualifying for Critterdex discoveries after it no
+longer existed. Flagged in Addendum 22 as needing a decision rather than a patch, because it
+changes what the Critterdex counts as evidence.
+
+Dan's choice: count fresh every time. Member counts and the per-capita reproduction rates now come
+from the creatures actually present, and a species with nobody in it produces no profile at all.
+"Died out" therefore takes effect immediately instead of up to a full interval later. Note this is
+deliberately NOT the same test as `Species.extinctTick`, which is also only set on a pass — the
+whole point is to stop depending on that cadence.
+
+Two existing tests changed, both because they encoded the old rule rather than because they broke:
+one declared a headcount of 10 while placing a single creature (a state the sim can't produce, and
+now measurably wrong), and one was literally named "does not crash for a living species with zero
+currently-present members" — it now asserts the opposite contract, that such a species gets no
+profile.
+
+### Visible evolution
+
+Dan asked for this at the Milestone 1 playtest gate: watch creatures *visibly grow new features* as
+they evolve, not just read a species card. It was deferred then because the world was 2D dots. The
+Three.js rig (Addendum 21) already reads `MorphologyProfile`, so the remaining gap was that every
+one of those five dimensions is PROPORTIONAL — they always exist and only change size. A lineage
+adapting to water just got a slightly longer tail. Nothing on screen said "it grew something."
+
+So `MorphologyProfile` gains two dimensions of a different kind, `finProminence` and
+`fangProminence`, derived through an emergence ramp (`emergesAbove`) rather than a straight read:
+exactly 0 until the underlying gene passes a threshold, then growing continuously from nothing to
+full. Absence first, then growth, is what makes the change legible as an event.
+
+- **Dorsal fin** from `aquaticAdaptation` past 0.45. A mostly-terrestrial lineage has literally no
+  fin — not a permanent stub that merely grows.
+- **Fangs** from `carnivory` past 0.35, a pair hanging from the snout tip.
+- **Limbs broaden and shorten toward paddles** as fin prominence rises. Deliberately the same four
+  leg meshes reshaped, not swapped for different parts, so it reads as those limbs adapting.
+
+Both thresholds are local constants and stay that way. It's tempting to wire fangs to
+`params.carnivoryHuntingThreshold` so they appear exactly when a creature can hunt, but morphology
+is params-free by design (see `MorphologySource`) and, more substantively, these describe body
+shape rather than capability: a creature part-way to carnivory can reasonably show some dentition
+before it can hunt. Coupling them would make a gameplay tuning change silently restyle every
+creature on screen.
+
+In the rig, an unearned feature is `visible = false` rather than scaled to zero. A zero-scaled mesh
+still costs a draw call, and a sub-pixel sliver of geometry reads as a rendering artifact rather
+than as absence. It also means the common case — a land population — costs the same as before,
+since hidden meshes are skipped; only lineages that have actually earned a feature pay for it.
+
+### Verification
+
+Typecheck clean, full suite green: **427 passed, 1 skipped, 45 files** (up from 413) — 14 new tests.
+
+The morphology tests cover the numbers (absent below threshold, continuous growth above it,
+monotonic, fins and fangs driven by independent genes). A new `render3d/creatureModel.test.ts`
+covers the half those can't: that the RIG actually reflects them. A morphology-only test would pass
+happily while the fin never reached the screen. It also pins that a feature is REMOVED again if a
+lineage's morphology regresses — `update()` runs every frame for every creature, so the branch that
+hides a part has to run too, not just the one that shows it.
+
+Live: the app runs clean with zero console errors, terrain and creatures render, sim advanced past
+3,300 ticks. Frame-rate measurement wasn't possible this pass — the preview pane was not
+displaying, and `requestAnimationFrame` doesn't fire in that state, so the extra three meshes per
+creature have not been measured under load. They are hidden for any creature that hasn't earned
+them, which bounds the worst case to fully-aquatic-carnivore populations, but that is reasoning
+rather than measurement and should be checked when the pane cooperates.
+
+### Known gaps
+
+- **The fin/fang thresholds are unmeasured taste.** 0.45 and 0.35 were chosen to sit above the
+  middle of each gene's range so features read as a real commitment rather than background noise.
+  Nobody has watched a long run to see how often a lineage actually crosses them.
+- **No transition smoothing.** A creature's features track its own genome exactly, so as generations
+  turn over you see the population shift; but an individual creature never changes shape during its
+  own life. That's correct — a creature doesn't evolve, a lineage does — but it does mean the
+  effect only reads at population scale, over eras.
+- **Wings remain unbuilt**, since flight (mega-doc item 15) doesn't exist yet. `finProminence` is
+  the pattern any future emergent feature should copy.

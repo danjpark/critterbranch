@@ -103,7 +103,10 @@ describe("computeSpeciesProfiles", () => {
     const sim = createSimState(1, DEFAULT_PARAMS);
     sim.state.observations.taxonomy.species.clear();
     sim.state.observations.taxonomy.species.set(0, species({ id: 0, memberCount: 10 }));
-    sim.state.evolution.creatures = [creatureAt(0, 0, 0, 0, 0, 10)];
+    // Ten actual creatures, matching the declared headcount: per-capita rates divide by the LIVE
+    // member count now, so a setup that claims 10 members while placing 1 would be measuring
+    // something the sim could never produce.
+    sim.state.evolution.creatures = Array.from({ length: 10 }, (_, i) => creatureAt(i, 0, 0, 0, 0, 10));
     recordBirth(sim.state.observations.speciesBehavior, 0);
     recordBirth(sim.state.observations.speciesBehavior, 0);
     recordDeath(sim.state.observations.speciesBehavior, 0, 200);
@@ -141,15 +144,27 @@ describe("computeSpeciesProfiles", () => {
     expect(profile.survival.volatility).toBeGreaterThan(0);
   });
 
-  it("does not crash for a living species with zero currently-present members (stale between taxonomy passes)", () => {
+  // Extinction is only recorded on a taxonomy pass, so between passes a species can have a stale
+  // nonzero memberCount and no living members at all. It used to get a full profile built on that
+  // stale count, which was enough to keep it qualifying for Critterdex discoveries after it had
+  // actually died out. A species with nobody in it now produces no profile at all.
+  it("produces no profile for a species whose members have all died since the last taxonomy pass", () => {
     const sim = createSimState(1, DEFAULT_PARAMS);
     sim.state.observations.taxonomy.species.clear();
     sim.state.observations.taxonomy.species.set(0, species({ id: 0, memberCount: 5 }));
     sim.state.evolution.creatures = [];
 
-    const profile = getSpeciesProfile(computeSpeciesProfiles(sim), 0)!;
-    expect(profile.movement.averageRealizedSpeed).toBe(0);
-    expect(profile.habitat.lowlandShare).toBe(0);
+    expect(getSpeciesProfile(computeSpeciesProfiles(sim), 0)).toBeUndefined();
+  });
+
+  it("counts members live rather than trusting a stale species.memberCount", () => {
+    const sim = createSimState(1, DEFAULT_PARAMS);
+    sim.state.observations.taxonomy.species.clear();
+    // The record claims 50; only 3 creatures actually carry the lineage.
+    sim.state.observations.taxonomy.species.set(0, species({ id: 0, memberCount: 50 }));
+    sim.state.evolution.creatures = Array.from({ length: 3 }, (_, i) => creatureAt(i, 0, 0, 0, 0, 10));
+
+    expect(getSpeciesProfile(computeSpeciesProfiles(sim), 0)!.memberCount).toBe(3);
   });
 
   it("skips extinct species entirely", () => {
