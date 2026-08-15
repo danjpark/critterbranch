@@ -82,6 +82,12 @@ export class GameRunner {
    * ticks actually get simulated — the era still always reaches eraTargetTick exactly, matching
    * game.ts's headless advanceGameEra byte-for-byte instead of silently under-simulating. */
   private fastForwardFromTick: number | null = null;
+  /** Halts an in-progress era advance without abandoning it — stepEraAdvance simply stops
+   * consuming ticks until unpaused, and the era resumes from exactly where it stopped. Distinct
+   * from `speed`: slowing down still advances, this doesn't. Added so a player who sees something
+   * happen mid-era (a Critterdex discovery, a population crash) can stop and look at it rather than
+   * watching it scroll past. */
+  private paused = false;
   private checkpoints: StoredCheckpoint[] = [];
   private nextCheckpointId = 1;
 
@@ -98,6 +104,7 @@ export class GameRunner {
     this.eraTargetTick = null;
     this.eraBeforeSnapshot = null;
     this.fastForwardFromTick = null;
+    this.paused = false;
     this.checkpoints = [];
   }
 
@@ -112,6 +119,20 @@ export class GameRunner {
 
   setSpeed(speed: SpeedSetting): void {
     this.speed = speed;
+  }
+
+  setPaused(value: boolean): void {
+    this.paused = value;
+  }
+
+  isPaused(): boolean {
+    return this.paused;
+  }
+
+  /** True only while an era is both in progress and actually consuming ticks — what a UI should
+   * ask before offering to pause, rather than assuming an in-progress era is running. */
+  isRunningEra(): boolean {
+    return this.eraTargetTick !== null && !this.paused;
   }
 
   /** Applies the active tool at a world-space point, routed through the budget/phase-checked
@@ -154,6 +175,8 @@ export class GameRunner {
    * just want to review and pause. */
   advanceEra(): void {
     if (!this.canAdvanceEra()) return;
+    // A pause belongs to the era it was applied during — starting a new one always starts running.
+    this.paused = false;
     if (this.game.gameState.phase === "discovery") {
       continueToTerraform(this.game);
       this.lastEraSummary = null;
@@ -189,7 +212,7 @@ export class GameRunner {
    * simulated outcome stays identical to a headless replay of the same log. */
   stepEraAdvance(): void {
     const target = this.eraTargetTick;
-    if (target === null) return;
+    if (target === null || this.paused) return;
     const { state, rng, params } = this.game.sim;
     const before = this.eraBeforeSnapshot!;
 
@@ -307,6 +330,7 @@ export class GameRunner {
     this.eraTargetTick = null;
     this.eraBeforeSnapshot = null;
     this.fastForwardFromTick = null;
+    this.paused = false;
     this.lastEraSummary = null;
     this.lastTerraformError = null;
     this.activeTool = null;

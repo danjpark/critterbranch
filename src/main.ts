@@ -27,6 +27,10 @@ import {
   createTreePanel,
 } from "./ui/controls.ts";
 import { enablePanelWorkspace } from "./ui/panelWorkspace.ts";
+import { createDiscoveryDetailCard, createDiscoveryToastLayer } from "./ui/discoveryToasts.ts";
+import { DISCOVERY_CONFIRMATION_ERAS, type DiscoveryMatch } from "./game/discovery/discoveryJournal.ts";
+import type { EraSummary } from "./game/eraSummary.ts";
+import { circularMean, torDist } from "./sim/util.ts";
 
 const CANVAS_SIZE = 640;
 type ViewName = "world" | "tree" | "muller" | "scatter";
@@ -77,10 +81,19 @@ for (const view of ["world", "tree", "muller", "scatter"] as ViewName[]) {
   tabRow.appendChild(btn);
 }
 
-function makeCanvas(): HTMLCanvasElement {
+/**
+ * `kind` decides both the CSS sizing rule and who owns the drawing buffer:
+ * - "chart" canvases (Tree/Muller/Scatter) are 2D and drawn against a fixed CANVAS_SIZE
+ *   coordinate space, so their buffer stays pinned here and style.css caps their display size to
+ *   match rather than upscaling them into blur.
+ * - "world" canvases are WebGL and fill the layout; render3d/scene.ts's resizeToDisplaySize owns
+ *   their buffer from the first frame on. CANVAS_SIZE is only a pre-layout placeholder for them.
+ */
+function makeCanvas(kind: "world" | "chart"): HTMLCanvasElement {
   const c = document.createElement("canvas");
   c.width = CANVAS_SIZE;
   c.height = CANVAS_SIZE;
+  c.className = kind === "world" ? "canvas--world" : "canvas--chart";
   return c;
 }
 
@@ -128,10 +141,10 @@ function attachClickGuard(canvas: HTMLCanvasElement): { consumeDrag: () => boole
   };
 }
 
-const worldCanvas = makeCanvas();
-const treeCanvas = makeCanvas();
-const mullerCanvas = makeCanvas();
-const scatterCanvas = makeCanvas();
+const worldCanvas = makeCanvas("world");
+const treeCanvas = makeCanvas("chart");
+const mullerCanvas = makeCanvas("chart");
+const scatterCanvas = makeCanvas("chart");
 const canvases: Record<ViewName, HTMLCanvasElement> = {
   world: worldCanvas,
   tree: treeCanvas,
@@ -153,6 +166,10 @@ const mullerCtx = mullerCanvas.getContext("2d")!;
 const scatterCtx = scatterCanvas.getContext("2d")!;
 
 const runner = new SimRunner(12345);
+/** Competition heatmap toggle state (see render/overlays.ts). Lives here rather than on SimRunner
+ * because it's a pure view option with no bearing on the simulation, same as which view tab is
+ * open — SimRunner owns state that survives a restart or feeds a future feature, not this. */
+let showCompetitionHeatmap = false;
 // SPEC.md Addendum 21 — real 3D World view on Three.js, replacing the flat 2D camera/projection
 // system (Addendum 18/20 are both superseded). No camera-reset-on-restart needed the way the old
 // 2D CameraState required: OrbitControls' camera position is a user viewing preference that has no
@@ -201,10 +218,10 @@ const controls = createControls({
     runner.setDeuteranopiaSafe(enabled);
     render();
   },
-  // Not yet ported to the 3D World view (SPEC.md Addendum 21) — the old renderCompetitionHeatmap
-  // drew directly onto worldCanvas's 2D context, which no longer exists. Checkbox is left wired
-  // (not removed from ui/controls.ts) but currently has no visible effect on the World view.
-  onCompetitionHeatmapToggle: () => {},
+  onCompetitionHeatmapToggle: (enabled) => {
+    showCompetitionHeatmap = enabled;
+    render();
+  },
   onAutoPaceToggle: (enabled) => runner.setAutoPace(enabled),
 });
 
@@ -370,8 +387,8 @@ function render(): void {
       colorOptions: runner.colorOptions,
       selectedCreatureId: runner.selectedCreatureId,
       lineageFilter: runner.lineageFilter,
+      showCompetitionHeatmap,
     });
-    // showCompetitionHeatmap intentionally not read here — see its declaration above.
   } else if (activeView === "tree") {
     renderTree(treeCtx, runner.sim.state, {
       colorOptions: runner.colorOptions,
@@ -429,14 +446,34 @@ setInterval(frame, 16);
 
 const GAME_COLOR_OPTIONS: ColorOptions = { deuteranopiaSafe: false, divergenceScale: 0.35 };
 
-const gameCanvas = makeCanvas();
+const gameCanvas = makeCanvas("world");
 // gameCanvas is a WebGL canvas (see render3d/scene.ts) — no 2D context here, same as worldCanvas.
 const gameCanvasArea = document.createElement("div");
-gameCanvasArea.className = "canvas-area";
+gameCanvasArea.className = "canvas-area canvas-area--overlaid";
 gameCanvasArea.appendChild(gameCanvas);
 
 const gameSidebar = document.createElement("div");
 gameSidebar.className = "sidebar";
+
+/** Critterdex notifications and their detail card overlay the world rather than living in the
+ * sidebar: a discovery is about a specific creature in a specific place, so the announcement
+ * belongs next to the thing it is pointing at. Deliberately never pauses the sim (Dan's framing) —
+ * it offers a Pause button instead, so a discovery is an invitation, not an interruption. */
+const discoveryToasts = createDiscoveryToastLayer({
+  onInspect: (match) => {
+    inspectDiscovery(match);
+    renderGame();
+  },
+  onPause: () => {
+    gameRunner.setPaused(true);
+    renderGame();
+  },
+  // Game Mode only "plays" while an era advance is actually consuming ticks; outside that there is
+  // nothing running to pause, so the toast hides its Pause control rather than offering a no-op.
+  isPlaying: () => gameRunner.isRunningEra(),
+});
+const discoveryDetail = createDiscoveryDetailCard(() => discoveryDetail.setMatch(null, 0));
+gameCanvasArea.append(discoveryToasts.root, discoveryDetail.root);
 
 gameRoot.append(gameCanvasArea, gameSidebar);
 
@@ -465,6 +502,10 @@ const gameControls = createGameControlsPanel(PROTOTYPE_CHALLENGES, {
     const challenge = challengeId ? PROTOTYPE_CHALLENGES.find((c) => c.id === challengeId) : undefined;
     gameRunner = new GameRunner(mode, seed, challenge);
     gameGodModePanel.setActiveTool(null);
+    // The old run's discoveries belong to a timeline that no longer exists.
+    discoveryToasts.clear();
+    discoveryDetail.setMatch(null, 0);
+    lastToastedSummary = null;
     renderGame();
   },
   onAdvanceEra: () => {
@@ -476,6 +517,10 @@ const gameControls = createGameControlsPanel(PROTOTYPE_CHALLENGES, {
     renderGame();
   },
   onSpeedChange: (speed) => gameRunner.setSpeed(speed),
+  onTogglePause: () => {
+    gameRunner.setPaused(!gameRunner.isPaused());
+    renderGame();
+  },
 });
 
 const eraSummaryPanel = createEraSummaryPanel();
@@ -488,6 +533,11 @@ const checkpointsPanel = createCheckpointsPanel({
   onRestore: (id) => {
     gameRunner.restoreCheckpoint(id);
     gameGodModePanel.setActiveTool(null);
+    // Restoring rewinds the discovery journal too (see GameRunner.restoreCheckpoint), so any
+    // notification still on screen refers to a branch that was just abandoned.
+    discoveryToasts.clear();
+    discoveryDetail.setMatch(null, 0);
+    lastToastedSummary = null;
     renderGame();
   },
   onDelete: (id) => {
@@ -517,6 +567,8 @@ function renderGame(): void {
     colorOptions: GAME_COLOR_OPTIONS,
     selectedCreatureId: null,
     lineageFilter: null,
+    // Game Mode has no heatmap toggle of its own — it's an analysis tool for Classic Sandbox.
+    showCompetitionHeatmap: false,
   });
 
   let livingSpeciesCount = 0;
@@ -534,14 +586,58 @@ function renderGame(): void {
   gameControls.setAdvanceEnabled(gameRunner.canAdvanceEra());
   gameControls.setContinueEnabled(gameRunner.canContinueToTerraform());
   gameControls.setProgress(gameRunner.eraProgress());
+  gameControls.setPauseState(gameRunner.isAdvancingEra(), gameRunner.isPaused());
   gameControls.setTerraformError(gameRunner.lastTerraformError);
+  discoveryToasts.syncPlayState();
   eraSummaryPanel.setSummary(gameRunner.lastEraSummary);
   objectivesPanel.setChallenge(gameRunner.objectives(), gameRunner.challengeStatus());
   checkpointsPanel.setCheckpoints(gameRunner.listCheckpoints());
 }
 
+/**
+ * Critterdex notifications (SPEC.md Addendum 23). Discoveries are confirmed at era boundaries and
+ * land in `lastEraSummary.newDiscoveries`; that summary object stays put until the player continues
+ * to terraform, so identity comparison — not content — is what distinguishes "a new era just
+ * finished" from "the same summary is still on screen." Without it, every frame of the discovery
+ * phase would re-fire the same toasts.
+ */
+let lastToastedSummary: EraSummary | null = null;
+
+function announceNewDiscoveries(): void {
+  const summary = gameRunner.lastEraSummary;
+  if (summary === lastToastedSummary) return;
+  lastToastedSummary = summary;
+  if (summary && summary.newDiscoveries.length > 0) discoveryToasts.show(summary.newDiscoveries);
+}
+
+/** Flies the camera to a living member of the species that earned a discovery and opens the
+ * explanation card. Picks the member closest to the species' centre of mass rather than simply the
+ * first in the array — an outlier on the far edge of the range is a misleading thing to be shown
+ * as "here is the lineage that did this." */
+function inspectDiscovery(match: DiscoveryMatch): void {
+  const { game } = gameRunner;
+  const members = game.sim.state.evolution.creatures.filter((c) => c.lineageId === match.speciesId);
+  discoveryDetail.setMatch(match, DISCOVERY_CONFIRMATION_ERAS);
+
+  if (members.length === 0) return; // extinct since it was earned — the card still explains it
+  const params = game.sim.params;
+  const centreX = circularMean(members.map((c) => c.x), params.worldWidth);
+  const centreY = circularMean(members.map((c) => c.y), params.worldHeight);
+  let representative = members[0];
+  let bestDistance = Infinity;
+  for (const member of members) {
+    const distance = torDist(member.x, member.y, centreX, centreY, params.worldWidth, params.worldHeight);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      representative = member;
+    }
+  }
+  gameWorldRenderer.focusOnCreature(game.sim.state, params, representative);
+}
+
 function gameFrame(): void {
   gameRunner.stepEraAdvance();
+  announceNewDiscoveries();
   renderGame();
 }
 

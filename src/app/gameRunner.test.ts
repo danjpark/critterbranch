@@ -4,6 +4,7 @@ import { PROTOTYPE_CHALLENGES } from "../game/challenges/prototypeChallenges.ts"
 import { advanceGameEra, continueToTerraform, createGame } from "../game/game.ts";
 import { DEFAULT_PARAMS } from "../params.ts";
 import { hashState } from "../sim/testHash.ts";
+import { DEFAULT_RAMP_CONFIG } from "./pacing.ts";
 
 describe("GameRunner", () => {
   it("starts in sandbox mode with an unlimited budget, era 0, terraform phase", () => {
@@ -61,15 +62,36 @@ describe("GameRunner", () => {
     expect(runner.game.sim.state.evolution.tick).toBe(tickBeforeNoOp);
   });
 
-  it("stepEraAdvance's ramp reaches the full chosen speed once past the opening window (see app/pacing.ts's DEFAULT_RAMP_CONFIG.rampTicks=300)", () => {
+  it("stepEraAdvance's ramp reaches the full chosen speed once past the opening window (see app/pacing.ts's DEFAULT_RAMP_CONFIG)", () => {
     const runner = new GameRunner("sandbox", 1);
     runner.setSpeed(10);
     runner.advanceEra();
 
-    while (runner.game.sim.state.evolution.tick < 300) runner.stepEraAdvance();
+    const fullSpeedAt = DEFAULT_RAMP_CONFIG.holdTicks + DEFAULT_RAMP_CONFIG.rampTicks;
+    while (runner.game.sim.state.evolution.tick < fullSpeedAt) runner.stepEraAdvance();
     const tickBeforeFullSpeed = runner.game.sim.state.evolution.tick;
     runner.stepEraAdvance();
     expect(runner.game.sim.state.evolution.tick - tickBeforeFullSpeed).toBe(10);
+  });
+
+  // The pacing complaint this ramp was retuned for (SPEC.md Addendum 23): the eventful opening of
+  // an era used to be over almost immediately. Asserted end-to-end through the real runner, not
+  // just against pacing.ts's pure function, since it's stepEraAdvance that decides when the ramp
+  // applies at all.
+  it("spends most of an era's frames on its opening stretch rather than its settled remainder", () => {
+    const runner = new GameRunner("sandbox", 1);
+    runner.setSpeed(10);
+    runner.advanceEra();
+
+    const eraEnd = 2000;
+    let framesInOpeningThird = 0;
+    let totalFrames = 0;
+    while (runner.isAdvancingEra() && totalFrames < 5000) {
+      if (runner.game.sim.state.evolution.tick < eraEnd / 3) framesInOpeningThird++;
+      totalFrames++;
+      runner.stepEraAdvance();
+    }
+    expect(framesInOpeningThird / totalFrames).toBeGreaterThan(0.6);
   });
 
   it("a normal era (still actively growing, never reaches equilibrium) runs its full tick budget and reports fastForwardedFromTick: null", () => {

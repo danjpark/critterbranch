@@ -2488,3 +2488,141 @@ path end to end.
 - **`sanitizeParams` returns its repair list and nobody surfaces it.** `parseRunConfig` currently
   discards it; the scenario-load path in `main.ts` should probably tell the user their file was
   repaired rather than silently running something different from what they handed it.
+
+## Addendum 23 — desktop layout, the heatmap's return, Critterdex notifications, and era pacing
+
+Four pieces of player-facing work Dan asked for in one batch, after the Three.js world and the
+correctness pass landed. Three of them are old feedback finally being acted on rather than new
+ideas.
+
+### The desktop layout was built around the wrong thing
+
+The panel workspace that arrived on `codex-sideprojects` worked, but the proportions were inverted.
+`.app-mode-root` gave the canvas a column capped at `640px` and handed the panels `1fr` — all
+remaining width. The canvas element was capped at 640px again in CSS, and its drawing buffer was a
+fixed 640x640 set once in `main.ts`. On a 2560px monitor that produced a small square simulation
+beside a sprawling six-column wall of controls, with the page scrolling to 2,444px tall. That
+inversion — chrome flexible, subject fixed — is what read as "designed for a phone."
+
+What changed:
+
+- **The world takes the flexible column, the panels a bounded one** (`clamp(21rem, 25vw, 32rem)`).
+  Measured across widths, the world view now gets 72-76% of content width; at 2560px it renders at
+  1640x1025 against the old 640x640, roughly four times the area.
+- **The drawing buffer follows the layout.** New `resizeToDisplaySize` in render3d/scene.ts sizes
+  the buffer to the canvas's CSS box times the device pixel ratio, so a bigger box renders more
+  pixels rather than upscaling a fixed one. It writes `canvas.width/height` directly rather than
+  going through `renderer.setPixelRatio`, because `canvas.width` IS the coordinate space every
+  hit-test in the app works in (main.ts's `canvasCoords`, worldRenderer's
+  `findCreatureAt`/`worldPointAt`) — letting Three.js keep a separate internal pixel-ratio
+  multiplier would put picking and rendering in different spaces. Called per frame, not just from a
+  ResizeObserver, so a canvas that was `display:none` (and therefore zero-sized) when last measured
+  corrects itself on its first visible frame; verified live, Game Mode's canvas goes 640x640 →
+  881x544 on becoming visible.
+- **The world view is landscape** (16:10, stepping to 4:3 then 1:1 as the viewport narrows) and
+  height-capped against the viewport, and `image-rendering: pixelated` — a holdover from the 2D
+  raster world — no longer applies to it. The chart canvases keep their fixed 640 buffer and are
+  capped at that size so they stay pixel-exact instead of upscaling into blur.
+- **The sidebar scrolls itself** above 1100px. The panel stack is taller than any viewport, and
+  without this the world scrolled off the top the moment you reached for a control near the bottom
+  — which defeats the point of putting them side by side. Page height went 2,444px → 755px.
+- `.panel--wide` became `grid-column: 1 / -1` rather than `span 2`. The sidebar's auto-fit column
+  count varies with viewport width, and `span 2` overflows the grid whenever it resolves to one
+  column — which the new bounded sidebar does at ordinary desktop widths.
+
+### The competition heatmap came back, as terrain rather than as an overlay
+
+`renderCompetitionHeatmap` painted rectangles onto a 2D context the World view stopped having when
+it became a Three.js scene (Addendum 21). It had been left wired-but-inert rather than deleted.
+
+The choice was between projecting the grid back onto the screen, drawing a separate minimap, or
+tinting the terrain itself. Tinting won on the merits, not just on effort: the consumption grid and
+the terrain mesh are THE SAME `cols x rows` grid, so a cell index maps to a vertex with no
+coordinate mapping at all — and the result drapes over real elevation and orbits with the camera
+for free, which a screen-space overlay would have had to fake.
+
+`overlays.ts` is now pure data (`computeCompetitionTint` → per-cell blended species color and
+strength, no drawing), and `terrainMesh.ts` blends it into the vertex colors it already owns.
+Crucially it rewrites the existing color attribute in place rather than rebuilding geometry —
+consumption changes every tick, and rebuilding the mesh at that cadence is exactly the cost this
+module is otherwise careful to avoid. The untinted colors are snapshotted so each frame re-blends
+from the original instead of compounding on the previous frame's already-tinted buffer, and that
+snapshot is refreshed whenever a terrain edit rebuilds the geometry.
+
+Verified live: toggling on tints ~15% of the frame with a peak channel delta of 66 (a stain, not a
+repaint); toggling off restores the frame **byte-identically**, proving the re-blend doesn't
+accumulate; and a terrain edit mid-heatmap rebuilds the mesh and re-applies the tint correctly.
+
+### Critterdex discoveries now announce themselves
+
+A discovery is the payoff of the entire observability stack — a lineage demonstrably held a
+capability across consecutive era boundaries — and until now it appeared only as a line inside the
+Era Summary panel, easy to scroll past and gone the moment you continue. Dan's framing: popups that
+do NOT pause the game, that tell you you *can* pause, and that on click fly to the creature and
+explain what earned it.
+
+Built as `ui/discoveryToasts.ts` (toast stack plus a detail card), overlaying the world rather than
+sitting in the sidebar — a discovery is about a specific creature in a specific place, so the
+announcement belongs next to what it points at. `scene.ts` gained `focusOn`, a 700ms eased camera
+flight that **preserves the player's current viewing angle** and only changes what's being looked
+at and from how far; being thrown to a canned viewpoint is disorienting, and the angle you were
+already using is the one you understand. OrbitControls is skipped for the flight's duration so its
+damping doesn't fight the tween for the camera transform. The representative creature is the member
+closest to the species' toroidal centre of mass, not simply the first in the array — an outlier on
+the far edge of the range is a misleading thing to present as "here is the lineage that did this."
+
+The detail card states the measured evidence and the era span, because a Critterdex entry is a
+claim about what a lineage demonstrably DID (Addendum 16's "Genome != Capability"), not a generic
+achievement blurb. Live example, unedited: *Sedentary — Species 3 — "Realized speed 0.4x the
+current population average" — held for 2 consecutive era boundaries, first seen at era 4, confirmed
+at era 5.*
+
+**A real pause had to be built for this to mean anything.** The toast's own Pause control exposed
+that Game Mode had no pause at all — only a speed setting, and slowing down still advances. Worse,
+discoveries are confirmed exactly when an era *finishes*, at which point nothing is running, so a
+pause affordance evaluated once at toast-creation time would never appear. Both fixed:
+`GameRunner.paused` genuinely halts `stepEraAdvance` (the era resumes from precisely where it
+stopped), a Pause/Resume button now lives in the game controls panel where it belongs, and the
+toast re-reads whether anything is running each frame via `syncPlayState` rather than freezing that
+answer at creation. Verified live: 0 ticks elapse while paused, 33 in the equivalent window after
+resuming.
+
+### Era pacing: the opening was over in about a second
+
+Dan's oldest open note (2026-08-13): an era's first stretch is eventful, then it goes static, and
+the back half reads as nothing happening. The back half was already handled — Addendum 19's
+fast-forward collapses it once `isEcosystemStable` fires — so this pass is entirely about the
+front.
+
+The old ramp went linearly from 1 tick/frame to the target over 300 ticks. At speed 10 that put it
+at full speed after roughly a second of wall clock: the founding population finding food, spreading
+and multiplying — the part actually worth watching — was over before the ramp finished. Replaced
+with a **hold then ease-in**: 120 ticks held at the floor, then 600 ticks easing quadratically to
+the target. Quadratic rather than linear because a linear ramp is already at half speed halfway
+through its window, so the ramp's own tail goes by nearly as fast as the settled remainder.
+
+Measured as animation frames — which is what a player experiences as time — the opening third of an
+era now gets over 60% of the frames, against roughly a quarter before. Confirmed live at speed 10:
+the trace reads `0.0s:0 → 3.3s:205 → 5.5s:458`, where previously the entire 2,000-tick era finished
+in about four seconds.
+
+### Verification
+
+Typecheck clean, full suite green: **403 passed, 1 skipped, 43 files** (up from 398). The layout,
+heatmap, discovery flow and pacing were each verified live in the browser via canvas pixel sampling
+and DOM inspection rather than screenshots (the preview pane's long-documented
+not-compositing quirk). One real defect was caught and fixed during construction rather than
+shipped: the toast overflow trim looped on raw child count while `dismiss` only marks a toast as
+leaving and removes it a transition later, so the count never dropped and the loop would have spun
+forever — it now counts only toasts that aren't already on their way out.
+
+### Known gaps, deliberately not closed here
+
+- The competition heatmap has no legend. It's legible as "who is eating where" only if you already
+  know species colors from the Tree view.
+- Discovery toasts are Game Mode only, because discoveries are evaluated at era boundaries and
+  Classic Sandbox has no eras. Fine for now, but it means Classic players never see the Critterdex
+  at all.
+- The detail card explains a discovery but doesn't link to the wider Critterdex — there is still no
+  browsable "here is everything you have found, and what remains" view. That's mega-doc item 11 and
+  remains the real missing half of this feature.

@@ -12,21 +12,30 @@ body {
 #app {
   padding: 1rem;
   width: 100%;
+  /* Bounded so an ultrawide monitor doesn't stretch a 3-metre-long row of controls, but generous
+     enough that a normal 1440p/4K desktop gets a genuinely large world view. */
+  max-width: 2200px;
   margin: 0 auto;
 }
 
+/*
+ * Desktop-first proportions. The world view is the thing the whole app exists to show, so it takes
+ * the FLEXIBLE column and the panels take a bounded one — the reverse of the original layout,
+ * where the canvas was pinned at 640px while the panel grid absorbed all remaining width. On a
+ * wide monitor that produced a small square simulation next to a sprawling six-column wall of
+ * controls, which is what read as "designed for a phone."
+ */
 .app-mode-root {
   display: grid;
-  grid-template-columns: minmax(20rem, 640px) minmax(18rem, 1fr);
+  grid-template-columns: minmax(0, 1fr) clamp(21rem, 25vw, 32rem);
   gap: 1rem;
-  align-items: flex-start;
+  align-items: start;
 }
 
 .canvas-area {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  max-width: 640px;
   width: 100%;
   min-width: 0;
 }
@@ -39,34 +48,78 @@ body {
 canvas {
   background: #000;
   border-radius: 4px;
-  image-rendering: pixelated;
-  /* Buffer resolution stays fixed (set via width/height attributes in main.ts); this just
-     scales the on-screen display size so it never forces a viewport wider than the screen. */
   width: 100%;
-  max-width: 640px;
   height: auto;
+  display: block;
+}
+
+/*
+ * The 3D World view: fills the column and is LANDSCAPE, matching the shape of the screen it's
+ * being watched on. Its drawing buffer follows this box (see render3d/scene.ts's
+ * resizeToDisplaySize), so growing it renders more pixels rather than upscaling a fixed 640x640
+ * one. Height is capped against the viewport so the world and the controls under it stay on
+ * screen together without scrolling.
+ */
+.canvas--world {
+  aspect-ratio: 16 / 10;
+  max-height: calc(100vh - 11rem);
+  /* Real 3D geometry, so it wants smoothing — `image-rendering: pixelated` (a holdover from the
+     2D raster world view) made every silhouette edge crunchy here. */
+  image-rendering: auto;
+}
+
+/*
+ * The chart views (Tree/Muller/Scatter) are still fixed-buffer 2D canvases drawn at CANVAS_SIZE.
+ * Capping them at that size keeps them pixel-exact instead of upscaling into blur now that the
+ * canvas column is much wider than 640px.
+ */
+.canvas--chart {
   aspect-ratio: 1 / 1;
+  max-width: 640px;
+  margin-inline: auto;
 }
 
 .sidebar {
   display: grid;
-  /* The DOM order is the user's snapped layout. Column count changes fluidly with the available
-     width, while min(16rem, 100%) prevents a panel from forcing a narrow viewport wider. */
-  grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
+  /* Two columns once the sidebar is wide enough for them, one otherwise. auto-fit against a 13rem
+     minimum keeps the `--wide` (span 2) panel toggle meaningful without ever letting the sidebar
+     fan out into the many-tiny-columns dashboard the old min of 16rem produced at full width. */
+  grid-template-columns: repeat(auto-fit, minmax(min(13rem, 100%), 1fr));
   grid-auto-flow: row dense;
   align-content: start;
-  gap: 1rem;
+  gap: 0.75rem;
   min-width: 0;
   max-width: 100%;
 }
 
-@media (max-width: 1050px) {
+/*
+ * Side-by-side layout only: the panel stack is far taller than any viewport, and without this the
+ * world view scrolls off the top the moment you reach for a control near the bottom of the
+ * sidebar. Giving the sidebar its own scroll keeps the simulation on screen the whole time, which
+ * is the entire point of putting them side by side.
+ */
+@media (min-width: 1101px) {
+  .sidebar {
+    position: sticky;
+    top: 1rem;
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    /* Room for the scrollbar so it never overlaps a panel's own controls. */
+    padding-right: 0.35rem;
+  }
+}
+
+/* Below this the two-column split stops paying for itself — the world view is better off with the
+   full width and the panels stacked underneath it. */
+@media (max-width: 1100px) {
   .app-mode-root {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .canvas-area {
-    justify-self: center;
+  .canvas--world {
+    aspect-ratio: 4 / 3;
+    max-height: calc(100vh - 14rem);
   }
 }
 
@@ -79,12 +132,12 @@ canvas {
     gap: 0.5rem;
   }
 
-  .sidebar {
-    grid-template-columns: 1fr;
+  .canvas--world {
+    aspect-ratio: 1 / 1;
   }
 
-  .panel.panel--wide {
-    grid-column: span 1;
+  .sidebar {
+    grid-template-columns: 1fr;
   }
 
   .panel-actions .panel-size-toggle {
@@ -108,8 +161,11 @@ canvas {
   box-shadow: 0 4px 14px rgb(0 0 0 / 16%);
 }
 
+/* Full row rather than `span 2`: the sidebar's auto-fit column count varies with viewport width,
+   and `span 2` overflows the grid whenever it resolves to a single column. `1 / -1` is the widest
+   valid span at any column count, and "as wide as the sidebar gets" is what the toggle means. */
 .panel--wide {
-  grid-column: span 2;
+  grid-column: 1 / -1;
 }
 
 .panel--minimized {
@@ -473,4 +529,168 @@ button.active {
   height: 60px;
   background: #14161a;
   border-radius: 4px;
+}
+
+/* ---- Critterdex notifications (SPEC.md Addendum 23) ---------------------------------------- */
+
+/* The toast stack and the detail card sit ON the world view rather than in the sidebar: a
+   discovery is about a specific creature in a specific place, so the announcement belongs next to
+   what it points at. */
+.canvas-area--overlaid {
+  position: relative;
+}
+
+.discovery-toasts {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: min(20rem, calc(100% - 1.5rem));
+  /* The layer itself must not eat clicks meant for the world underneath it; individual toasts
+     re-enable pointer events for themselves. */
+  pointer-events: none;
+  z-index: 3;
+}
+
+.discovery-toast {
+  position: relative;
+  pointer-events: auto;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.6rem 1.7rem 0.6rem 0.7rem;
+  border-radius: 7px;
+  border: 1px solid #6d5a2f;
+  background: rgb(32 28 20 / 94%);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 45%);
+  animation: discovery-toast-in 0.22s ease-out;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.discovery-toast:hover {
+  border-color: #b79a52;
+}
+
+.discovery-toast--leaving {
+  opacity: 0;
+  transform: translateX(0.75rem);
+}
+
+@keyframes discovery-toast-in {
+  from { opacity: 0; transform: translateX(1rem); }
+  to { opacity: 1; transform: none; }
+}
+
+.discovery-toast-kicker {
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #d8b45f;
+}
+
+.discovery-toast-title {
+  font-size: 1rem;
+}
+
+.discovery-toast-body {
+  font-size: 0.78rem;
+  color: #bdb6a8;
+  line-height: 1.35;
+}
+
+.discovery-toast-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+}
+
+.discovery-toast-actions button {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 4px;
+  border: 1px solid #5c5346;
+  background: #2f2a21;
+  color: #e6e6e6;
+  cursor: pointer;
+}
+
+.discovery-toast-actions button:hover {
+  border-color: #b79a52;
+}
+
+.discovery-toast-close,
+.discovery-detail-close {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.4rem;
+  padding: 0 0.25rem;
+  border: 0;
+  background: none;
+  color: #8d8578;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.discovery-toast-close:hover,
+.discovery-detail-close:hover {
+  color: #e6e6e6;
+}
+
+.discovery-detail {
+  position: absolute;
+  left: 0.75rem;
+  bottom: 0.75rem;
+  width: min(24rem, calc(100% - 1.5rem));
+  padding: 0.75rem 1.7rem 0.8rem 0.85rem;
+  border-radius: 7px;
+  border: 1px solid #6d5a2f;
+  background: rgb(28 25 18 / 96%);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 50%);
+  z-index: 3;
+}
+
+.discovery-detail[hidden] {
+  display: none;
+}
+
+.discovery-detail-kicker {
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #d8b45f;
+}
+
+.discovery-detail-title {
+  margin: 0.1rem 0 0.35rem;
+  font-size: 1.15rem;
+}
+
+.discovery-detail-meaning {
+  margin: 0 0 0.55rem;
+  font-size: 0.82rem;
+  color: #cfc7b8;
+  line-height: 1.4;
+}
+
+.discovery-detail-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.2rem 0.6rem;
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.discovery-detail-list dt {
+  color: #948c7e;
+  white-space: nowrap;
+}
+
+.discovery-detail-list dd {
+  margin: 0;
+  color: #ded7c8;
 }

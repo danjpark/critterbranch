@@ -132,7 +132,7 @@ export function enablePanelWorkspace(sidebar: HTMLElement, workspaceName: string
     panel.classList.toggle("panel--wide", value);
     const button = panel.querySelector<HTMLButtonElement>(".panel-size-toggle");
     button?.setAttribute("aria-pressed", String(value));
-    button!.title = value ? "Use normal panel width" : "Span two grid columns";
+    button!.title = value ? "Use normal panel width" : "Span the full sidebar width";
     if (value) wide.add(id);
     else wide.delete(id);
     if (persist) save();
@@ -159,7 +159,7 @@ export function enablePanelWorkspace(sidebar: HTMLElement, workspaceName: string
     sizeButton.type = "button";
     sizeButton.className = "panel-size-toggle";
     sizeButton.textContent = "↔";
-    sizeButton.title = "Span two grid columns";
+    sizeButton.title = "Span the full sidebar width";
     sizeButton.setAttribute("aria-label", `Change width of ${title}`);
     sizeButton.setAttribute("aria-pressed", "false");
     sizeButton.addEventListener("click", (event) => {

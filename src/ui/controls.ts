@@ -818,6 +818,7 @@ export interface GameControlsCallbacks {
   onAdvanceEra: () => void;
   onContinue: () => void;
   onSpeedChange: (speed: SpeedSetting) => void;
+  onTogglePause: () => void;
 }
 
 export interface GameControlsHandle {
@@ -826,6 +827,9 @@ export interface GameControlsHandle {
   setBudget: (remaining: number | null) => void;
   setAdvanceEnabled: (enabled: boolean) => void;
   setContinueEnabled: (enabled: boolean) => void;
+  /** Shows the Pause/Resume control only while an era is advancing, labelled for what pressing it
+   * will do. */
+  setPauseState: (advancing: boolean, paused: boolean) => void;
   setTerraformError: (message: string | null) => void;
   /** null hides/idles the bar (no era advancing); 0-1 fills it proportionally. */
   setProgress: (fraction: number | null) => void;
@@ -875,9 +879,16 @@ export function createGameControlsPanel(challenges: ChallengeDefinition[], callb
   continueButton.textContent = "Continue to terraform";
   continueButton.disabled = true;
   continueButton.addEventListener("click", callbacks.onContinue);
+  // Halts an in-progress era where it stands (see app/gameRunner.ts's `paused`) rather than
+  // slowing it — the "let me actually look at what just happened" control. Hidden outside an era
+  // advance, since there's nothing running to pause then.
+  const pauseButton = document.createElement("button");
+  pauseButton.textContent = "Pause";
+  pauseButton.hidden = true;
+  pauseButton.addEventListener("click", callbacks.onTogglePause);
   const actionRow = document.createElement("div");
   actionRow.className = "row";
-  actionRow.append(advanceButton, continueButton);
+  actionRow.append(advanceButton, pauseButton, continueButton);
 
   // Fills as stepEraAdvance() ticks toward the era's target, so "how much longer" is visible at
   // a glance instead of only the tick count in the status line below.
@@ -931,6 +942,10 @@ export function createGameControlsPanel(challenges: ChallengeDefinition[], callb
     },
     setContinueEnabled(enabled) {
       continueButton.disabled = !enabled;
+    },
+    setPauseState(advancing, paused) {
+      pauseButton.hidden = !advancing;
+      pauseButton.textContent = paused ? "Resume" : "Pause";
     },
     setTerraformError(message) {
       errorLine.textContent = message ?? "";

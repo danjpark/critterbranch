@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { Params } from "../params.ts";
 import type { TerrainGrid } from "../sim/terrain.ts";
 import { terrainCellColorRgb } from "../render/terrainPalette.ts";
+import type { CompetitionTint } from "../render/overlays.ts";
 
 /**
  * A real heightmap mesh for the World view (SPEC.md Addendum 21) — one vertex per terrain cell,
@@ -76,8 +77,19 @@ export function buildTerrainGeometry(terrain: TerrainGrid, params: Params): THRE
   return geometry;
 }
 
+/** How far a fully-contested cell's color can pull the terrain toward the feeding species' hue.
+ * Short of 1 on purpose: the heatmap should read as a stain laid over the landscape, not a repaint
+ * that hides which terrain is underneath it. */
+const MAX_TINT_BLEND = 0.85;
+
 export interface TerrainMeshHandle {
   mesh: THREE.Mesh;
+  /** Blends the competition heatmap (see render/overlays.ts) into the terrain's vertex colors, or
+   * clears it when passed null. Rewrites the existing color attribute in place — no geometry
+   * rebuild, no reallocation, no normal recomputation — because consumption changes every single
+   * tick and rebuilding the whole mesh at that cadence is exactly the cost this module is
+   * otherwise careful to avoid. Cheap enough to call unconditionally each frame. */
+  setCompetitionTint: (tint: CompetitionTint | null) => void;
   /** Rebuilds the mesh's geometry in place if `terrain` is a different object OR its `revision`
    * has changed since the last call — same "only repaint when actually stale" caching principle
    * the old 2D terrain layer used (Addendum 18), adapted to disposing/replacing a BufferGeometry
@@ -94,13 +106,55 @@ export function createTerrainMesh(terrain: TerrainGrid, params: Params): Terrain
   const mesh = new THREE.Mesh(buildTerrainGeometry(terrain, params), material);
   let lastTerrain: TerrainGrid = terrain;
   let lastRevision = terrain.revision;
+  /** The untinted terrain colors, kept so a tint can be re-blended from the original each frame
+   * rather than compounding on top of the previous frame's already-tinted buffer. */
+  let baseColors = (mesh.geometry.getAttribute("color") as THREE.BufferAttribute).array.slice() as Float32Array;
+  /** Skips the rewrite entirely on the (common) frames where the overlay is off and was already
+   * off last frame — otherwise a disabled heatmap would still cost a full color-buffer write. */
+  let tintApplied = false;
+
+  function setCompetitionTint(tint: CompetitionTint | null): void {
+    const attribute = mesh.geometry.getAttribute("color") as THREE.BufferAttribute;
+    const colors = attribute.array as Float32Array;
+
+    if (!tint) {
+      if (!tintApplied) return;
+      colors.set(baseColors);
+      attribute.needsUpdate = true;
+      tintApplied = false;
+      return;
+    }
+
+    const cellCount = Math.min(baseColors.length / 3, tint.strength.length);
+    for (let idx = 0; idx < cellCount; idx++) {
+      const strength = tint.strength[idx];
+      const o = idx * 3;
+      if (strength <= 0) {
+        colors[o] = baseColors[o];
+        colors[o + 1] = baseColors[o + 1];
+        colors[o + 2] = baseColors[o + 2];
+        continue;
+      }
+      const t = strength * MAX_TINT_BLEND;
+      colors[o] = baseColors[o] + (tint.rgb[o] - baseColors[o]) * t;
+      colors[o + 1] = baseColors[o + 1] + (tint.rgb[o + 1] - baseColors[o + 1]) * t;
+      colors[o + 2] = baseColors[o + 2] + (tint.rgb[o + 2] - baseColors[o + 2]) * t;
+    }
+    attribute.needsUpdate = true;
+    tintApplied = true;
+  }
 
   return {
     mesh,
+    setCompetitionTint,
     syncToTerrain: (nextTerrain, nextParams) => {
       if (nextTerrain === lastTerrain && nextTerrain.revision === lastRevision) return;
       mesh.geometry.dispose();
       mesh.geometry = buildTerrainGeometry(nextTerrain, nextParams);
+      // The rebuild produced a fresh, untinted color buffer — re-snapshot it as the new base, and
+      // drop the "already tinted" flag so the next tinted frame writes rather than short-circuits.
+      baseColors = (mesh.geometry.getAttribute("color") as THREE.BufferAttribute).array.slice() as Float32Array;
+      tintApplied = false;
       lastTerrain = nextTerrain;
       lastRevision = nextTerrain.revision;
     },

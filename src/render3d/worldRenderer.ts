@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { Params } from "../params.ts";
 import { cachedGenotypeColor, type ColorOptions } from "../render/color.ts";
+import { computeCompetitionTint } from "../render/overlays.ts";
 import type { Creature } from "../sim/creature.ts";
 import { derivePhenotype } from "../sim/phenotype.ts";
 import type { SimState } from "../sim/sim.ts";
@@ -21,6 +22,10 @@ export interface WorldRenderOptions {
   colorOptions: ColorOptions;
   selectedCreatureId: number | null;
   lineageFilter: Set<number> | null;
+  /** Blends the per-species competition heatmap into the terrain's own colors (see
+   * render/overlays.ts). Off by default — it deliberately recolors the landscape, so it's a mode
+   * you turn on to answer "who is eating where," not a permanent decoration. */
+  showCompetitionHeatmap: boolean;
 }
 
 // Bumped up from the 2D glyph's original 0.09/0.4 — Dan asked for trees "slightly bigger" once he
@@ -47,7 +52,15 @@ export interface WorldRenderer {
   /** World-space (x, y) under a canvas-space click, via a real raycast against the terrain mesh —
    * null if the click doesn't land on the terrain at all (e.g. off into the sky). */
   worldPointAt: (screenX: number, screenY: number, canvasWidth: number, canvasHeight: number) => { x: number; y: number } | null;
+  /** Flies the camera in to look at one creature, sitting it on the terrain surface the same way
+   * the render pass places it so the subject isn't half-buried or floating. */
+  focusOnCreature: (state: SimState, params: Params, creature: Creature) => void;
 }
+
+/** How close the camera settles when focusing a single creature — a fraction of the world's span,
+ * so it stays sensible if the world size ever changes. Close enough to make out one creature's
+ * body plan, far enough to keep its surroundings (who and what it lives among) in frame. */
+const CREATURE_FOCUS_DISTANCE_FRAC = 0.16;
 
 export function createWorldRenderer(canvas: HTMLCanvasElement, params: Params, initialState: SimState): WorldRenderer {
   const scene = createWorldScene(canvas, params.worldWidth, params.worldHeight);
@@ -74,6 +87,7 @@ export function createWorldRenderer(canvas: HTMLCanvasElement, params: Params, i
 
   function render(state: SimState, renderParams: Params, options: WorldRenderOptions): void {
     terrainHandle.syncToTerrain(state.evolution.terrain, renderParams);
+    terrainHandle.setCompetitionTint(options.showCompetitionHeatmap ? computeCompetitionTint(state, options.colorOptions) : null);
 
     const { world, terrain, trees, tick } = state.evolution;
     const poorCapacityFloor = renderParams.treeFruitCapacity * 0.15;
@@ -182,5 +196,11 @@ export function createWorldRenderer(canvas: HTMLCanvasElement, params: Params, i
     return { x: hit.point.x, y: hit.point.z };
   }
 
-  return { scene, render, findCreatureAt, worldPointAt };
+  function focusOnCreature(state: SimState, focusParams: Params, creature: Creature): void {
+    const y = terrainHeightAt(state, focusParams, creature.x, creature.y);
+    const span = Math.max(focusParams.worldWidth, focusParams.worldHeight);
+    scene.focusOn(creature.x, y, creature.y, span * CREATURE_FOCUS_DISTANCE_FRAC);
+  }
+
+  return { scene, render, findCreatureAt, worldPointAt, focusOnCreature };
 }
