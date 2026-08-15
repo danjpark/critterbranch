@@ -2095,3 +2095,76 @@ already-documented `requestAnimationFrame` throttling when not actively composit
 animation around tick ~900 of 2000 during manual polling) — not chased further, since the automated
 cross-path determinism test is strictly stronger proof for this specific bug than eyeballing a UI
 message would have been anyway. Not committed/pushed as of this note.
+
+## Addendum 20 — a cheap elevation depth + tilt spike, to evaluate before investing further
+
+Design note, written before implementation. Dan asked directly whether real camera movement
+("back and forth and around") needs a 3D engine. Answer, given directly before this pass started:
+no, not for what this pass builds. Two genuinely different asks live under "more 2.5D":
+
+1. **Elevation depth + a fixed-angle tilt** — terrain height reads visually, creatures/trees at
+   different heights occlude each other, the camera can tilt within that angle. This is a
+   projection-math + draw-order change, buildable entirely in the existing Canvas 2D pipeline.
+2. **True free 3D orbit** — actually rotating around/through the world at any angle. This needs a
+   real 3D engine (Three.js, most likely) and a full rendering rewrite (terrain as an actual
+   heightmap mesh, not painted cells) — not an incremental step from what exists.
+
+Dan chose "show me the cheap version first" over committing to either path — so this pass is
+explicitly a **spike to evaluate, not a finished feature**: small, real, adjustable live, cheap to
+throw away if it doesn't earn its keep.
+
+### Scope
+
+**Built:** `CameraState` gains a `tilt` field (0 = today's flat top-down, exactly byte-identical to
+before this pass; higher values reveal more height). Creatures and trees are given a screen-space Y
+offset proportional to their own cell's elevation × tilt × the camera's current scale — so higher
+ground visually reads as "further up/back" the same way a StarCraft-editor-style 2.5D map does.
+Creatures and trees are combined into ONE depth-sorted draw list (by their final, elevation-offset
+screen Y — a standard painter's algorithm) instead of the previous fixed "all trees, then all
+creatures" layering, so a creature can now visibly walk behind a tall tree's canopy or a raised
+patch of ground. A small live "Tilt" slider (0-1) sits next to the World view's tab row on both
+Classic Sandbox and Game Mode, each driving its own independent camera, so the effect can be
+dialed from off to full and judged live rather than shipped as one fixed look.
+
+**Deliberately NOT built, because this is a spike, not a commitment:** terrain itself stays exactly
+what it already was — a flat painted/cached raster, no actual extrusion or 3D geometry. A tall
+mountain doesn't yet occlude a creature standing "in front of" it from the camera's perspective
+(only creature-vs-creature and creature-vs-tree occlusion via the depth sort); that would need
+terrain to participate in the same depth-sorted draw pass, a meaningfully bigger change reasonable
+to defer until this spike proves worth deepening. Hit-testing (`findCreatureAt`) deliberately still
+uses each creature's true flat world position, not its visually tilted screen position — clicking
+near a creature on sloped terrain may feel very slightly off at high tilt, an honest, small,
+known simplification rather than a hidden one. No terrain relief shading, no rotation/azimuth
+control (there is no "around" in a fixed top-down + height-offset scheme, only tilt amount and the
+pan/zoom that already existed).
+
+### Dependencies
+
+Requires Addendum 18's camera/projection layer. If this spike earns its keep, the natural next step
+is terrain-inclusive depth sorting (real occlusion), not a 3D engine — that jump is only justified if
+Dan actually wants true free orbit, a separate, much bigger decision this pass deliberately doesn't
+make.
+
+**Implementation status (2026-08-14, same session): built as designed.**
+
+`CameraState` gained `tilt` (`camera.ts`); `elevationScreenOffset(elevation, scale, tilt)` and
+`withTilt(camera, tilt)` added alongside it. `worldView.ts`'s `drawTrees`/`drawCreatures` refactored
+into `treeDraws`/`creatureDraws`, each returning `{ depthY, draw }` closures instead of drawing
+immediately, combined and sorted by `drawWorldEntities` before executing — one back-to-front pass
+instead of a fixed layer order. `ui/controls.ts`'s `sliderRow` exported for reuse; `main.ts` gained
+one live "Tilt" slider per canvas (Classic Sandbox's, shown only on the World tab; Game Mode's,
+always visible since it has no tab switcher), each driving its own camera independently.
+
+One test-only issue found and fixed, not an implementation bug: `elevationScreenOffset`'s
+sign-then-multiply-by-zero can produce `-0`, which `toBe` (`Object.is`) treats as distinct from `0`
+even though they're numerically and visually identical — switched those assertions to
+`toBeCloseTo`.
+
+Typecheck clean. Full suite green (394 passed — up from 385, +9 new — 1 pre-existing documented
+skip). Live-verified in browser: at tilt=0, pixel-identical to before this pass (proven by the
+existing camera tests' own non-regression assertions, still passing unchanged). Setting a canvas's
+Tilt slider to 1 changed ~62k of 1.6M pixel bytes (a real, visible shift), and setting it back to 0
+restored the exact original pixels — a clean, fully reversible toggle, confirmed by direct pixel
+diffing, not eyeballing. Game Mode's independent tilt slider confirmed working on its own canvas
+too (~56k bytes changed on its own toggle). Zero console errors throughout. Not committed/pushed as
+of this note.

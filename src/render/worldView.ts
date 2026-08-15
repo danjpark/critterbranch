@@ -5,7 +5,7 @@ import type { TerrainGrid } from "../sim/terrain.ts";
 import { cellIndexAt } from "../sim/trees.ts";
 import { clamp01, lerp, torDelta } from "../sim/util.ts";
 import type { Params } from "../params.ts";
-import { type CameraState, screenScale, screenToWorld, type WorldExtent, worldToScreen } from "./camera.ts";
+import { type CameraState, elevationScreenOffset, screenScale, screenToWorld, type WorldExtent, worldToScreen } from "./camera.ts";
 import { cachedGenotypeColor, type ColorOptions } from "./color.ts";
 import { drawCreatureGlyph } from "./creatureGlyph.ts";
 import { CONTOUR_LINE_COLOR, elevationBand, type ElevationBand, terrainCellColor } from "./terrainPalette.ts";
@@ -32,8 +32,7 @@ export function renderWorld(ctx: CanvasRenderingContext2D, state: SimState, para
 
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
   drawTerrainLayer(ctx, options.camera, extent, state.evolution.terrain, params);
-  drawTrees(ctx, state, params, options.camera, extent);
-  drawCreatures(ctx, state, params, options, extent);
+  drawWorldEntities(ctx, state, params, options, extent);
 }
 
 // Terrain is static for most of a SimState's lifetime, so repainting all ~2,500 cells every frame
@@ -147,6 +146,18 @@ function pseudoRandom(seed: number): number {
   return x - Math.floor(x);
 }
 
+const BASE_CREATURE_RADIUS_FRAC = 1.1;
+
+/** One tree or creature's draw call, tagged with the screen Y its base should be drawn at — used to
+ * depth-sort trees and creatures into a single back-to-front pass (SPEC.md Addendum 20) instead of
+ * always drawing every tree, then every creature, regardless of relative position. `depthY` already
+ * includes the elevation offset (see elevationScreenOffset), so at tilt=0 this sorts by plain
+ * world-Y, same effective order as before this pass existed. */
+interface DepthSortedDraw {
+  depthY: number;
+  draw: () => void;
+}
+
 /**
  * Procedural tree glyphs, one per living FruitTree entity (see sim/trees.ts) — replaces the old
  * flat per-cell fruit-square rendering now that trees are the actual food-bearing entity, not just
@@ -158,11 +169,13 @@ function pseudoRandom(seed: number): number {
  * (world.fruit at its cell, against its own capacity-and-fertility ceiling) fills back up — so one
  * glyph carries both "how developed is this tree" and "how much food is on it right now," instead
  * of two separate, potentially-overlapping visual layers. Positioned/scaled through the camera
- * (SPEC.md Addendum 18) instead of a flat canvas-fit scale.
+ * (SPEC.md Addendum 18), with an elevation-aware base position (SPEC.md Addendum 20) — returns a
+ * depth-sortable draw call rather than drawing immediately.
  */
-function drawTrees(ctx: CanvasRenderingContext2D, state: SimState, params: Params, camera: CameraState, extent: WorldExtent): void {
+function treeDraws(ctx: CanvasRenderingContext2D, state: SimState, params: Params, camera: CameraState, extent: WorldExtent): DepthSortedDraw[] {
   const { world, terrain, trees, tick } = state.evolution;
-  const cellSize = params.gridCellSize * screenScale(camera, extent);
+  const scale = screenScale(camera, extent);
+  const cellSize = params.gridCellSize * scale;
   const minRadius = cellSize * MIN_CANOPY_RADIUS_FRAC;
   // Typical poor-tree capacity is ~15% of treeFruitCapacity (see sim/trees.ts's poorTreeCapacity);
   // a shallow-water or rich tree sits at 100%. Clamped so an even-poorer-than-usual capacity
@@ -170,7 +183,7 @@ function drawTrees(ctx: CanvasRenderingContext2D, state: SimState, params: Param
   const poorCapacityFloor = params.treeFruitCapacity * 0.15;
   const richnessSpan = Math.max(params.treeFruitCapacity - poorCapacityFloor, 1e-6);
 
-  for (const tree of trees.trees) {
+  return trees.trees.map((tree) => {
     const idx = cellIndexAt(tree.x, tree.y, params, world);
     const ceiling = tree.capacity * terrain.fertility[idx];
     const fruitFrac = ceiling > 1e-6 ? clamp01(world.fruit[idx] / ceiling) : 0;
@@ -186,77 +199,107 @@ function drawTrees(ctx: CanvasRenderingContext2D, state: SimState, params: Param
     const grownRadius = cellSize * lerp(MAX_CANOPY_RADIUS_FRAC * POOR_TREE_RADIUS_SCALE, MAX_CANOPY_RADIUS_FRAC, richnessFrac);
     const canopyRadius = lerp(minRadius, grownRadius, growth);
 
-    const base = worldToScreen(camera, extent, tree.x, tree.y);
+    const projected = worldToScreen(camera, extent, tree.x, tree.y);
+    const baseY = projected.y + elevationScreenOffset(terrain.elevation[idx], scale, camera.tilt);
+    const baseX = projected.x;
     const trunkHeight = lerp(canopyRadius * 0.3, canopyRadius * 0.9, growth);
-    const canopyCenterY = base.y - trunkHeight;
+    const canopyCenterY = baseY - trunkHeight;
 
-    ctx.strokeStyle = TRUNK_COLOR;
-    ctx.lineWidth = Math.max(1, canopyRadius * 0.18);
-    ctx.beginPath();
-    ctx.moveTo(base.x, base.y);
-    ctx.lineTo(base.x, canopyCenterY);
-    ctx.stroke();
+    return {
+      depthY: baseY,
+      draw: () => {
+        ctx.strokeStyle = TRUNK_COLOR;
+        ctx.lineWidth = Math.max(1, canopyRadius * 0.18);
+        ctx.beginPath();
+        ctx.moveTo(baseX, baseY);
+        ctx.lineTo(baseX, canopyCenterY);
+        ctx.stroke();
 
-    const [fr, fg, fb] = CANOPY_FULL_COLOR;
-    const [dr, dg, db] = CANOPY_DEPLETED_COLOR;
-    const r = Math.round(lerp(dr, fr, fruitFrac));
-    const g = Math.round(lerp(dg, fg, fruitFrac));
-    const b = Math.round(lerp(db, fb, fruitFrac));
-    ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+        const [fr, fg, fb] = CANOPY_FULL_COLOR;
+        const [dr, dg, db] = CANOPY_DEPLETED_COLOR;
+        const r = Math.round(lerp(dr, fr, fruitFrac));
+        const g = Math.round(lerp(dg, fg, fruitFrac));
+        const b = Math.round(lerp(db, fb, fruitFrac));
+        ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
 
-    // A small cluster of overlapping blobs, not one perfect circle — a rounder single dot would
-    // read as fruit again rather than foliage; jittered offsets sketch an organic canopy outline
-    // matching the map's hand-drawn style.
-    const blobCount = 3;
-    for (let i = 0; i < blobCount; i++) {
-      const angle = pseudoRandom(tree.id * 7 + i) * Math.PI * 2;
-      const offset = canopyRadius * 0.35 * pseudoRandom(tree.id * 13 + i);
-      const blobX = base.x + Math.cos(angle) * offset;
-      const blobY = canopyCenterY + Math.sin(angle) * offset * 0.6;
-      const blobRadius = canopyRadius * lerp(0.55, 0.8, pseudoRandom(tree.id * 19 + i));
+        // A small cluster of overlapping blobs, not one perfect circle — a rounder single dot
+        // would read as fruit again rather than foliage; jittered offsets sketch an organic canopy
+        // outline matching the map's hand-drawn style.
+        const blobCount = 3;
+        for (let i = 0; i < blobCount; i++) {
+          const angle = pseudoRandom(tree.id * 7 + i) * Math.PI * 2;
+          const offset = canopyRadius * 0.35 * pseudoRandom(tree.id * 13 + i);
+          const blobX = baseX + Math.cos(angle) * offset;
+          const blobY = canopyCenterY + Math.sin(angle) * offset * 0.6;
+          const blobRadius = canopyRadius * lerp(0.55, 0.8, pseudoRandom(tree.id * 19 + i));
 
-      ctx.beginPath();
-      ctx.arc(blobX, blobY, blobRadius, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
+          ctx.beginPath();
+          ctx.arc(blobX, blobY, blobRadius, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      },
+    };
+  });
 }
-
-const BASE_CREATURE_RADIUS_FRAC = 1.1;
 
 /** Draws every living creature as a procedural mammal glyph (SPEC.md Addendum 18) instead of the
  * old flat colored circle — same genotype color, positioned/scaled through the camera. bodyScale
- * (Addendum 17) modulates the base radius so larger-genomed creatures visibly read as bigger. */
-function drawCreatures(ctx: CanvasRenderingContext2D, state: SimState, params: Params, options: RenderOptions, extent: WorldExtent): void {
+ * (Addendum 17) modulates the base radius so larger-genomed creatures visibly read as bigger. An
+ * elevation-aware base position (SPEC.md Addendum 20) returns a depth-sortable draw call rather
+ * than drawing immediately. */
+function creatureDraws(ctx: CanvasRenderingContext2D, state: SimState, params: Params, options: RenderOptions, extent: WorldExtent): DepthSortedDraw[] {
   const { camera } = options;
-  const baseRadius = Math.max(2, screenScale(camera, extent) * BASE_CREATURE_RADIUS_FRAC);
+  const scale = screenScale(camera, extent);
+  const baseRadius = Math.max(2, scale * BASE_CREATURE_RADIUS_FRAC);
+  const { terrain, world } = state.evolution;
 
+  const draws: DepthSortedDraw[] = [];
   for (const creature of state.evolution.creatures) {
     if (options.lineageFilter && !options.lineageFilter.has(creature.lineageId)) continue;
 
-    const screen = worldToScreen(camera, extent, creature.x, creature.y);
+    const idx = cellIndexAt(creature.x, creature.y, params, world);
+    const projected = worldToScreen(camera, extent, creature.x, creature.y);
+    const screenX = projected.x;
+    const screenY = projected.y + elevationScreenOffset(terrain.elevation[idx], scale, camera.tilt);
     const morphology = derivePhenotype(creature.genome, params).morphology;
     const radius = baseRadius * morphology.bodyScale;
     const fill = cachedGenotypeColor(creature, state.evolution.foundingCentroid, options.colorOptions);
+    const isSelected = options.selectedCreatureId === creature.id;
 
-    // Thin dark silhouette underneath so light-lightness individuals don't vanish over pale ground
-    // — drawn as a slightly larger copy of the same glyph rather than a stroke, since the glyph's
-    // outline isn't a simple circle anymore.
-    ctx.save();
-    ctx.globalAlpha = 0.55;
-    drawCreatureGlyph(ctx, screen.x, screen.y, radius * 1.12, creature.heading, morphology, "#000000", creature.id);
-    ctx.restore();
+    draws.push({
+      depthY: screenY,
+      draw: () => {
+        // Thin dark silhouette underneath so light-lightness individuals don't vanish over pale
+        // ground — drawn as a slightly larger copy of the same glyph rather than a stroke, since
+        // the glyph's outline isn't a simple circle anymore.
+        ctx.save();
+        ctx.globalAlpha = 0.55;
+        drawCreatureGlyph(ctx, screenX, screenY, radius * 1.12, creature.heading, morphology, "#000000", creature.id);
+        ctx.restore();
 
-    drawCreatureGlyph(ctx, screen.x, screen.y, radius, creature.heading, morphology, fill, creature.id);
+        drawCreatureGlyph(ctx, screenX, screenY, radius, creature.heading, morphology, fill, creature.id);
 
-    if (options.selectedCreatureId === creature.id) {
-      ctx.beginPath();
-      ctx.arc(screen.x, screen.y, radius + 4, 0, Math.PI * 2);
-      ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    }
+        if (isSelected) {
+          ctx.beginPath();
+          ctx.arc(screenX, screenY, radius + 4, 0, Math.PI * 2);
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+      },
+    });
   }
+  return draws;
+}
+
+/** Trees and creatures drawn together in one back-to-front pass, sorted by their (elevation-aware)
+ * screen Y — a standard painter's algorithm, so a creature can visibly walk behind a tall tree's
+ * canopy or a raised patch of ground instead of always drawing in a fixed tree-then-creature layer
+ * order (SPEC.md Addendum 20). At tilt=0 this is the same relative order plain world-Y would give. */
+function drawWorldEntities(ctx: CanvasRenderingContext2D, state: SimState, params: Params, options: RenderOptions, extent: WorldExtent): void {
+  const draws = [...treeDraws(ctx, state, params, options.camera, extent), ...creatureDraws(ctx, state, params, options, extent)];
+  draws.sort((a, b) => a.depthY - b.depthY);
+  for (const item of draws) item.draw();
 }
 
 /** Nearest creature to a camera-projected screen-space click, or null if nothing is close enough. */

@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { clampCamera, createDefaultCamera, MAX_ZOOM, MIN_ZOOM, panCamera, screenScale, screenToWorld, worldToScreen, zoomCamera, type WorldExtent } from "./camera.ts";
+import {
+  clampCamera,
+  createDefaultCamera,
+  elevationScreenOffset,
+  MAX_TILT,
+  MAX_ZOOM,
+  MIN_TILT,
+  MIN_ZOOM,
+  panCamera,
+  screenScale,
+  screenToWorld,
+  withTilt,
+  worldToScreen,
+  zoomCamera,
+  type WorldExtent,
+} from "./camera.ts";
 
 const EXTENT: WorldExtent = { worldWidth: 100, worldHeight: 100 };
 const VIEWPORT = 640;
@@ -142,5 +157,61 @@ describe("screenScale", () => {
     const camera = createDefaultCamera(EXTENT, VIEWPORT, VIEWPORT);
     const zoomed = zoomCamera(camera, EXTENT, VIEWPORT / 2, VIEWPORT / 2, 2);
     expect(screenScale(zoomed, EXTENT)).toBeCloseTo(screenScale(camera, EXTENT) * 2);
+  });
+});
+
+// SPEC.md Addendum 20.
+describe("createDefaultCamera tilt", () => {
+  it("defaults to MIN_TILT (0) — nothing visually changes until tilt is actually raised", () => {
+    expect(createDefaultCamera(EXTENT, VIEWPORT, VIEWPORT).tilt).toBe(MIN_TILT);
+  });
+});
+
+describe("withTilt", () => {
+  it("sets tilt within range without touching other camera fields", () => {
+    const camera = createDefaultCamera(EXTENT, VIEWPORT, VIEWPORT);
+    const tilted = withTilt(camera, 0.5);
+    expect(tilted.tilt).toBe(0.5);
+    expect(tilted.centerX).toBe(camera.centerX);
+    expect(tilted.zoom).toBe(camera.zoom);
+  });
+
+  it("clamps below MIN_TILT and above MAX_TILT", () => {
+    const camera = createDefaultCamera(EXTENT, VIEWPORT, VIEWPORT);
+    expect(withTilt(camera, -5).tilt).toBe(MIN_TILT);
+    expect(withTilt(camera, 5).tilt).toBe(MAX_TILT);
+  });
+});
+
+describe("elevationScreenOffset", () => {
+  it("is zero at tilt=0 regardless of elevation — the non-regression guarantee this whole spike depends on", () => {
+    // toBeCloseTo, not toBe: the formula's sign-then-multiply-by-zero can produce -0, which
+    // Object.is (what toBe uses) treats as distinct from 0 even though they're numerically equal.
+    expect(elevationScreenOffset(0.3, 10, 0)).toBeCloseTo(0);
+    expect(elevationScreenOffset(-0.3, 10, 0)).toBeCloseTo(0);
+  });
+
+  it("is zero at elevation=0 regardless of tilt", () => {
+    expect(elevationScreenOffset(0, 10, 1)).toBeCloseTo(0);
+  });
+
+  it("shifts higher elevation further UP the screen (negative offset) at positive tilt", () => {
+    expect(elevationScreenOffset(0.3, 10, 1)).toBeLessThan(0);
+  });
+
+  it("shifts lower (negative) elevation DOWN the screen (positive offset) at positive tilt", () => {
+    expect(elevationScreenOffset(-0.3, 10, 1)).toBeGreaterThan(0);
+  });
+
+  it("scales monotonically with tilt", () => {
+    const half = elevationScreenOffset(0.3, 10, 0.5);
+    const full = elevationScreenOffset(0.3, 10, 1);
+    expect(Math.abs(full)).toBeGreaterThan(Math.abs(half));
+  });
+
+  it("scales monotonically with the camera's screen scale", () => {
+    const near = elevationScreenOffset(0.3, 10, 1);
+    const far = elevationScreenOffset(0.3, 20, 1);
+    expect(Math.abs(far)).toBeGreaterThan(Math.abs(near));
   });
 });

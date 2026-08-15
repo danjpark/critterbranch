@@ -390,7 +390,7 @@ function geneSelectRow(label: string, initial: keyof Genome, onChange: (gene: ke
   return row;
 }
 
-function sliderRow(
+export function sliderRow(
   label: string,
   min: number,
   max: number,

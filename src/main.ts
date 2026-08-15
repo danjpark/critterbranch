@@ -2,7 +2,7 @@ import "./style.css";
 import { GameRunner } from "./app/gameRunner.ts";
 import { SimRunner } from "./app/simRunner.ts";
 import { PROTOTYPE_CHALLENGES } from "./game/challenges/prototypeChallenges.ts";
-import { createDefaultCamera, panCamera, screenToWorld, zoomCamera, type CameraState, type WorldExtent } from "./render/camera.ts";
+import { createDefaultCamera, panCamera, screenToWorld, withTilt, zoomCamera, type CameraState, type WorldExtent } from "./render/camera.ts";
 import type { ColorOptions } from "./render/color.ts";
 import { renderMuller } from "./render/mullerView.ts";
 import { renderCompetitionHeatmap } from "./render/overlays.ts";
@@ -27,6 +27,7 @@ import {
   createScenarioPanel,
   createTraitChart,
   createTreePanel,
+  sliderRow,
 } from "./ui/controls.ts";
 import { enablePanelWorkspace } from "./ui/panelWorkspace.ts";
 
@@ -184,12 +185,23 @@ let scatterYGene: keyof Genome = "senseRadius";
 let showCompetitionHeatmap = false;
 let traitChartGene: keyof Genome = "speed";
 
+// SPEC.md Addendum 20 spike — a live-adjustable tilt so the elevation-depth effect can be judged
+// at any strength (0 = today's flat look) rather than shipped as one fixed value. Only shown on the
+// World tab, next to the view-switcher, since it's meaningless on the other views.
+const worldTiltRow = sliderRow("Tilt", 0, 1, 0, 0.05, (value) => {
+  worldCamera = withTilt(worldCamera, value);
+  render();
+});
+worldTiltRow.row.classList.add("tilt-row");
+canvasArea.insertBefore(worldTiltRow.row, worldCanvas);
+
 function setActiveView(view: ViewName): void {
   activeView = view;
   for (const [name, btn] of tabButtons) btn.classList.toggle("active", name === view);
   for (const [name, c] of Object.entries(canvases) as [ViewName, HTMLCanvasElement][]) {
     c.style.display = name === view ? "block" : "none";
   }
+  worldTiltRow.row.style.display = view === "world" ? "flex" : "none";
   render();
 }
 // Just the tab/visibility bookkeeping for now — render() isn't callable until every panel below
@@ -199,6 +211,7 @@ for (const [name, btn] of tabButtons) btn.classList.toggle("active", name === ac
 for (const [name, c] of Object.entries(canvases) as [ViewName, HTMLCanvasElement][]) {
   c.style.display = name === activeView ? "block" : "none";
 }
+worldTiltRow.row.style.display = activeView === "world" ? "flex" : "none";
 
 const controls = createControls({
   onPlayPause: () => controls.setPlaying(runner.togglePlaying()),
@@ -471,6 +484,16 @@ gameRoot.append(gameCanvasArea, gameSidebar);
 
 let gameRunner = new GameRunner("sandbox", 12345);
 let gameCamera: CameraState = createDefaultCamera({ worldWidth: gameRunner.game.sim.params.worldWidth, worldHeight: gameRunner.game.sim.params.worldHeight }, CANVAS_SIZE, CANVAS_SIZE);
+
+// SPEC.md Addendum 20 spike — same live-adjustable tilt as Classic Sandbox's World tab, on Game
+// Mode's own independent camera. No view-switcher here (Game Mode only has the one canvas), so it
+// stays visible unconditionally rather than needing show/hide bookkeeping.
+const gameTiltRow = sliderRow("Tilt", 0, 1, 0, 0.05, (value) => {
+  gameCamera = withTilt(gameCamera, value);
+  renderGame();
+});
+gameTiltRow.row.classList.add("tilt-row");
+gameCanvasArea.prepend(gameTiltRow.row);
 
 const gameGodModePanel = createGodModePanel(
   {

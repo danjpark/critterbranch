@@ -16,6 +16,11 @@ export interface CameraState {
   zoom: number;
   viewportWidth: number;
   viewportHeight: number;
+  /** 0 (default, byte-identical to pre-Addendum-20 rendering) to 1 (full effect) — how much
+   * elevation visually shifts a drawn entity's screen position (see elevationScreenOffset below).
+   * Not a rotation/orbit — there's no "around" in this fixed top-down + height-offset scheme, only
+   * how much height reads as depth. SPEC.md Addendum 20. */
+  tilt: number;
 }
 
 export interface WorldExtent {
@@ -25,9 +30,31 @@ export interface WorldExtent {
 
 export const MIN_ZOOM = 1;
 export const MAX_ZOOM = 8;
+export const MIN_TILT = 0;
+export const MAX_TILT = 1;
 
 export function createDefaultCamera(extent: WorldExtent, viewportWidth: number, viewportHeight: number): CameraState {
-  return { centerX: extent.worldWidth / 2, centerY: extent.worldHeight / 2, zoom: 1, viewportWidth, viewportHeight };
+  return { centerX: extent.worldWidth / 2, centerY: extent.worldHeight / 2, zoom: 1, viewportWidth, viewportHeight, tilt: MIN_TILT };
+}
+
+/** Clamps to [MIN_TILT, MAX_TILT] and returns a new CameraState; does not mutate. Deliberately
+ * separate from clampCamera (which is about pan/zoom staying within the world's bounds) — tilt has
+ * nothing to do with world-edge clamping. */
+export function withTilt(camera: CameraState, tilt: number): CameraState {
+  return { ...camera, tilt: Math.min(MAX_TILT, Math.max(MIN_TILT, tilt)) };
+}
+
+/** World units of visual height per unit of elevation, at tilt=1 — empirically picked so a
+ * full-height mountain (elevation = a typical terrainRoughness of ~0.3) shifts by roughly one grid
+ * cell's worth of screen space, a visible but not exaggerated rise. SPEC.md Addendum 20. */
+const ELEVATION_HEIGHT_SCALE = 15;
+
+/** The screen-space Y offset an entity at `elevation` should be drawn with, given the camera's
+ * current scale (screen pixels per world unit — see screenScale) and tilt. Negative: higher
+ * elevation draws further UP the screen (standard "raised terrain reads as further back/up" 2.5D
+ * convention). Zero at tilt=0, so nothing visually changes until tilt is actually raised. */
+export function elevationScreenOffset(elevation: number, scale: number, tilt: number): number {
+  return -elevation * ELEVATION_HEIGHT_SCALE * tilt * scale;
 }
 
 function baseScale(extent: WorldExtent, camera: CameraState): { scaleX: number; scaleY: number } {
