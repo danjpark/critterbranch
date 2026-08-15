@@ -7,6 +7,7 @@ import { renderMuller } from "./render/mullerView.ts";
 import { findPointAt, renderScatter } from "./render/scatterView.ts";
 import { findBranchAt, renderTree } from "./render/treeView.ts";
 import { createWorldRenderer, type WorldRenderer } from "./render3d/worldRenderer.ts";
+import { competitionContributors } from "./render/overlays.ts";
 import type { Genome } from "./sim/genome.ts";
 import { parseRunConfig } from "./sim/runConfig.ts";
 import { classifySpecies } from "./game/observability/capabilityClassifier.ts";
@@ -14,6 +15,7 @@ import { computeSpeciesProfiles } from "./game/observability/speciesProfile.ts";
 import {
   createCheckpointsPanel,
   createControls,
+  createCritterdexPanel,
   createEraSummaryPanel,
   createEventFeed,
   createGameControlsPanel,
@@ -29,6 +31,7 @@ import {
 import { enablePanelWorkspace } from "./ui/panelWorkspace.ts";
 import { createDiscoveryDetailCard, createDiscoveryToastLayer } from "./ui/discoveryToasts.ts";
 import { DISCOVERY_CONFIRMATION_ERAS, type DiscoveryMatch } from "./game/discovery/discoveryJournal.ts";
+import { summarizeCritterdex } from "./game/discovery/critterdexSummary.ts";
 import type { EraSummary } from "./game/eraSummary.ts";
 import { circularMean, torDist } from "./sim/util.ts";
 
@@ -170,6 +173,9 @@ const runner = new SimRunner(12345);
  * because it's a pure view option with no bearing on the simulation, same as which view tab is
  * open — SimRunner owns state that survives a restart or feeds a future feature, not this. */
 let showCompetitionHeatmap = false;
+/** A long run can accumulate more lineages than a legend can usefully list; the tail is a rounding
+ * error on the map anyway since the list is ranked by share. */
+const HEATMAP_LEGEND_MAX_SPECIES = 8;
 // SPEC.md Addendum 21 — real 3D World view on Three.js, replacing the flat 2D camera/projection
 // system (Addendum 18/20 are both superseded). No camera-reset-on-restart needed the way the old
 // 2D CameraState required: OrbitControls' camera position is a user viewing preference that has no
@@ -389,6 +395,20 @@ function render(): void {
       lineageFilter: runner.lineageFilter,
       showCompetitionHeatmap,
     });
+    // Built from the same contributor list the tint itself blends with (see render/overlays.ts),
+    // so a swatch can never show a colour the map isn't using. Only computed while the overlay is
+    // actually on.
+    if (showCompetitionHeatmap) {
+      const contributors = competitionContributors(runner.sim.state, runner.colorOptions);
+      const grandTotal = contributors.reduce((sum, c) => sum + c.total, 0);
+      controls.setHeatmapLegend(
+        grandTotal > 0
+          ? contributors.slice(0, HEATMAP_LEGEND_MAX_SPECIES).map((c) => ({ speciesId: c.speciesId, css: c.css, share: c.total / grandTotal }))
+          : null,
+      );
+    } else {
+      controls.setHeatmapLegend(null);
+    }
   } else if (activeView === "tree") {
     renderTree(treeCtx, runner.sim.state, {
       colorOptions: runner.colorOptions,
@@ -523,6 +543,16 @@ const gameControls = createGameControlsPanel(PROTOTYPE_CHALLENGES, {
   },
 });
 
+// Clicking an earned entry runs the exact same flow the toasts do — fly to the species, open the
+// explanation card — so "show me this discovery" behaves identically whether you catch it live or
+// come back to it later.
+const critterdexPanel = createCritterdexPanel({
+  onInspect: (match) => {
+    inspectDiscovery(match);
+    renderGame();
+  },
+});
+
 const eraSummaryPanel = createEraSummaryPanel();
 const objectivesPanel = createObjectivesPanel();
 const checkpointsPanel = createCheckpointsPanel({
@@ -546,7 +576,7 @@ const checkpointsPanel = createCheckpointsPanel({
   },
 });
 
-gameSidebar.append(gameControls.root, gameGodModePanel.root, objectivesPanel.root, eraSummaryPanel.root, checkpointsPanel.root);
+gameSidebar.append(gameControls.root, gameGodModePanel.root, objectivesPanel.root, critterdexPanel.root, eraSummaryPanel.root, checkpointsPanel.root);
 enablePanelWorkspace(gameSidebar, "game");
 
 const gameClickGuard = attachClickGuard(gameCanvas);
@@ -589,6 +619,7 @@ function renderGame(): void {
   gameControls.setPauseState(gameRunner.isAdvancingEra(), gameRunner.isPaused());
   gameControls.setTerraformError(gameRunner.lastTerraformError);
   discoveryToasts.syncPlayState();
+  critterdexPanel.setSummary(summarizeCritterdex(game.discoveryJournal));
   eraSummaryPanel.setSummary(gameRunner.lastEraSummary);
   objectivesPanel.setChallenge(gameRunner.objectives(), gameRunner.challengeStatus());
   checkpointsPanel.setCheckpoints(gameRunner.listCheckpoints());

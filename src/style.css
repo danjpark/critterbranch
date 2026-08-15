@@ -694,3 +694,98 @@ button.active {
   margin: 0;
   color: #ded7c8;
 }
+
+/* ---- Critterdex panel + heatmap legend (SPEC.md Addendum 24) ------------------------------- */
+
+.critterdex-progress {
+  font-size: 0.78rem;
+  color: #b7ae9c;
+  margin-bottom: 0.35rem;
+}
+
+.critterdex-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.critterdex-group {
+  border: 1px solid #30343b;
+  border-radius: 5px;
+  padding: 0.35rem 0.45rem;
+  background: #191c21;
+}
+
+.critterdex-group-heading {
+  cursor: pointer;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #9aa0aa;
+  user-select: none;
+}
+
+.critterdex-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  padding: 0.35rem 0.3rem;
+  border-top: 1px solid #262a30;
+  font-size: 0.78rem;
+}
+
+.critterdex-entry-name {
+  font-weight: 600;
+}
+
+.critterdex-entry-detail {
+  color: #8f8879;
+  line-height: 1.35;
+}
+
+.critterdex-entry--unlocked .critterdex-entry-name {
+  color: #d8b45f;
+}
+
+.critterdex-entry--in-progress .critterdex-entry-name {
+  color: #9fb4d0;
+}
+
+/* A locked entry is deliberately muted — it's a prompt, not an achievement. */
+.critterdex-entry--locked .critterdex-entry-name {
+  color: #5f6670;
+  font-style: italic;
+  font-weight: 400;
+}
+
+.critterdex-entry--clickable {
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.critterdex-entry--clickable:hover,
+.critterdex-entry--clickable:focus-visible {
+  background: #262a30;
+  outline: none;
+}
+
+.heatmap-legend {
+  margin: 0.1rem 0 0.5rem 1.4rem;
+  font-size: 0.75rem;
+}
+
+.heatmap-legend[hidden] {
+  display: none;
+}
+
+.heatmap-legend-caption {
+  color: #777e89;
+  margin-bottom: 0.2rem;
+}
+
+.heatmap-legend-row {
+  gap: 0.4rem;
+  margin-bottom: 0.15rem;
+  align-items: center;
+}

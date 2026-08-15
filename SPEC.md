@@ -2626,3 +2626,102 @@ forever — it now counts only toasts that aren't already on their way out.
 - The detail card explains a discovery but doesn't link to the wider Critterdex — there is still no
   browsable "here is everything you have found, and what remains" view. That's mega-doc item 11 and
   remains the real missing half of this feature.
+
+## Addendum 24 — the Critterdex becomes a collection, and the heatmap becomes readable
+
+Mega-doc item 11, plus the legend gap Addendum 23 left open. Addendum 23 gave discoveries a
+*moment* — a toast, a camera flight, an explanation. This gives them a *collection*: what has been
+found, what is left, and what is close. That difference is the difference between a notification
+and a goal.
+
+### The read model
+
+`game/discovery/critterdexSummary.ts` — `summarizeCritterdex(journal)` returns, per registry entry,
+one of `unlocked` / `in-progress` / `locked`, plus the confirming match or the streak in progress,
+grouped by category with per-group and overall counts. Pure, computed on demand, never stored —
+the same shape as `game/observability`'s SpeciesProfile, and for the same reason: the journal stays
+the single source of truth and nothing here feeds back into it. Kept in its own module rather than
+bolted onto discoveryJournal.ts, which owns *advancing* the journal; this one only reads it.
+
+**Categories are derived from the registry, never enumerated.** `DiscoveryCategory` already existed
+on every definition and had gone completely unused since Addendum 16 — it was clearly authored for
+exactly this view. Grouping walks the registry in order and builds groups as it encounters them, so
+adding a discovery (or a whole new category) shows up in the UI with no change to this module or
+its consumers. That is the *only* forward-looking allowance made here. Deliberately NOT built: no
+cross-run persistence, no filtering or search, no plumbing for non-capability-backed discoveries.
+Addendum 16 left those unbuilt on purpose, and building for them now would be inventing
+requirements rather than anticipating them — `DiscoveryId` is still exactly `CapabilityLabel`, per
+that addendum's own explicit instruction not to loosen it preemptively.
+
+### Encapsulation: asking a question instead of exporting a format
+
+Progress display needs "how far along is the closest species," which lives in the journal's
+`streaks` map keyed by `${speciesId}:${definitionId}`. Rather than exporting that key format,
+discoveryJournal.ts now answers the question directly via `bestStreakFor(journal, definitionId)`.
+A caller parsing the key itself would be a second place that has to change if the shape ever does,
+and would quietly break on any definition id containing a colon. Ties resolve to the lower species
+id so the reported holder is stable frame to frame instead of flickering as Map order shifts — a
+panel that re-renders continuously makes any nondeterminism in a displayed value look like a bug.
+
+### The panel, and the render-loop trap
+
+`createCritterdexPanel` renders the summary grouped by category, each group a `<details>` that
+starts open once it holds anything non-locked — so the panel opens itself up as the run progresses
+rather than presenting twelve rows of nothing on turn one. Locked entries withhold their NAME and
+lead with the authored hint, applying Addendum 16's "don't leak hidden numbers" principle to the
+collection view: finding one should be a discovery, not ticking off a list you were handed. An
+unlocked row is clickable (and keyboard-operable) and runs the exact same flow the toasts do — fly
+to the species, open the explanation card — so "show me this" behaves identically whether you catch
+it live or come back to it a dozen eras later.
+
+The one genuinely load-bearing implementation detail: `setSummary` is called from the 16ms render
+loop, and a fresh summary object is computed every frame, so object identity is useless as a change
+check. Rebuilding unconditionally is not merely wasteful — it resets every `<details>` element's
+open state every frame, so a player could never collapse a group; it would spring back open
+instantly. The panel therefore compares a content signature (id, status, streak, holder, match
+species per entry) and returns early when nothing a player could see has changed. Verified live: a
+collapsed group stays collapsed across a second of continuous rendering.
+
+### The heatmap legend
+
+Addendum 23 shipped the heatmap tinting real terrain but with no key, so its colours were readable
+only by someone who had already memorised species colours from the Tree view.
+
+The legend sits directly under the toggle that produces it and only while that toggle is on. The
+important structural choice is that it does NOT compute species colours itself: `overlays.ts` now
+exposes `competitionContributors`, the single owner of the species-to-colour mapping for this
+overlay, which both `computeCompetitionTint` (to blend) and the legend (to label) read. Two
+independent colour derivations would eventually disagree, and a legend that lies about what's on
+screen is worse than no legend. Contributors are ranked by share of total recorded consumption,
+ties broken by species id so the order doesn't reshuffle as decay nudges near-equal totals past
+each other, and capped at 8 rows since a long run's tail is a rounding error on the map anyway.
+
+One honesty fix caught in live testing: a freshly-split lineage genuinely on the map but eating
+very little rounded to "0%", which reads as "not present" next to a swatch that visibly *is* on
+screen. Anything above zero but below one percent now renders as "<1%".
+
+### Verification
+
+Typecheck clean, full suite green: **413 passed, 1 skipped, 44 files** (up from 403) — 10 new tests
+covering the read model, including the deterministic tie-break, that an unlocked entry never
+reverts to in-progress behind a lingering streak, that a zeroed streak isn't shown as progress, and
+that categories track the registry rather than a hardcoded list.
+
+Live: the panel reads `2 of 12 discovered` with groups `Diet 1/3, Habitat 0/3, Movement 0/2, Life
+history 0/2, Survival 1/2` derived from the registry; an unlocked row shows *Herbivore — Species 0
+· era 2 — Draws 100% of intake from fruit*, a locked one shows *— undiscovered — / A lineage that
+draws nearly all its energy from hunting*; clicking an unlocked row moved 56.5% of the frame and
+opened the matching detail card; and the legend hides when the heatmap is off, lists ranked species
+with correct swatch colours when on, and hides again on toggle off. Zero console errors.
+
+### Known gaps
+
+- **Still Game Mode only.** Discoveries are evaluated at era boundaries and Classic Sandbox has no
+  eras, so Classic players still never see the Critterdex. Giving Classic a discovery cadence means
+  deciding what a "confirmation period" means without eras — a real design question, not a wiring
+  job.
+- **No cross-run persistence.** The Critterdex resets every run, so it is a within-run collection
+  rather than a profile. Addendum 16 deferred this deliberately; it stays deferred.
+- **Nothing tells you how to pursue a locked entry** beyond the hint. There is no "you are close"
+  nudge outside the in-progress row, and no link from a hint to the terraforming that might provoke
+  it — which is where mega-doc item 12 (the tree as explanation) would connect.

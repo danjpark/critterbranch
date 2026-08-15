@@ -46,17 +46,51 @@ export interface CompetitionTint {
  *
  * Returns null when nothing has been eaten yet, so callers can skip the work entirely.
  */
+/** One species' presence on the heatmap: the colour its cells are tinted, and how much it has
+ * eaten in total. */
+export interface CompetitionContributor {
+  speciesId: number;
+  cells: Float64Array;
+  /** The species' genotype colour as a CSS string — the same value the map tints with, so a legend
+   * built from this can't drift from what's actually on screen. */
+  css: string;
+  r: number;
+  g: number;
+  b: number;
+  /** Decayed food total across the whole grid — how much of the heatmap this species accounts for. */
+  total: number;
+}
+
+/**
+ * Which species are currently visible on the competition heatmap, in what colour, ranked by how
+ * much of it they account for. The single owner of the species -> colour mapping for this overlay:
+ * computeCompetitionTint blends with it, and the legend labels with it, so the two cannot disagree
+ * about what colour a species is.
+ */
+export function competitionContributors(state: SimState, colorOptions: ColorOptions): CompetitionContributor[] {
+  const { consumptionGrid } = state.observations;
+  const contributors: CompetitionContributor[] = [];
+  for (const [speciesId, cells] of consumptionGrid.bySpecies) {
+    const species = state.observations.taxonomy.species.get(speciesId);
+    if (!species) continue;
+    const css = genotypeColor(species.centroid, state.evolution.foundingCentroid, colorOptions);
+    const [r, g, b] = parseRgb(css);
+    let total = 0;
+    for (let i = 0; i < cells.length; i++) total += cells[i];
+    if (total <= 0) continue;
+    contributors.push({ speciesId, cells, css, r, g, b, total });
+  }
+  // Biggest eater first, ties by species id so the order is stable frame to frame rather than
+  // reshuffling as decay nudges near-equal totals past each other.
+  contributors.sort((a, b) => b.total - a.total || a.speciesId - b.speciesId);
+  return contributors;
+}
+
 export function computeCompetitionTint(state: SimState, colorOptions: ColorOptions): CompetitionTint | null {
   const { consumptionGrid } = state.observations;
   if (consumptionGrid.bySpecies.size === 0) return null;
 
-  const contributors: { cells: Float64Array; r: number; g: number; b: number }[] = [];
-  for (const [speciesId, cells] of consumptionGrid.bySpecies) {
-    const species = state.observations.taxonomy.species.get(speciesId);
-    if (!species) continue;
-    const [r, g, b] = parseRgb(genotypeColor(species.centroid, state.evolution.foundingCentroid, colorOptions));
-    contributors.push({ cells, r, g, b });
-  }
+  const contributors = competitionContributors(state, colorOptions);
   if (contributors.length === 0) return null;
 
   const { cols, rows } = consumptionGrid;

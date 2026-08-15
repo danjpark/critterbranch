@@ -5,7 +5,9 @@ import { GENE_KEYS, type Genome, type TraitSample } from "../sim/genome.ts";
 import type { Species, SpeciationMechanism, TaxonomyEvent } from "../sim/taxonomy.ts";
 import type { ChallengeDefinition } from "../game/challenges/challenge.ts";
 import type { ChallengeStatus } from "../game/challengeRuntime.ts";
-import { DISCOVERY_REGISTRY } from "../game/discovery/discoveryDefinition.ts";
+import { DISCOVERY_REGISTRY, type DiscoveryCategory } from "../game/discovery/discoveryDefinition.ts";
+import type { CritterdexEntry, CritterdexSummary } from "../game/discovery/critterdexSummary.ts";
+import type { DiscoveryMatch } from "../game/discovery/discoveryJournal.ts";
 import type { EraSummary } from "../game/eraSummary.ts";
 import type { GameMode, GamePhase } from "../game/gameState.ts";
 import type { GameObjective } from "../game/objectives/objective.ts";
@@ -144,6 +146,8 @@ export interface ControlsHandle {
    * quiet stretch, so the sudden speed change doesn't read as the chosen speed being ignored. */
   setStatus: (tick: number, population: number, livingSpeciesCount: number, fastForwarding: boolean) => void;
   setInspected: (creature: Creature | null) => void;
+  /** Species swatches for whoever is actually on the competition heatmap. null/empty hides it. */
+  setHeatmapLegend: (entries: { speciesId: number; css: string; share: number }[] | null) => void;
 }
 
 export function createControls(callbacks: ControlsCallbacks): ControlsHandle {
@@ -214,6 +218,13 @@ export function createControls(callbacks: ControlsCallbacks): ControlsHandle {
   autoPaceCheckbox.addEventListener("change", () => callbacks.onAutoPaceToggle(autoPaceCheckbox.checked));
   autoPaceLabel.append(autoPaceCheckbox, document.createTextNode("Auto-pace (slow openings, skip quiet stretches)"));
 
+  // Sits directly under the toggle that produces it, and only while that toggle is on — without it
+  // the heatmap's colours are only readable by someone who already memorised species colours from
+  // the Tree view.
+  const heatmapLegend = document.createElement("div");
+  heatmapLegend.className = "heatmap-legend";
+  heatmapLegend.hidden = true;
+
   const status = document.createElement("div");
   status.className = "status";
 
@@ -226,6 +237,7 @@ export function createControls(callbacks: ControlsCallbacks): ControlsHandle {
     sectionTitle("Display"),
     deuteranopiaLabel,
     heatmapLabel,
+    heatmapLegend,
     autoPaceLabel,
     status,
   );
@@ -249,6 +261,35 @@ export function createControls(callbacks: ControlsCallbacks): ControlsHandle {
     },
     setInspected(creature: Creature | null) {
       inspectorBody.replaceChildren(...renderInspector(creature));
+    },
+    /** Pass null (or an empty list) when the heatmap is off or nothing has been eaten yet — the
+     * legend hides itself rather than showing an empty box. `share` is that species' fraction of
+     * all recorded consumption, which is what makes the colours mean something quantitative
+     * instead of just "this lineage exists somewhere". */
+    setHeatmapLegend(entries: { speciesId: number; css: string; share: number }[] | null) {
+      if (!entries || entries.length === 0) {
+        heatmapLegend.hidden = true;
+        heatmapLegend.replaceChildren();
+        return;
+      }
+      heatmapLegend.hidden = false;
+      const caption = document.createElement("div");
+      caption.className = "heatmap-legend-caption";
+      caption.textContent = "Food eaten recently, by species:";
+      heatmapLegend.replaceChildren(
+        caption,
+        ...entries.map((entry) => {
+          const row = document.createElement("div");
+          row.className = "legend-row heatmap-legend-row";
+          const label = document.createElement("span");
+          const percent = entry.share * 100;
+          // A freshly-split lineage genuinely on the map but eating very little rounds to 0%,
+          // which reads as "not present at all" next to a swatch that IS on screen.
+          label.textContent = `Species ${entry.speciesId} — ${percent > 0 && percent < 1 ? "<1" : Math.round(percent)}%`;
+          row.append(squareSwatch(entry.css), label);
+          return row;
+        }),
+      );
     },
   };
 }
@@ -1007,6 +1048,136 @@ export function createEraSummaryPanel(): EraSummaryHandle {
           const el = document.createElement("div");
           el.textContent = line;
           return el;
+        }),
+      );
+    },
+  };
+}
+
+const CATEGORY_LABELS: Record<DiscoveryCategory, string> = {
+  diet: "Diet",
+  habitat: "Habitat",
+  movement: "Movement",
+  "life-history": "Life history",
+  survival: "Survival",
+};
+
+/** Falls back to the raw category rather than throwing or showing nothing, so a category added to
+ * the registry without a label here still renders — the registry is allowed to lead. */
+function categoryLabel(category: DiscoveryCategory): string {
+  return CATEGORY_LABELS[category] ?? category;
+}
+
+export interface CritterdexHandle {
+  root: HTMLElement;
+  setSummary: (summary: CritterdexSummary) => void;
+}
+
+/**
+ * The browsable Critterdex (SPEC.md Addendum 24): everything discoverable this run, what's been
+ * earned, and what's close. The discovery toasts announce a single moment; this is the collection
+ * you play toward — the half that made discoveries feel like a notification rather than a goal.
+ *
+ * Rebuilt wholesale when its content changes rather than diffed — a dozen rows, so
+ * correctness-by-construction beats saving a few DOM writes; if the registry ever grows enough for
+ * that to stop being true, this is the place to reach for keyed reuse, not before.
+ *
+ * It does have to skip UNCHANGED renders though, and not merely as an optimization: setSummary is
+ * called from the 16ms render loop, and rebuilding would reset each category's <details> open
+ * state every frame, so a player could never collapse a group — it would spring back open
+ * instantly. The signature below is what makes the panel idle.
+ */
+export function createCritterdexPanel(callbacks: { onInspect: (match: DiscoveryMatch) => void }): CritterdexHandle {
+  const root = document.createElement("div");
+  root.className = "panel";
+  root.append(sectionTitle("Critterdex"));
+
+  const progress = document.createElement("div");
+  progress.className = "critterdex-progress";
+  const progressBar = document.createElement("div");
+  progressBar.className = "progress-bar";
+  const progressFill = document.createElement("div");
+  progressFill.className = "progress-bar-fill";
+  progressBar.appendChild(progressFill);
+
+  const body = document.createElement("div");
+  body.className = "critterdex-body";
+
+  root.append(progress, progressBar, body);
+
+  function entryRow(entry: CritterdexEntry): HTMLElement {
+    const row = document.createElement("div");
+    row.className = `critterdex-entry critterdex-entry--${entry.status}`;
+
+    const name = document.createElement("span");
+    name.className = "critterdex-entry-name";
+    // A locked entry withholds its name: the hint is the lead, so finding it is a discovery rather
+    // than ticking off a list you were already handed. Addendum 16's "don't leak hidden numbers"
+    // applied to the collection view.
+    name.textContent = entry.status === "locked" ? "— undiscovered —" : entry.definition.displayName;
+
+    const detail = document.createElement("span");
+    detail.className = "critterdex-entry-detail";
+    if (entry.status === "unlocked" && entry.match) {
+      detail.textContent = `Species ${entry.match.speciesId} · era ${entry.match.confirmedEra} — ${entry.match.evidence}`;
+    } else if (entry.status === "in-progress") {
+      detail.textContent = `Species ${entry.streakSpeciesId} is ${entry.streak}/${entry.requiredStreak} eras in — ${entry.definition.hint}`;
+    } else {
+      detail.textContent = entry.definition.hint;
+    }
+
+    row.append(name, detail);
+
+    if (entry.status === "unlocked" && entry.match) {
+      const match = entry.match;
+      row.classList.add("critterdex-entry--clickable");
+      row.title = `Show me ${entry.definition.displayName}`;
+      row.tabIndex = 0;
+      row.setAttribute("role", "button");
+      row.addEventListener("click", () => callbacks.onInspect(match));
+      row.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          callbacks.onInspect(match);
+        }
+      });
+    }
+    return row;
+  }
+
+  /** Everything the rendered output actually depends on, in one comparable string. Deliberately
+   * NOT the summary object's identity: a fresh summary is computed every frame, so identity always
+   * differs even when nothing a player would see has changed. */
+  function signatureOf(summary: CritterdexSummary): string {
+    return summary.entries.map((entry) => `${entry.definition.id}:${entry.status}:${entry.streak}:${entry.streakSpeciesId ?? ""}:${entry.match?.speciesId ?? ""}`).join("|");
+  }
+  let lastSignature: string | null = null;
+
+  return {
+    root,
+    setSummary(summary) {
+      const signature = signatureOf(summary);
+      if (signature === lastSignature) return;
+      lastSignature = signature;
+
+      progress.textContent = `${summary.unlockedCount} of ${summary.totalCount} discovered`;
+      progressFill.style.width = summary.totalCount > 0 ? `${Math.round((summary.unlockedCount / summary.totalCount) * 100)}%` : "0%";
+
+      body.replaceChildren(
+        ...summary.groups.map((group) => {
+          const section = document.createElement("details");
+          section.className = "critterdex-group";
+          // Open a category as soon as it holds anything worth looking at, closed while it's still
+          // entirely undiscovered — the panel opens itself up as the run progresses instead of
+          // presenting twelve rows of nothing on turn one.
+          section.open = group.entries.some((entry) => entry.status !== "locked");
+
+          const heading = document.createElement("summary");
+          heading.className = "critterdex-group-heading";
+          heading.textContent = `${categoryLabel(group.category)} — ${group.unlockedCount}/${group.entries.length}`;
+
+          section.append(heading, ...group.entries.map(entryRow));
+          return section;
         }),
       );
     },

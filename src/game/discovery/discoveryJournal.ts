@@ -39,6 +39,32 @@ function streakKey(speciesId: number, definitionId: DiscoveryId): string {
 }
 
 /**
+ * The furthest any single species has got toward confirming `definitionId`, or null if nothing is
+ * currently holding it. This is what a progress display wants: "someone is 1 era into earning
+ * this," not the raw per-species table.
+ *
+ * Exposed as a QUESTION rather than exporting the key format, so `streakKey`'s encoding stays
+ * private to this module — a caller that parsed `${speciesId}:${definitionId}` itself would be a
+ * second place that has to change if the key shape ever does, and would quietly break on any
+ * definition id containing a colon.
+ */
+export function bestStreakFor(journal: DiscoveryJournal, definitionId: DiscoveryId): { speciesId: number; streak: number } | null {
+  let best: { speciesId: number; streak: number } | null = null;
+  for (const [key, streak] of journal.streaks) {
+    const separator = key.indexOf(":");
+    if (separator < 0 || key.slice(separator + 1) !== definitionId) continue;
+    const speciesId = Number(key.slice(0, separator));
+    if (!Number.isFinite(speciesId)) continue;
+    // Ties resolve to the lower species id so the reported holder is stable frame to frame rather
+    // than flickering between equally-advanced species as Map order shifts.
+    if (!best || streak > best.streak || (streak === best.streak && speciesId < best.speciesId)) {
+      best = { speciesId, streak };
+    }
+  }
+  return best;
+}
+
+/**
  * Advances the journal by one era's worth of observation and returns any discoveries newly
  * confirmed THIS call. Pure aside from returning a fresh journal (caller replaces its stored
  * journal with the returned one, same immutable-update convention as sim/'s clone functions) — safe
