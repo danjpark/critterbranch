@@ -20,6 +20,8 @@ const SPEED_OPTIONS: SpeedSetting[] = [1, 10, 100, 1000, "max"];
 export type GodTool =
   | "raiseTerrain"
   | "lowerTerrain"
+  | "raiseCliff"
+  | "lowerCliff"
   | "barrierStamp"
   | "plantTree"
   | "drought"
@@ -30,8 +32,10 @@ export type GodTool =
   | "lowerSeaLevel";
 
 const GOD_TOOL_LABELS: Record<GodTool, string> = {
-  raiseTerrain: "Raise terrain",
-  lowerTerrain: "Lower terrain",
+  raiseTerrain: "Raise ground",
+  lowerTerrain: "Lower ground",
+  raiseCliff: "Raise cliff",
+  lowerCliff: "Carve chasm",
   barrierStamp: "Barrier (click twice)",
   plantTree: "Plant tree",
   drought: "Drought",
@@ -43,8 +47,10 @@ const GOD_TOOL_LABELS: Record<GodTool, string> = {
 };
 
 const GOD_TOOL_HINTS: Record<GodTool, string> = {
-  raiseTerrain: "Click the map to raise terrain there.",
-  lowerTerrain: "Click the map to lower terrain there.",
+  raiseTerrain: "Click to swell the ground into a soft hill — the surrounding land rises with it.",
+  lowerTerrain: "Click to press the ground into a soft hollow — the surrounding land dips with it.",
+  raiseCliff: "Click to push up a flat-topped plateau with steep sides — a real barrier, not a slope.",
+  lowerCliff: "Click to cut a steep-sided pit — drop it below the waterline to flood it.",
   barrierStamp: "Click one point, then another — draws a barrier between them.",
   plantTree: "Click the map to plant new fruit trees there.",
   drought: "Click a region to suppress its regrowth for a while.",
@@ -58,6 +64,8 @@ const GOD_TOOL_HINTS: Record<GodTool, string> = {
 const GOD_TOOLS: GodTool[] = [
   "raiseTerrain",
   "lowerTerrain",
+  "raiseCliff",
+  "lowerCliff",
   "barrierStamp",
   "plantTree",
   "drought",

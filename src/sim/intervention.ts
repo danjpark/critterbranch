@@ -66,6 +66,11 @@ export interface SeaLevelParams {
 export type Intervention =
   | { tick: number; tool: "raiseTerrain"; params: RaiseLowerTerrainParams }
   | { tick: number; tool: "lowerTerrain"; params: RaiseLowerTerrainParams }
+  // Same params, sharper profile and a bigger vertical scale — see applyRaiseLowerTerrain's
+  // `shape` argument. A separate tool rather than a modifier on the existing one because "gentle
+  // hill" and "carve a wall" are different intents, not different amounts of the same intent.
+  | { tick: number; tool: "raiseCliff"; params: RaiseLowerTerrainParams }
+  | { tick: number; tool: "lowerCliff"; params: RaiseLowerTerrainParams }
   | { tick: number; tool: "barrierStamp"; params: BarrierStampParams }
   | { tick: number; tool: "plantTree"; params: PlantTreeParams }
   | { tick: number; tool: "drought"; params: DroughtBloomParams }
@@ -144,21 +149,79 @@ function cellsWithinRadius(
   return { indices, distances };
 }
 
-function gaussianFalloff(dist: number, gridRadius: number): number {
+/**
+ * Soft dome, tapering to essentially nothing by the brush's edge — a bump swelling under the
+ * surface rather than a stamped block.
+ *
+ * sigma is a FRACTION of the radius. It used to be the radius itself, which put the falloff at
+ * 61% of full strength at the very edge of the brush; since cells beyond the radius get nothing at
+ * all, that 61% became a hard rim, and a brush stroke read as a cylinder with a flat top rather
+ * than a hill. At radius/2.5 the edge is down to 4%, so the stroke blends into the terrain around
+ * it and the discontinuity is invisible.
+ */
+const DOME_SIGMA_FRACTION = 2.5;
+
+function domeFalloff(dist: number, gridRadius: number): number {
+  const sigma = Math.max(gridRadius / DOME_SIGMA_FRACTION, 0.5);
+  return Math.exp(-(dist * dist) / (2 * sigma * sigma));
+}
+
+/**
+ * The old brush profile (sigma = the full radius), kept for meteor craters specifically. A crater
+ * genuinely IS a broad, shallow-sided depression with a wide floor — the shape that read wrong as a
+ * hand-placed hill reads right as an impact scar, and keeping it here means the meteor's behaviour
+ * is unchanged by the brush rework (the extinction golden scenario depends on it).
+ */
+function craterFalloff(dist: number, gridRadius: number): number {
   const sigma = Math.max(gridRadius, 0.5);
   return Math.exp(-(dist * dist) / (2 * sigma * sigma));
 }
 
-function applyRaiseLowerTerrain(state: EvolutionState, params: Params, p: RaiseLowerTerrainParams, sign: 1 | -1): void {
+/** Where a cliff's flat top ends and its edge begins, as a fraction of the brush radius. */
+const CLIFF_PLATEAU_FRACTION = 0.65;
+
+/**
+ * Flat top, defined edge — a mesa. The deliberate counterpart to domeFalloff: sometimes you want a
+ * wall or a plateau, and that was the only shape the old brush could make (by accident). The drop
+ * uses smoothstep rather than a straight line so the rim still reads as carved rather than aliased
+ * against the terrain grid.
+ */
+function cliffFalloff(dist: number, gridRadius: number): number {
+  const plateau = gridRadius * CLIFF_PLATEAU_FRACTION;
+  if (dist <= plateau) return 1;
+  if (dist >= gridRadius) return 0;
+  const t = (dist - plateau) / Math.max(gridRadius - plateau, 1e-6);
+  return 1 - t * t * (3 - 2 * t);
+}
+
+/**
+ * How far one full-strength click moves elevation, as a multiple of terrainRoughness — the
+ * parameter that sets how tall naturally generated terrain gets, so a brush stroke stays in
+ * proportion to the world whatever that's tuned to. Same "scale the edit against the terrain's own
+ * vertical scale" approach applySeaLevelChange already uses.
+ *
+ * Previously a click applied its raw strength directly: at the slider's maximum that was an
+ * elevation change of 2.0 against a natural range of about 0.6 — one click moved the ground more
+ * than three times the entire span between the map's lowest valley and highest peak. A dome is
+ * deliberately gentle; a cliff is meant to be a real landform, so it gets considerably more.
+ */
+const DOME_STRENGTH_SCALE = 1.0;
+const CLIFF_STRENGTH_SCALE = 3.0;
+
+/** `shape` picks the profile a stroke carves: a soft dome that blends into its surroundings, or a
+ * flat-topped cliff with a defined edge. Everything else about the two tools is identical. */
+function applyRaiseLowerTerrain(state: EvolutionState, params: Params, p: RaiseLowerTerrainParams, sign: 1 | -1, shape: "dome" | "cliff"): void {
   const { indices, distances } = cellsWithinRadius(state.terrain.cols, state.terrain.rows, params.gridCellSize, p.x, p.y, p.radius);
   const gridRadius = p.radius / params.gridCellSize;
+  const falloffOf = shape === "cliff" ? cliffFalloff : domeFalloff;
+  const amplitude = p.strength * params.terrainRoughness * (shape === "cliff" ? CLIFF_STRENGTH_SCALE : DOME_STRENGTH_SCALE);
 
   for (let i = 0; i < indices.length; i++) {
     const idx = indices[i];
-    const falloff = gaussianFalloff(distances[i], gridRadius);
+    const falloff = falloffOf(distances[i], gridRadius);
     // [-3, 3]: lowerTerrain must be able to carve new water below the old absolute-0 floor
     // (SPEC.md Addendum 9), not just flatten toward it.
-    const newElevation = clamp(state.terrain.elevation[idx] + sign * p.strength * falloff, -3, 3);
+    const newElevation = clamp(state.terrain.elevation[idx] + sign * amplitude * falloff, -3, 3);
     state.terrain.elevation[idx] = newElevation;
     const derived = terrainDerivedFields(newElevation, state.terrain.seaLevel, params);
     state.terrain.passability[idx] = derived.passability;
@@ -263,7 +326,7 @@ function applyMeteor(state: EvolutionState, params: Params, p: MeteorParams, cur
 
   for (let i = 0; i < indices.length; i++) {
     const idx = indices[i];
-    const falloff = gaussianFalloff(distances[i], gridRadius);
+    const falloff = craterFalloff(distances[i], gridRadius);
     // Elevation drop is a permanent scar (the crater); fertility is zeroed immediately and
     // recovers back toward whatever the post-crater elevation implies, over craterRecoveryTicks.
     state.terrain.elevation[idx] = clamp(state.terrain.elevation[idx] - 0.5 * falloff, -3, 3);
@@ -318,10 +381,16 @@ function applySeedFounders(state: EvolutionState, params: Params, rng: RNG, p: S
 export function applyIntervention(state: EvolutionState, rng: RNG, params: Params, intervention: Intervention): void {
   switch (intervention.tool) {
     case "raiseTerrain":
-      applyRaiseLowerTerrain(state, params, intervention.params, 1);
+      applyRaiseLowerTerrain(state, params, intervention.params, 1, "dome");
       return;
     case "lowerTerrain":
-      applyRaiseLowerTerrain(state, params, intervention.params, -1);
+      applyRaiseLowerTerrain(state, params, intervention.params, -1, "dome");
+      return;
+    case "raiseCliff":
+      applyRaiseLowerTerrain(state, params, intervention.params, 1, "cliff");
+      return;
+    case "lowerCliff":
+      applyRaiseLowerTerrain(state, params, intervention.params, -1, "cliff");
       return;
     case "barrierStamp":
       applyBarrierStamp(state, params, intervention.params, intervention.tick);

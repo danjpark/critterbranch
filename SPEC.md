@@ -3053,3 +3053,54 @@ hidden, and the species card is stable under live simulation.
 - **The remaining per-frame recomputations are all cheap but unbounded in principle** — the
   competition tint rewrites every terrain vertex colour while enabled (0.18 ms). Fine now, the same
   shape as the problem instancing just solved.
+
+## Addendum 28 — the terrain brush becomes a landform, and gains a cliff
+
+Dan, having actually used it: *"raising and lowering the terrain was raising and lowering it by too
+much, and I would much rather have it kinda bump it up just a little bit and have the surrounding
+areas come up a little bit, almost like there's a pimple growing under the surface. Right now it
+just creates like a big block, and very little gradual."*
+
+Both halves of that were measurable, and both were real.
+
+**The shape.** `gaussianFalloff` used `sigma = gridRadius` — the full brush radius. A Gaussian at
+one sigma is still at 61% of its peak, so a stroke applied 61% of full strength at the very edge of
+the brush and then, because cells outside the radius are untouched, dropped to zero across a single
+cell boundary. That discontinuity IS the "block": a cylinder with a slightly domed top and a hard
+rim, rather than a hill. Measured across the stroke: 1.00, 0.97, 0.88, 0.76, **0.61** at the edge.
+
+Now `sigma = gridRadius / 2.5`, giving 1.00, 0.82, 0.46, 0.17, **0.04**. The stroke fades into the
+land around it and the boundary is invisible.
+
+**The scale.** A click applied its `strength` to elevation directly, and app/toolMapping.ts doubled
+the slider on the way in — so a full-strength click moved the ground by 2.0 against a natural
+terrain range of about 0.6 (`terrainRoughness` 0.3 either side of zero). One click moved the world
+more than **three times the entire span between its lowest valley and highest peak**. Now the
+slider passes through unscaled and intervention.ts alone decides the magnitude, as a multiple of
+`terrainRoughness` — the same "scale the edit against the terrain's own vertical scale" approach
+`applySeaLevelChange` already used. A full-strength dome now peaks at exactly `terrainRoughness`.
+
+**The cliff.** The old shape wasn't useless, it was just always-on: sometimes a flat-topped plateau
+with a defined edge is exactly what you want, for a wall or a mesa. That's now two explicit tools,
+`raiseCliff` / `lowerCliff` ("Raise cliff" / "Carve chasm"), sharing `RaiseLowerTerrainParams` and
+differing only in falloff profile and vertical scale. Flat to 65% of the radius, then a smoothstep
+drop to nothing — smoothstep rather than a straight line so the rim reads as carved instead of
+aliased against the grid. Priced at 8 terraform points against the soft brush's 5, since it moves
+considerably more ground and makes a real barrier.
+
+Separate tools rather than a modifier on the existing ones: "gentle hill" and "carve a wall" are
+different intents, not different amounts of the same intent.
+
+**The meteor keeps the old profile**, now named `craterFalloff` and documented. A crater genuinely
+IS a broad, shallow-sided depression with a wide floor — the shape that read wrong as a hand-placed
+hill reads right as an impact scar. Keeping it also means the meteor's behaviour is untouched by
+this rework, which the extinction golden scenario depends on.
+
+**Verification.** New tests measure the PROFILE across a stroke rather than just "elevation went
+up", since the complaint was about how the change was distributed: the dome must have faded below
+15% of its peak by the brush edge, the cliff must still be above 95% halfway out and below 20% at
+the rim, and a full-strength click must peak within the world's own `terrainRoughness`. Typecheck
+clean on both configs, 434 tests passing, build succeeds. Live: all four tools present and applying
+correctly.
+
+Two existing toolMapping tests changed because they encoded the doubling that moved.

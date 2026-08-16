@@ -54,10 +54,18 @@ export function resolveToolApplication(
   }
 
   switch (tool) {
+    // Strength passes through as the raw 0-1 slider value. It used to be doubled here and then
+    // applied to elevation directly, which made one click at maximum move the ground by more than
+    // three times the world's entire natural height range; how far a click actually moves terrain
+    // is now decided in one place, sim/intervention.ts, scaled against terrainRoughness.
     case "raiseTerrain":
-      return { kind: "apply", tool: "raiseTerrain", params: { x, y, radius: brush.radius, strength: brush.strength * 2 } };
+      return { kind: "apply", tool: "raiseTerrain", params: { x, y, radius: brush.radius, strength: brush.strength } };
     case "lowerTerrain":
-      return { kind: "apply", tool: "lowerTerrain", params: { x, y, radius: brush.radius, strength: brush.strength * 2 } };
+      return { kind: "apply", tool: "lowerTerrain", params: { x, y, radius: brush.radius, strength: brush.strength } };
+    case "raiseCliff":
+      return { kind: "apply", tool: "raiseCliff", params: { x, y, radius: brush.radius, strength: brush.strength } };
+    case "lowerCliff":
+      return { kind: "apply", tool: "lowerCliff", params: { x, y, radius: brush.radius, strength: brush.strength } };
     case "plantTree":
       return { kind: "apply", tool: "plantTree", params: { x, y, radius: brush.radius, count: brush.seedCount } };
     case "drought":

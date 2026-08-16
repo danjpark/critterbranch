@@ -47,6 +47,77 @@ describe("raiseTerrain / lowerTerrain", () => {
     expect(state.evolution.terrain.fertility[idx]).toBe(0);
   });
 
+  // The shape of a brush stroke, which is what "it makes a block, not a hill" was about. These
+  // measure the PROFILE across the stroke rather than just "elevation went up", because the whole
+  // complaint was about how the change was distributed, not whether it happened.
+  describe("brush profile", () => {
+    /** Elevation rise at a given fraction of the brush radius from the centre, on flat terrain. */
+    function riseProfile(tool: "raiseTerrain" | "raiseCliff", fractions: number[]): number[] {
+      const params = { ...DEFAULT_PARAMS, terrainHillCount: 0 };
+      const { state, rng } = createSimState(1, params);
+      const cx = params.worldWidth / 2;
+      const cy = params.worldHeight / 2;
+      const radius = 24;
+      const before = state.evolution.terrain.elevation[0];
+
+      applyIntervention(state.evolution, rng, params, { tick: 0, tool, params: { x: cx, y: cy, radius, strength: 1 } });
+
+      return fractions.map((f) => {
+        const gx = Math.floor((cx + radius * f) / params.gridCellSize);
+        const gy = Math.floor(cy / params.gridCellSize);
+        return state.evolution.terrain.elevation[gy * state.evolution.terrain.cols + gx] - before;
+      });
+    }
+
+    it("raises a soft dome that has faded to almost nothing by the brush edge", () => {
+      const [centre, mid, edge] = riseProfile("raiseTerrain", [0, 0.5, 0.95]);
+      expect(centre).toBeGreaterThan(0);
+      expect(mid).toBeLessThan(centre * 0.7); // genuinely falling away, not a plateau
+      expect(edge).toBeLessThan(centre * 0.15); // blends into the surrounding land
+    });
+
+    it("raises a cliff as a flat top with a steep rim", () => {
+      const [centre, mid, edge] = riseProfile("raiseCliff", [0, 0.5, 0.95]);
+      expect(centre).toBeGreaterThan(0);
+      expect(mid).toBeGreaterThan(centre * 0.95); // still full height halfway out — a plateau
+      expect(edge).toBeLessThan(centre * 0.2); // then drops away sharply at the rim
+    });
+
+    it("keeps one full-strength click in proportion to the world's own terrain scale", () => {
+      const params = { ...DEFAULT_PARAMS, terrainHillCount: 0 };
+      const { state, rng } = createSimState(1, params);
+      const before = state.evolution.terrain.elevation[0];
+      applyIntervention(state.evolution, rng, params, {
+        tick: 0,
+        tool: "raiseTerrain",
+        params: { x: params.worldWidth / 2, y: params.worldHeight / 2, radius: 24, strength: 1 },
+      });
+      const gx = Math.floor(params.worldWidth / 2 / params.gridCellSize);
+      const gy = Math.floor(params.worldHeight / 2 / params.gridCellSize);
+      const peak = state.evolution.terrain.elevation[gy * state.evolution.terrain.cols + gx] - before;
+      // Natural terrain spans roughly [-terrainRoughness, +terrainRoughness]. A single click used
+      // to move the ground by 2.0 against that 0.6 range — more than three times the whole span.
+      expect(peak).toBeLessThanOrEqual(params.terrainRoughness + 1e-9);
+      expect(peak).toBeGreaterThan(params.terrainRoughness * 0.5);
+    });
+
+    it("carves a chasm downward, mirroring the cliff it raises", () => {
+      const params = { ...DEFAULT_PARAMS, terrainHillCount: 0 };
+      const { state, rng } = createSimState(1, params);
+      const gx = Math.floor(params.worldWidth / 2 / params.gridCellSize);
+      const gy = Math.floor(params.worldHeight / 2 / params.gridCellSize);
+      const idx = gy * state.evolution.terrain.cols + gx;
+      const before = state.evolution.terrain.elevation[idx];
+
+      applyIntervention(state.evolution, rng, params, {
+        tick: 0,
+        tool: "lowerCliff",
+        params: { x: params.worldWidth / 2, y: params.worldHeight / 2, radius: 24, strength: 1 },
+      });
+      expect(state.evolution.terrain.elevation[idx]).toBeLessThan(before);
+    });
+  });
+
   // Regression: a radius wider than half the world let the wrapped cell scan reach the same cell
   // from both directions and list it twice, and the elevation delta is applied once PER LISTED
   // ENTRY — so one click compounded on those cells. Not reachable from the shipping brush slider

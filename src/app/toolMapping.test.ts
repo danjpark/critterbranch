@@ -6,8 +6,12 @@ const brush: BrushSettings = { radius: 20, strength: 0.25, durationTicks: 0, see
 
 describe("resolveToolApplication", () => {
   it.each<[GodTool, unknown]>([
-    ["raiseTerrain", { kind: "apply", tool: "raiseTerrain", params: { x: 40, y: 60, radius: 20, strength: 0.5 } }],
-    ["lowerTerrain", { kind: "apply", tool: "lowerTerrain", params: { x: 40, y: 60, radius: 20, strength: 0.5 } }],
+    // Strength passes straight through now rather than being doubled here — how far a click moves
+    // terrain is decided once, in sim/intervention.ts, scaled against terrainRoughness.
+    ["raiseTerrain", { kind: "apply", tool: "raiseTerrain", params: { x: 40, y: 60, radius: 20, strength: 0.25 } }],
+    ["lowerTerrain", { kind: "apply", tool: "lowerTerrain", params: { x: 40, y: 60, radius: 20, strength: 0.25 } }],
+    ["raiseCliff", { kind: "apply", tool: "raiseCliff", params: { x: 40, y: 60, radius: 20, strength: 0.25 } }],
+    ["lowerCliff", { kind: "apply", tool: "lowerCliff", params: { x: 40, y: 60, radius: 20, strength: 0.25 } }],
     ["plantTree", { kind: "apply", tool: "plantTree", params: { x: 40, y: 60, radius: 20, count: 12 } }],
     ["drought", { kind: "apply", tool: "drought", params: { x: 40, y: 60, radius: 20, multiplier: 0.75, durationTicks: 1 } }],
     ["bloom", { kind: "apply", tool: "bloom", params: { x: 40, y: 60, radius: 20, multiplier: 2, durationTicks: 1 } }],

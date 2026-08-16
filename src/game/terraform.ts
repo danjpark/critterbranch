@@ -10,6 +10,10 @@ export interface TerraformBudgetState {
 export const TERRAFORM_COSTS: Record<Intervention["tool"], number> = {
   raiseTerrain: 5,
   lowerTerrain: 5,
+  // Priced above the soft brushes: a cliff moves considerably more ground and makes a real
+  // barrier, so it should be a more deliberate spend.
+  raiseCliff: 8,
+  lowerCliff: 8,
   plantTree: 8,
   drought: 10,
   bloom: 10,
