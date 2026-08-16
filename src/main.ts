@@ -61,12 +61,20 @@ gameRoot.className = "app-mode-root";
 gameRoot.style.display = "none";
 app.append(classicRoot, gameRoot);
 
+/** Which mode is on screen. The hidden mode's loop keeps SIMULATING but stops DRAWING (see frame()
+ * and gameFrame()), so switching has to force one render of the newly-visible side — its canvas is
+ * showing whatever was last drawn before it was hidden, and may also need to resize now that it
+ * finally has a layout box. */
+let appMode: AppMode = "classic";
+
 function setAppMode(mode: AppMode): void {
+  appMode = mode;
   classicModeButton.classList.toggle("active", mode === "classic");
   gameModeButton.classList.toggle("active", mode === "game");
   classicRoot.style.display = mode === "classic" ? "grid" : "none";
   gameRoot.style.display = mode === "game" ? "grid" : "none";
   if (mode === "game") renderGame();
+  else render();
 }
 
 const canvasArea = document.createElement("div");
@@ -458,8 +466,12 @@ function render(): void {
 }
 
 function frame(): void {
+  // Advancing always, drawing only when visible. Both mode loops run continuously so a sim left
+  // mid-run keeps progressing while you're looking at the other mode (that's what the comment
+  // below is about) — but there is no reason to also render a hidden canvas, and doing so meant
+  // the app paid for BOTH 3D scenes on every frame for the whole session.
   runner.advance();
-  render();
+  if (appMode === "classic") render();
 }
 
 // setInterval rather than requestAnimationFrame: rAF can be fully suspended for a backgrounded
@@ -676,7 +688,7 @@ function inspectDiscovery(match: DiscoveryMatch): void {
 function gameFrame(): void {
   gameRunner.stepEraAdvance();
   announceNewDiscoveries();
-  renderGame();
+  if (appMode === "game") renderGame();
 }
 
 // Same "keep advancing regardless of tab focus" reasoning as the classic sandbox's frame() loop

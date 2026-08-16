@@ -770,6 +770,13 @@ export function createTreePanel(callbacks: TreePanelCallbacks): TreePanelHandle 
   cardRoot.className = "panel species-card";
   cardRoot.append(sectionTitle("Selected species"));
   const cardBody = document.createElement("div");
+  /** The card's structural identity, and the value cells that get patched rather than rebuilt when
+   * only the numbers move — see setSelectedSpecies. */
+  let lastCardSignature: string | null = null;
+  const valueCells = new Map<string, HTMLTableCellElement>();
+  const capabilityChips = new Map<string, HTMLElement>();
+  let founderSwatchEl: HTMLElement | null = null;
+  let currentSwatchEl: HTMLElement | null = null;
   cardBody.className = "inspector-body";
   cardBody.textContent = "Click a branch in the tree to inspect it.";
   cardRoot.appendChild(cardBody);
@@ -794,11 +801,60 @@ export function createTreePanel(callbacks: TreePanelCallbacks): TreePanelHandle 
       filterButton.disabled = species === null;
       if (!species) {
         cardBody.textContent = "Click a branch in the tree to inspect it.";
+        lastCardSignature = null;
+        valueCells.clear();
         return;
       }
 
-      const founderSwatch = squareSwatch(genotypeColor(species.foundingCentroid, foundingCentroid, colorOptions));
-      const currentSwatch = squareSwatch(genotypeColor(species.centroid, foundingCentroid, colorOptions));
+      const founderColor = genotypeColor(species.foundingCentroid, foundingCentroid, colorOptions);
+      const currentColor = genotypeColor(species.centroid, foundingCentroid, colorOptions);
+
+      // Values that change as the sim runs. Their CELLS are reused; only the text inside is
+      // rewritten, so the table a player is reading (or selecting text from) survives.
+      const volatileValues: Record<string, string> = {
+        status: species.extinctTick === null ? "alive" : `extinct at tick ${species.extinctTick.toLocaleString()}`,
+        "lifespan so far": `${((species.extinctTick ?? currentTick) - species.originTick).toLocaleString()} ticks`,
+        "peak population": species.peakMemberCount.toLocaleString(),
+        "current population": species.extinctTick === null ? species.memberCount.toLocaleString() : "0",
+      };
+
+      // Only a change to the card's STRUCTURE forces a rebuild — a different species, a recoloured
+      // swatch, a different set of capability chips. Previously the whole card was rebuilt on every
+      // frame, which beyond the wasted work made it impossible to select text from: every node a
+      // selection anchors to was replaced 16ms later.
+      // Genuinely structural only: a different species, or a different SET of capability chips.
+      // The swatch colours and every numeric value drift continuously as the sim runs — they're
+      // patched in place below rather than triggering a rebuild, which is what keeps the card
+      // stable enough to read and select text from while the world keeps moving.
+      const signature = [
+        species.id,
+        species.parentId,
+        species.originTick,
+        species.mechanism,
+        species.dominantDivergentGene,
+        capabilities.map((c) => c.label).join(","),
+      ].join("|");
+
+      if (signature === lastCardSignature) {
+        for (const [label, cell] of valueCells) cell.textContent = volatileValues[label] ?? cell.textContent;
+        if (founderSwatchEl) founderSwatchEl.style.background = founderColor;
+        if (currentSwatchEl) currentSwatchEl.style.background = currentColor;
+        for (const [label, chip] of capabilityChips) {
+          const capability = capabilities.find((c) => c.label === label);
+          if (!capability) continue;
+          chip.textContent = `${capability.displayName} (${Math.round(capability.confidence * 100)}%)`;
+          chip.title = capability.evidence;
+        }
+        return;
+      }
+      lastCardSignature = signature;
+      valueCells.clear();
+      capabilityChips.clear();
+
+      const founderSwatch = squareSwatch(founderColor);
+      const currentSwatch = squareSwatch(currentColor);
+      founderSwatchEl = founderSwatch;
+      currentSwatchEl = currentSwatch;
       const swatchRow = document.createElement("div");
       swatchRow.className = "legend-row";
       swatchRow.append(
@@ -809,16 +865,14 @@ export function createTreePanel(callbacks: TreePanelCallbacks): TreePanelHandle 
       );
 
       const table = document.createElement("table");
-      const status = species.extinctTick === null ? "alive" : `extinct at tick ${species.extinctTick.toLocaleString()}`;
-      const lifespan = (species.extinctTick ?? currentTick) - species.originTick;
       const rows: [string, string][] = [
         ["species", String(species.id)],
         ["parent", species.parentId === null ? "— (founding population)" : String(species.parentId)],
         ["origin tick", species.originTick.toLocaleString()],
-        ["status", status],
-        ["lifespan so far", `${lifespan.toLocaleString()} ticks`],
-        ["peak population", species.peakMemberCount.toLocaleString()],
-        ["current population", species.extinctTick === null ? species.memberCount.toLocaleString() : "0"],
+        ["status", volatileValues.status],
+        ["lifespan so far", volatileValues["lifespan so far"]],
+        ["peak population", volatileValues["peak population"]],
+        ["current population", volatileValues["current population"]],
         ["mechanism", MECHANISM_LABELS[species.mechanism]],
         ["dominant divergent gene", species.dominantDivergentGene ?? "—"],
       ];
@@ -828,6 +882,8 @@ export function createTreePanel(callbacks: TreePanelCallbacks): TreePanelHandle 
         th.textContent = label;
         const td = document.createElement("td");
         td.textContent = value;
+        // Kept so later frames can rewrite this value without rebuilding the table around it.
+        if (label in volatileValues) valueCells.set(label, td);
         tr.append(th, td);
         table.appendChild(tr);
       }
@@ -845,6 +901,7 @@ export function createTreePanel(callbacks: TreePanelCallbacks): TreePanelHandle 
           chip.className = "capability-chip";
           chip.title = capability.evidence;
           chip.textContent = `${capability.displayName} (${Math.round(capability.confidence * 100)}%)`;
+          capabilityChips.set(capability.label, chip);
           capabilitiesSection.appendChild(chip);
         }
       }

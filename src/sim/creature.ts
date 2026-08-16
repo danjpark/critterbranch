@@ -101,22 +101,30 @@ function senseFoodOrPrey(
   const cy = Math.floor(creature.y / cellSize);
   const radiusCells = Math.ceil(phenotype.senseRadius / cellSize);
 
+  const halfCell = cellSize / 2;
   let best: SenseResult | null = null;
   for (let dy = -radiusCells; dy <= radiusCells; dy++) {
     const gy = wrap(cy + dy, world.rows);
+    const rowBase = gy * world.cols;
     for (let dx = -radiusCells; dx <= radiusCells; dx++) {
       const gx = wrap(cx + dx, world.cols);
-      const idx = gy * world.cols + gx;
-      const cellCenterX = gx * cellSize + cellSize / 2;
-      const cellCenterY = gy * cellSize + cellSize / 2;
+
+      // Fruit check FIRST. A cell with nothing in it can't win regardless of how close it is, and
+      // the overwhelming majority of cells are empty — only cells holding a tree ever carry fruit,
+      // roughly 14% of the grid at default tree counts. Testing the cheap array read before the
+      // distance math skips the expensive part for the other ~86%. Pure reordering of two ANDed
+      // filters: the same cells qualify with the same scores in the same order, so results are
+      // bit-identical (the golden scenarios and determinism hashes are the check on that).
+      const amt = world.fruit[rowBase + gx];
+      if (amt <= 1e-3) continue;
+
+      const cellCenterX = gx * cellSize + halfCell;
+      const cellCenterY = gy * cellSize + halfCell;
       const dist = torDist(creature.x, creature.y, cellCenterX, cellCenterY, worldWidth, worldHeight);
       if (dist > phenotype.senseRadius) continue;
 
-      const amt = world.fruit[idx];
-      if (amt > 1e-3) {
-        const score = (amt * fruitGain) / (dist + 1);
-        if (!best || score > best.score) best = { x: cellCenterX, y: cellCenterY, score, preyTarget: null };
-      }
+      const score = (amt * fruitGain) / (dist + 1);
+      if (!best || score > best.score) best = { x: cellCenterX, y: cellCenterY, score, preyTarget: null };
     }
   }
 

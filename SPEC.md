@@ -2948,3 +2948,108 @@ concern, and app/ importing it from render/ is the direction that doesn't cycle.
 `render/color.ts`, re-exported from simRunner for existing callers. Worth noting the boundary this
 crossed was only caught because a NEW headless entry point exercised it — the existing
 `architectureBoundary.test.ts` guards sim/ against game/, not render/ against app/.
+
+## Addendum 27 — a second measurement pass, and a systemic UI bug it exposed
+
+Addendum 26 found and fixed the render path's dominant cost. This pass profiled the two places that
+pass had not: the inside of `tick()`, and what the app does per frame outside the 3D scene.
+
+### The tick, attributed
+
+New `scripts/benchmark-tick.ts` breaks `tick()`'s total into its phases. At a steady-state
+population of 681:
+
+| phase | ms/tick |
+|---|---|
+| `stepCreature` x population | 0.726 |
+| `buildCreatureIndex` | 0.054 |
+| `applyNursing` | 0.022 |
+| `stepTrees` | 0.013 |
+| `updateGeneFlow` | 0.010 |
+| `updateTaxonomy` | 1.884, but 1 tick in 100 → 0.019 amortized |
+| **whole tick** | **1.122** |
+
+`stepCreature` is ~65% of the tick and everything else is rounding error. That is a genuinely
+useful result: the per-tick Map and array allocations (`buildCreatureIndex` rebuilding its buckets,
+`applyNursing` filtering then indexing every creature) look like obvious targets and are worth
+0.076 ms between them. Optimising either would have been effort spent on 7% of the problem.
+
+### The one change worth making, and why it is free
+
+Inside `stepCreature`, `senseFoodOrPrey` scans every grid cell within sense radius — up to 11x11
+per creature per tick at default params. For each cell it computed the cell's centre coordinates
+and a toroidal distance, and only then checked whether the cell contained any fruit.
+
+Most cells contain none. Fruit exists only where a tree stands: roughly 14% of the grid at default
+tree counts. So ~86% of that distance math was computed and thrown away.
+
+Swapping the two checks — read the fruit value first, skip immediately if empty — is a pure
+reordering of two ANDed filters. The same cells qualify, with the same scores, in the same order,
+consuming the same RNG. **Bit-identical behaviour**, which the golden scenarios and determinism
+hashes are the real check on: they pass unchanged, and those same tests broke instantly the last
+time a sim change altered behaviour (Addendum 22's tree fix), so passing is meaningful evidence
+rather than absence of it.
+
+| | before | after |
+|---|---|---|
+| `stepCreature` x 681 | 0.726 ms | **0.547 ms** |
+| whole tick | 1.122 ms | **0.811 ms** |
+
+A 28% faster tick for a two-line reorder. The full test suite's own runtime dropped from ~165s to
+~135s as a side effect, which is a nice independent confirmation.
+
+### Both app modes were rendering, always
+
+`main.ts` runs two 16ms loops, one per app mode, and both called their renderer unconditionally.
+Only one mode is ever on screen, so the app was paying for BOTH 3D scenes — terrain sync, creature
+field, tree field, WebGL draw — every frame, for the entire session, with half of it going to a
+hidden canvas.
+
+The loops must keep *simulating* while hidden (that's deliberate: a mid-run sim shouldn't freeze
+because you looked at the other mode). But nothing required them to keep *drawing*. Splitting the
+two halves the render cost outright. Switching modes now forces one render of the newly-visible
+side, since its canvas holds whatever was last drawn before it was hidden and may also need to
+resize now that it finally has a layout box.
+
+### The systemic bug: panels rebuilt from a 60fps loop
+
+This is the third time this exact defect has turned up — the Critterdex panel in Addendum 24, the
+heatmap legend in Addendum 26, and now the species card. It is worth naming as a pattern rather
+than fixing a third time in isolation.
+
+Anything driven from the render loop and written with `replaceChildren` rebuilds its DOM sixty
+times a second. The costs are not primarily performance:
+
+- **Text cannot be selected.** Every node a selection anchors to is replaced 16ms later. The
+  species card is precisely the surface a player would want to read carefully or copy from.
+- **Element state resets.** Addendum 24's `<details>` groups sprang back open the instant they were
+  collapsed, because the rebuild recreated them.
+
+The species card was the worst case: ~20 nodes plus two `genotypeColor` computations per frame. It
+now separates its STRUCTURE (species identity, mechanism, the set of capability chips) from its
+VALUES (status, lifespan, peak and current population, swatch colours, chip confidences). A
+structural change rebuilds; anything else patches the existing cells in place. Verified live: the
+same table node survives 2.5 seconds of running simulation while lifespan advances 5,801 → 5,959
+ticks and population moves 256 → 234 inside it.
+
+A measurement worth recording as a negative result: `computeSpeciesProfiles` + `classifySpecies`,
+which feed that card and run every frame while a species is selected, measure **0.057 ms** at 681
+creatures. It reads as expensive (a full pass over every creature) and is not. It was left alone.
+
+### Verification
+
+Typecheck clean on both configs, build succeeds, **428 tests passing**. Live: clean console in a
+fresh tab, mode switching paints both sides correctly, the sim keeps advancing while a mode is
+hidden, and the species card is stable under live simulation.
+
+### Known gaps
+
+- **Still no real browser frame-rate number.** The preview pane was not compositing again, so the
+  render savings remain arithmetic rather than an observed frame time.
+- **`derivePhenotype` computes morphology in the sim's hot path**, where nothing reads it — only
+  the renderer does. Worth roughly 4-5% of a tick, and removing it means either splitting the
+  Addendum 15 seam or making the field lazy. Deliberately left: the cost is small and the seam is
+  worth more than the percent.
+- **The remaining per-frame recomputations are all cheap but unbounded in principle** — the
+  competition tint rewrites every terrain vertex colour while enabled (0.18 ms). Fine now, the same
+  shape as the problem instancing just solved.
