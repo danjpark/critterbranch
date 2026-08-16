@@ -934,6 +934,7 @@ export interface GameControlsCallbacks {
   onContinue: () => void;
   onSpeedChange: (speed: SpeedSetting) => void;
   onTogglePause: () => void;
+  onUndoDraft: () => void;
 }
 
 export interface GameControlsHandle {
@@ -945,6 +946,8 @@ export interface GameControlsHandle {
   /** Shows the Pause/Resume control only while an era is advancing, labelled for what pressing it
    * will do. */
   setPauseState: (advancing: boolean, paused: boolean) => void;
+  /** Shows how many terraforms are sketched but not yet committed, and whether undo is available. */
+  setDraftState: (draftCount: number, canUndo: boolean) => void;
   setTerraformError: (message: string | null) => void;
   /** null hides/idles the bar (no era advancing); 0-1 fills it proportionally. */
   setProgress: (fraction: number | null) => void;
@@ -1001,9 +1004,19 @@ export function createGameControlsPanel(challenges: ChallengeDefinition[], callb
   pauseButton.textContent = "Pause";
   pauseButton.hidden = true;
   pauseButton.addEventListener("click", callbacks.onTogglePause);
+
+  // Terraform drafts (mega-doc item 8): everything you shape this era stays undoable until you
+  // advance. Sits next to Advance Era because those two buttons are the whole decision — take it
+  // back, or make it permanent.
+  const undoDraftButton = document.createElement("button");
+  undoDraftButton.textContent = "Undo terraform";
+  undoDraftButton.disabled = true;
+  undoDraftButton.addEventListener("click", callbacks.onUndoDraft);
+  const draftStatus = document.createElement("div");
+  draftStatus.className = "draft-status";
   const actionRow = document.createElement("div");
   actionRow.className = "row";
-  actionRow.append(advanceButton, pauseButton, continueButton);
+  actionRow.append(advanceButton, pauseButton, undoDraftButton, continueButton);
 
   // Fills as stepEraAdvance() ticks toward the era's target, so "how much longer" is visible at
   // a glance instead of only the tick count in the status line below.
@@ -1039,7 +1052,7 @@ export function createGameControlsPanel(challenges: ChallengeDefinition[], callb
   const errorLine = document.createElement("div");
   errorLine.className = "godmode-hint game-error";
 
-  root.append(sectionTitle("Mode"), modeRow, sectionTitle("Seed"), seedRow, actionRow, progressBar, sectionTitle("Era speed"), speedRow, status, budgetStatus, errorLine);
+  root.append(sectionTitle("Mode"), modeRow, sectionTitle("Seed"), seedRow, actionRow, draftStatus, progressBar, sectionTitle("Era speed"), speedRow, status, budgetStatus, errorLine);
 
   return {
     root,
@@ -1061,6 +1074,14 @@ export function createGameControlsPanel(challenges: ChallengeDefinition[], callb
     setPauseState(advancing, paused) {
       pauseButton.hidden = !advancing;
       pauseButton.textContent = paused ? "Resume" : "Pause";
+    },
+    setDraftState(draftCount, canUndo) {
+      undoDraftButton.disabled = !canUndo;
+      undoDraftButton.hidden = draftCount === 0;
+      draftStatus.textContent =
+        draftCount === 0
+          ? ""
+          : `${draftCount} terraform${draftCount === 1 ? "" : "s"} sketched this era — undo freely, they commit when you advance.`;
     },
     setTerraformError(message) {
       errorLine.textContent = message ?? "";

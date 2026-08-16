@@ -560,6 +560,10 @@ const gameControls = createGameControlsPanel(PROTOTYPE_CHALLENGES, {
     gameRunner.setPaused(!gameRunner.isPaused());
     renderGame();
   },
+  onUndoDraft: () => {
+    gameRunner.undoLastDraft();
+    renderGame();
+  },
 });
 
 // Clicking an earned entry runs the exact same flow the toasts do — fly to the species, open the
@@ -636,6 +640,7 @@ function renderGame(): void {
   gameControls.setContinueEnabled(gameRunner.canContinueToTerraform());
   gameControls.setProgress(gameRunner.eraProgress());
   gameControls.setPauseState(gameRunner.isAdvancingEra(), gameRunner.isPaused());
+  gameControls.setDraftState(gameRunner.draftCount(), gameRunner.canUndoDraft());
   gameControls.setTerraformError(gameRunner.lastTerraformError);
   discoveryToasts.syncPlayState();
   critterdexPanel.setSummary(summarizeCritterdex(game.discoveryJournal));

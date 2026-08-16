@@ -9,6 +9,7 @@ import type { GameMode, GameState } from "../game/gameState.ts";
 import type { GameObjective } from "../game/objectives/objective.ts";
 import { applyTerraformCommand, type TerraformBudgetState, type TerraformResult } from "../game/terraform.ts";
 import { isEcosystemStable } from "../sim/equilibrium.ts";
+import type { Intervention } from "../sim/intervention.ts";
 import { cloneSimState, tick, type SimState } from "../sim/sim.ts";
 import type { RNGSnapshot } from "../sim/rng.ts";
 import type { GodTool, SpeedSetting } from "../ui/controls.ts";
@@ -88,6 +89,18 @@ export class GameRunner {
    * happen mid-era (a Critterdex discovery, a population crash) can stop and look at it rather than
    * watching it scroll past. */
   private paused = false;
+  /**
+   * Terraform drafts (mega-doc item 8). Every terraform this era is applied for real so you can
+   * see it, but it stays undoable until Advance Era commits the lot.
+   *
+   * Undo works by REPLAY, not by per-click snapshots: one baseline is captured before the era's
+   * first terraform, and undoing restores it and re-applies the drafts you kept. That costs one
+   * SimState clone per era instead of one per click, and — because the baseline carries the RNG
+   * position too — the replay reproduces the kept edits exactly rather than approximately, which
+   * matters for the tools that consume randomness (plantTree, seedFounders).
+   */
+  private draftBaseline: { state: SimState; rng: RNGSnapshot; interventionLogLength: number; budgetRemaining: number | null } | null = null;
+  private draftedThisEra: Intervention[] = [];
   private checkpoints: StoredCheckpoint[] = [];
   private nextCheckpointId = 1;
 
@@ -105,6 +118,7 @@ export class GameRunner {
     this.eraBeforeSnapshot = null;
     this.fastForwardFromTick = null;
     this.paused = false;
+    this.commitDrafts();
     this.checkpoints = [];
   }
 
@@ -148,9 +162,66 @@ export class GameRunner {
     }
     this.barrierDragStart = null;
 
+    // Captured lazily, before the era's FIRST terraform — an era where you touch nothing pays
+    // nothing for the ability to undo.
+    if (this.draftBaseline === null) this.captureDraftBaseline();
+
     const result = applyTerraformCommand(this.game, resolved.tool, resolved.params);
     this.lastTerraformError = result.ok ? null : result.reason;
+    if (result.ok) this.draftedThisEra.push({ tick: this.game.sim.state.evolution.tick, tool: resolved.tool, params: resolved.params } as Intervention);
     return result;
+  }
+
+  private captureDraftBaseline(): void {
+    this.draftBaseline = {
+      state: cloneSimState(this.game.sim.state),
+      rng: this.game.sim.rng.snapshot(),
+      interventionLogLength: this.game.sim.interventionLog.length,
+      budgetRemaining: this.game.budget?.remaining ?? null,
+    };
+  }
+
+  /** How many terraforms this era can still be taken back. */
+  draftCount(): number {
+    return this.draftedThisEra.length;
+  }
+
+  canUndoDraft(): boolean {
+    return this.draftedThisEra.length > 0 && this.game.gameState.phase === "terraform";
+  }
+
+  /**
+   * Takes back the most recent terraform of this era, newest first. Restores the era's baseline and
+   * re-applies every draft except the one being dropped — so the surviving edits land exactly as
+   * they originally did, rather than being approximately reconstructed by inverting the undone one
+   * (which is not even possible for tools that clamp, like elevation against its [-3, 3] bounds, or
+   * that consume randomness).
+   */
+  undoLastDraft(): void {
+    if (!this.canUndoDraft()) return;
+    const baseline = this.draftBaseline!;
+    const kept = this.draftedThisEra.slice(0, -1);
+
+    this.game.sim.state = cloneSimState(baseline.state);
+    this.game.sim.rng.restore(baseline.rng);
+    this.game.sim.interventionLog.length = baseline.interventionLogLength;
+    if (this.game.budget !== null && baseline.budgetRemaining !== null) this.game.budget.remaining = baseline.budgetRemaining;
+
+    for (const draft of kept) {
+      // Straight through applyTerraformCommand so the budget is re-spent exactly as it was, rather
+      // than trying to compute the refund arithmetically.
+      applyTerraformCommand(this.game, draft.tool, draft.params as never);
+    }
+    this.draftedThisEra = kept;
+    this.lastTerraformError = null;
+    if (kept.length === 0) this.draftBaseline = null;
+  }
+
+  /** Drops the undo history without touching the world — the drafts become permanent. Called when
+   * an era begins, since advancing is what commits them. */
+  private commitDrafts(): void {
+    this.draftBaseline = null;
+    this.draftedThisEra = [];
   }
 
   /** True except while actively animating (evolution phase) — includes discovery, so the button
@@ -177,6 +248,9 @@ export class GameRunner {
     if (!this.canAdvanceEra()) return;
     // A pause belongs to the era it was applied during — starting a new one always starts running.
     this.paused = false;
+    // Advancing is what makes this era's terraforming permanent — that's the whole contract drafts
+    // offer, so the undo history ends here.
+    this.commitDrafts();
     if (this.game.gameState.phase === "discovery") {
       continueToTerraform(this.game);
       this.lastEraSummary = null;
@@ -331,6 +405,9 @@ export class GameRunner {
     this.eraBeforeSnapshot = null;
     this.fastForwardFromTick = null;
     this.paused = false;
+    // The restored branch has its own terraform history; drafts belonging to the abandoned one
+    // would undo into a world that no longer exists.
+    this.commitDrafts();
     this.lastEraSummary = null;
     this.lastTerraformError = null;
     this.activeTool = null;

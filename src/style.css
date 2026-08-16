@@ -1,12 +1,48 @@
+/*
+ * Palette (SPEC.md Addendum 29). The world is a warm, low-poly parchment diorama; the chrome used
+ * to be cool blue-grey with flat grey buttons, which read as a debug harness sitting next to it
+ * rather than part of the same object. Everything below is warm-neutral, with the amber the
+ * Critterdex notifications already used promoted to the single accent — so "this is important" has
+ * one consistent colour across the whole app.
+ *
+ * Defined as tokens rather than literals so the components below describe INTENT (surface, line,
+ * ink, accent) rather than a hex code, and a future retheme is one block rather than a sweep.
+ */
+:root {
+  --bg: #16130f;
+  --surface: #211d17;
+  --surface-raised: #2a251d;
+  --surface-sunken: #191510;
+  --line: #3a332a;
+  --line-strong: #4e4436;
+
+  --ink: #ece5d8;
+  --ink-muted: #a29883;
+  --ink-faint: #7a7161;
+
+  --accent: #d8b45f;
+  --accent-dim: #6d5a2f;
+  --accent-wash: rgb(216 180 95 / 12%);
+  --on-accent: #1a1610;
+  --danger: #c96a4a;
+
+  --radius: 6px;
+  --radius-sm: 4px;
+  --shadow: 0 2px 10px rgb(0 0 0 / 28%);
+}
+
 * {
   box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  font-family: system-ui, sans-serif;
-  background: #14161a;
-  color: #e6e6e6;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.45;
+  background: var(--bg);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
 }
 
 #app {
@@ -41,8 +77,8 @@ body {
 }
 
 .view-tabs button.active {
-  background: #4a7dd9;
-  border-color: #6d97e0;
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 canvas {
@@ -152,13 +188,13 @@ canvas {
 }
 
 .panel {
-  background: #1e2126;
-  border: 1px solid #30343b;
-  border-radius: 6px;
-  padding: 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.8rem 0.85rem 0.85rem;
   min-width: 0;
   align-self: start;
-  box-shadow: 0 4px 14px rgb(0 0 0 / 16%);
+  box-shadow: var(--shadow);
 }
 
 /* Full row rather than `span 2`: the sidebar's auto-fit column count varies with viewport width,
@@ -183,7 +219,7 @@ canvas {
   gap: 0.75rem;
   margin: -0.15rem -0.15rem 0.65rem;
   padding: 0.15rem 0.15rem 0.55rem;
-  border-bottom: 1px solid #30343b;
+  border-bottom: 1px solid var(--line);
   cursor: grab;
   touch-action: none;
   user-select: none;
@@ -194,11 +230,18 @@ canvas {
 }
 
 .panel h3 {
-  margin: 0;
-  font-size: 0.85rem;
+  margin: 0 0 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #9aa0aa;
+  letter-spacing: 0.09em;
+  color: var(--ink-faint);
+}
+
+/* The panel header supplies the divider for panels that have one; a bare h3 (inside a section, or
+   in the game panels) shouldn't add a second line under itself. */
+.panel-header h3 {
+  margin-bottom: 0;
 }
 
 .panel-actions {
@@ -215,15 +258,15 @@ canvas {
   padding: 0;
   border-color: transparent;
   background: transparent;
-  color: #858c97;
+  color: var(--ink-faint);
   line-height: 1;
 }
 
 .panel-actions button:hover,
 .panel-actions button[aria-pressed="true"] {
-  background: #2a2e35;
-  border-color: #3a3f47;
-  color: #e6e6e6;
+  background: var(--surface-raised);
+  border-color: var(--line);
+  color: var(--ink);
 }
 
 .panel-workspace-bar {
@@ -233,7 +276,7 @@ canvas {
   justify-content: space-between;
   gap: 0.75rem;
   min-height: 1.8rem;
-  color: #777e89;
+  color: var(--ink-faint);
   font-size: 0.75rem;
 }
 
@@ -241,12 +284,12 @@ canvas {
   padding: 0.2rem 0.45rem;
   border-color: transparent;
   background: transparent;
-  color: #858c97;
+  color: var(--ink-faint);
   font-size: 0.75rem;
 }
 
 .panel-workspace-reset:hover {
-  border-color: #3a3f47;
+  border-color: var(--line);
 }
 
 .panel-tray {
@@ -259,8 +302,8 @@ canvas {
   gap: 0.5rem;
   max-width: min(42rem, calc(100vw - 2rem));
   padding: 0.45rem 0.55rem;
-  background: rgb(30 33 38 / 96%);
-  border: 1px solid #3a3f47;
+  background: rgb(33 29 23 / 97%);
+  border: 1px solid var(--line);
   border-radius: 5px;
   box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
 }
@@ -271,7 +314,7 @@ canvas {
 
 .panel-tray-label {
   flex: none;
-  color: #858c97;
+  color: var(--ink-faint);
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -287,7 +330,7 @@ canvas {
 .panel-tray-items button {
   flex: none;
   padding: 0.25rem 0.5rem;
-  background: #272b31;
+  background: var(--surface-raised);
   font-size: 0.75rem;
 }
 
@@ -300,37 +343,83 @@ canvas {
 }
 
 button {
-  background: #2a2e35;
-  color: #e6e6e6;
-  border: 1px solid #3a3f47;
-  border-radius: 4px;
-  padding: 0.3rem 0.6rem;
+  background: var(--surface-raised);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 0.65rem;
   cursor: pointer;
-  font-size: 0.85rem;
+  font: inherit;
+  font-size: 0.84rem;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
 
-button:hover {
-  background: #343941;
+button:hover:not(:disabled) {
+  background: #332c22;
+  border-color: var(--line-strong);
 }
 
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* One accent for "this is the active/primary thing", everywhere — the selected tool, the current
+   speed, the open view tab. Previously a blue that appeared nowhere else in the app. */
 button.active {
-  background: #4a7dd9;
-  border-color: #6d97e0;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.seed-input,
+input[type="number"],
+input[type="text"] {
+  background: var(--surface-sunken);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 0.4rem;
+  font: inherit;
+  font-size: 0.84rem;
 }
 
 .seed-input {
   width: 6rem;
-  background: #14161a;
-  color: #e6e6e6;
-  border: 1px solid #3a3f47;
-  border-radius: 4px;
-  padding: 0.3rem;
+}
+
+input[type="range"] {
+  accent-color: var(--accent);
+}
+
+input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+label {
+  cursor: pointer;
 }
 
 .status {
-  font-size: 0.8rem;
-  color: #9aa0aa;
+  font-size: 0.78rem;
+  color: var(--ink-muted);
   margin-top: 0.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Sits under the era controls while terraforming is still undoable (SPEC.md Addendum 29). */
+.draft-status {
+  font-size: 0.76rem;
+  color: var(--accent);
+  margin: -0.15rem 0 0.5rem;
 }
 
 .inspector-body table {
@@ -341,7 +430,7 @@ button.active {
 
 .inspector-body th {
   text-align: left;
-  color: #9aa0aa;
+  color: var(--ink-muted);
   font-weight: normal;
   padding: 0.15rem 0.3rem;
 }
@@ -358,7 +447,7 @@ button.active {
   gap: 0.5rem;
   margin-bottom: 0.5rem;
   font-size: 0.8rem;
-  color: #c4c8ce;
+  color: var(--ink-muted);
 }
 
 .legend-swatch {
@@ -370,7 +459,7 @@ button.active {
 
 .legend-swatch--dot {
   border-radius: 50%;
-  background: linear-gradient(135deg, #d94f8a, #4a9dd9);
+  background: linear-gradient(135deg, #d98a4f, #4a9dd9);
 }
 
 .capability-list {
@@ -381,24 +470,24 @@ button.active {
 }
 
 .capability-chip {
-  background: #2a2e35;
-  border: 1px solid #3a3f47;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
   border-radius: 999px;
   padding: 0.15rem 0.55rem;
   font-size: 0.75rem;
-  color: #c4c8ce;
+  color: var(--ink-muted);
   cursor: default;
 }
 
 .capability-empty {
   font-size: 0.78rem;
-  color: #9aa0aa;
+  color: var(--ink-muted);
   margin-top: 0.5rem;
 }
 
 .godmode-hint {
   font-size: 0.78rem;
-  color: #9aa0aa;
+  color: var(--ink-muted);
   margin-bottom: 0.6rem;
   min-height: 2.2em;
 }
@@ -409,7 +498,7 @@ button.active {
 
 .slider-label {
   font-size: 0.78rem;
-  color: #c4c8ce;
+  color: var(--ink-muted);
   width: 8.5rem;
   flex: none;
 }
@@ -421,7 +510,7 @@ button.active {
 
 .slider-value {
   font-size: 0.78rem;
-  color: #9aa0aa;
+  color: var(--ink-muted);
   width: 3rem;
   flex: none;
   text-align: right;
@@ -442,9 +531,9 @@ button.active {
 }
 
 .scenario-file-label {
-  background: #2a2e35;
-  color: #e6e6e6;
-  border: 1px solid #3a3f47;
+  background: var(--surface-raised);
+  color: var(--ink);
+  border: 1px solid var(--line);
   border-radius: 4px;
   padding: 0.3rem 0.6rem;
   cursor: pointer;
@@ -452,7 +541,7 @@ button.active {
 }
 
 .scenario-file-label:hover {
-  background: #343941;
+  background: #332c22;
 }
 
 .event-feed-list {
@@ -462,14 +551,14 @@ button.active {
   flex-direction: column;
   gap: 0.35rem;
   font-size: 0.76rem;
-  color: #c4c8ce;
+  color: var(--ink-muted);
 }
 
 .event-feed-entry {
   padding: 0.3rem 0.4rem;
-  background: #14161a;
+  background: var(--bg);
   border-radius: 4px;
-  border-left: 2px solid #4a7dd9;
+  border-left: 2px solid var(--accent);
   line-height: 1.35;
 }
 
@@ -490,13 +579,13 @@ button.active {
 }
 
 .mode-tabs button.active {
-  background: #4a7dd9;
-  border-color: #6d97e0;
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .progress-bar {
   height: 0.5rem;
-  background: #14161a;
+  background: var(--bg);
   border-radius: 4px;
   overflow: hidden;
   margin: 0.3rem 0 0.6rem 0;
@@ -505,7 +594,7 @@ button.active {
 .progress-bar-fill {
   height: 100%;
   width: 0%;
-  background: #4a7dd9;
+  background: var(--accent);
   transition: width 0.1s linear;
 }
 
@@ -527,7 +616,7 @@ button.active {
   display: block;
   width: 100%;
   height: 60px;
-  background: #14161a;
+  background: var(--bg);
   border-radius: 4px;
 }
 
@@ -613,7 +702,7 @@ button.active {
   border-radius: 4px;
   border: 1px solid #5c5346;
   background: #2f2a21;
-  color: #e6e6e6;
+  color: var(--ink);
   cursor: pointer;
 }
 
@@ -637,7 +726,7 @@ button.active {
 
 .discovery-toast-close:hover,
 .discovery-detail-close:hover {
-  color: #e6e6e6;
+  color: var(--ink);
 }
 
 .discovery-detail {
@@ -711,10 +800,10 @@ button.active {
 }
 
 .critterdex-group {
-  border: 1px solid #30343b;
+  border: 1px solid var(--line);
   border-radius: 5px;
   padding: 0.35rem 0.45rem;
-  background: #191c21;
+  background: var(--surface-sunken);
 }
 
 .critterdex-group-heading {
@@ -722,7 +811,7 @@ button.active {
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #9aa0aa;
+  color: var(--ink-muted);
   user-select: none;
 }
 
@@ -731,7 +820,7 @@ button.active {
   flex-direction: column;
   gap: 0.05rem;
   padding: 0.35rem 0.3rem;
-  border-top: 1px solid #262a30;
+  border-top: 1px solid var(--surface-raised);
   font-size: 0.78rem;
 }
 
@@ -754,7 +843,7 @@ button.active {
 
 /* A locked entry is deliberately muted — it's a prompt, not an achievement. */
 .critterdex-entry--locked .critterdex-entry-name {
-  color: #5f6670;
+  color: var(--ink-faint);
   font-style: italic;
   font-weight: 400;
 }
@@ -766,7 +855,7 @@ button.active {
 
 .critterdex-entry--clickable:hover,
 .critterdex-entry--clickable:focus-visible {
-  background: #262a30;
+  background: var(--surface-raised);
   outline: none;
 }
 
@@ -780,7 +869,7 @@ button.active {
 }
 
 .heatmap-legend-caption {
-  color: #777e89;
+  color: var(--ink-faint);
   margin-bottom: 0.2rem;
 }
 

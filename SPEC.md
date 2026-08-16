@@ -3104,3 +3104,78 @@ clean on both configs, 434 tests passing, build succeeds. Live: all four tools p
 correctly.
 
 Two existing toolMapping tests changed because they encoded the doubling that moved.
+
+## Addendum 29 — terraform drafts, and a UI that belongs to the same world
+
+### Drafts (mega-doc item 8)
+
+Every terraform used to be a one-way door: click, and it's permanent. That quietly discourages the
+exact thing the game is about — trying something on the world to see what happens. Drafts make an
+era's terraforming provisional: everything you shape is applied for real so you can see it, and
+stays undoable until Advance Era commits the lot.
+
+Dan chose one-at-a-time undo (newest first) over discard-all or arbitrary removal.
+
+**Undo works by replay, not by inversion or per-click snapshots.** One baseline — SimState, RNG
+position, intervention-log length, budget — is captured lazily before the era's FIRST terraform;
+undoing restores it and re-applies the drafts you kept. Three reasons that shape:
+
+- **Inversion is not possible in general.** Elevation clamps at [-3, 3], so "subtract what you
+  added" doesn't return you to where you were once a stroke saturates. Tools that consume randomness
+  (plantTree, seedFounders) can't be reconstructed from outside at all.
+- **Snapshotting per click** would clone the whole SimState on every terraform. Replay pays one
+  clone per era instead, and eras where you touch nothing pay nothing at all.
+- **The baseline carries the RNG position**, so replayed edits land exactly where they originally
+  did rather than approximately — the same reasoning the meteor undo (Addendum 13) already used.
+
+The intervention log stays truthful throughout: an undone terraform leaves no trace in it, so an
+exported scenario replays what actually happened rather than what was tried. Terraform points are
+refunded by re-spending from the baseline through `applyTerraformCommand` rather than computing a
+refund, so the budget can't drift out of step with the log.
+
+Committed on Advance Era, and cleared on restart and checkpoint restore — drafts belonging to an
+abandoned branch would undo into a world that no longer exists.
+
+### The UI
+
+Dan: *"I feel a little bit, it's a bit rough to say the least."*
+
+The chrome was cool blue-grey (#14161a background, #2a2e35 buttons, a blue #4a7dd9 active state)
+sitting beside a warm parchment diorama — two unrelated objects on one screen, and the flat grey
+read as a debug harness rather than part of a game. Dan picked "warm and crafted" over keeping it
+dark-but-refined or hiding the controls entirely.
+
+Everything is now driven by tokens on `:root` — surfaces, lines, ink, accent — so components
+describe intent rather than hex codes and a future retheme is one block instead of a sweep. 44
+colour literals were replaced. The palette is warm-neutral throughout, and the amber the Critterdex
+notifications already used (`#d8b45f`) is promoted to the single accent: the active tool, the
+current speed, the open view tab and an unlocked discovery now all agree on what "this one" looks
+like, where the old blue appeared nowhere else in the app.
+
+Beyond colour: a real type scale (headings smaller, uppercase, tracked, muted — they were competing
+with content at 0.85rem), focus-visible rings for keyboard use, disabled states that actually look
+disabled, and `accent-color` on the sliders and checkboxes so even the native controls join in.
+
+### Verification
+
+Typecheck clean on both configs, build succeeds, **443 tests passing** (up from 434) — nine new
+covering draft semantics: that undo restores a byte-identical state via `hashState` rather than
+merely a similar one, that random-scattering tools survive an undo exactly, that the intervention
+log loses the undone entry, that points are refunded, that advancing commits, that undo is a no-op
+outside the terraform phase, and that each era starts a fresh history.
+
+Live: the palette resolves throughout (warm surfaces, parchment text, gold accent), and the draft
+loop works end to end — the Undo control is hidden until there's something to undo, the status line
+counts correctly, one undo returns to the one-edit state while staying different from pristine, and
+undoing everything returns the world to exactly where the era began. Zero console errors.
+
+### Known gaps
+
+- **Drafts are Game Mode only.** Classic Sandbox has no terraform phase, so there is nothing to
+  commit against; its meteor undo remains its own separate mechanism.
+- **No visual marker for what's still provisional.** A drafted change looks identical to a committed
+  one — only the counter says otherwise. Highlighting drafted regions on the map would make the
+  distinction legible without reading text.
+- **The UI pass was palette, type and states, not layout.** Panel ORDER and grouping are still
+  whatever they accumulated as; a genuine information-architecture pass (what belongs together, what
+  should be hidden by default) is a separate job.

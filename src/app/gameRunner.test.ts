@@ -250,6 +250,138 @@ describe("GameRunner", () => {
   });
 });
 
+describe("GameRunner terraform drafts", () => {
+  function sandbox(): GameRunner {
+    const runner = new GameRunner("sandbox", 7);
+    runner.setActiveTool("raiseTerrain");
+    return runner;
+  }
+
+  it("tracks each terraform of the era as an undoable draft", () => {
+    const runner = sandbox();
+    expect(runner.canUndoDraft()).toBe(false);
+
+    runner.useToolAt(50, 50);
+    runner.useToolAt(80, 80);
+
+    expect(runner.draftCount()).toBe(2);
+    expect(runner.canUndoDraft()).toBe(true);
+  });
+
+  it("restores the world exactly as it was before the undone terraform", () => {
+    const runner = sandbox();
+    runner.useToolAt(50, 50);
+    const afterFirst = hashState(runner.game.sim.state);
+
+    runner.useToolAt(120, 120);
+    expect(hashState(runner.game.sim.state)).not.toBe(afterFirst);
+
+    runner.undoLastDraft();
+    // Byte-identical, not merely similar: the kept edit is REPLAYED from the era's baseline rather
+    // than the undone one being inverted, so nothing is approximated.
+    expect(hashState(runner.game.sim.state)).toBe(afterFirst);
+    expect(runner.draftCount()).toBe(1);
+  });
+
+  it("undoes newest-first, all the way back to an untouched era", () => {
+    const runner = sandbox();
+    const pristine = hashState(runner.game.sim.state);
+
+    runner.useToolAt(40, 40);
+    runner.useToolAt(90, 90);
+    runner.useToolAt(140, 140);
+
+    runner.undoLastDraft();
+    runner.undoLastDraft();
+    runner.undoLastDraft();
+
+    expect(hashState(runner.game.sim.state)).toBe(pristine);
+    expect(runner.canUndoDraft()).toBe(false);
+  });
+
+  it("keeps the intervention log truthful — an undone terraform leaves no trace in it", () => {
+    const runner = sandbox();
+    runner.useToolAt(50, 50);
+    runner.useToolAt(90, 90);
+    expect(runner.game.sim.interventionLog).toHaveLength(2);
+
+    runner.undoLastDraft();
+
+    expect(runner.game.sim.interventionLog).toHaveLength(1);
+    expect(runner.game.sim.interventionLog[0].params).toMatchObject({ x: 50, y: 50 });
+  });
+
+  // Tools that consume randomness are the reason undo replays rather than inverts: reconstructing
+  // where plantTree happened to scatter its trees isn't possible from the outside.
+  it("reproduces random-scattering tools exactly across an undo", () => {
+    const runner = new GameRunner("sandbox", 7);
+    runner.setActiveTool("plantTree");
+    runner.useToolAt(60, 60);
+    const afterFirst = hashState(runner.game.sim.state);
+
+    runner.useToolAt(140, 140);
+    runner.undoLastDraft();
+
+    expect(hashState(runner.game.sim.state)).toBe(afterFirst);
+  });
+
+  it("refunds terraform points when a draft is undone", () => {
+    const challenge = PROTOTYPE_CHALLENGES[0];
+    const runner = new GameRunner("challenge", 7, challenge);
+    runner.setActiveTool("raiseTerrain");
+    const startingBudget = runner.game.budget!.remaining;
+
+    runner.useToolAt(50, 50);
+    const afterSpend = runner.game.budget!.remaining;
+    expect(afterSpend).toBeLessThan(startingBudget);
+
+    runner.undoLastDraft();
+    expect(runner.game.budget!.remaining).toBe(startingBudget);
+  });
+
+  it("commits the drafts once the era advances — there is nothing left to undo", () => {
+    const runner = sandbox();
+    runner.useToolAt(50, 50);
+    expect(runner.canUndoDraft()).toBe(true);
+
+    runner.setSpeed("max");
+    runner.advanceEra();
+    expect(runner.canUndoDraft()).toBe(false);
+    expect(runner.draftCount()).toBe(0);
+  });
+
+  it("cannot undo outside the terraform phase", () => {
+    const runner = sandbox();
+    runner.useToolAt(50, 50);
+    runner.setSpeed("max");
+    runner.advanceEra(); // now in the evolution phase, and drafts are committed
+    expect(runner.canUndoDraft()).toBe(false);
+
+    runner.undoLastDraft(); // must be a no-op rather than throwing or corrupting state
+    expect(runner.game.gameState.phase).toBe("evolution");
+  });
+
+  it("starts a fresh undo history each era", () => {
+    const runner = sandbox();
+    runner.setSpeed("max");
+    runner.useToolAt(50, 50);
+    runner.advanceEra();
+    while (runner.isAdvancingEra()) runner.stepEraAdvance();
+    runner.continueToTerraform();
+
+    expect(runner.canUndoDraft()).toBe(false);
+    runner.setActiveTool("raiseTerrain");
+    runner.useToolAt(70, 70);
+    expect(runner.draftCount()).toBe(1);
+
+    // Undoing now must return to the state the NEW era started in, not the previous era's.
+    const eraStartTick = runner.game.sim.state.evolution.tick;
+    runner.undoLastDraft();
+    expect(runner.game.sim.state.evolution.tick).toBe(eraStartTick);
+    expect(runner.game.gameState.era).toBe(1);
+  });
+});
+
 describe("GameRunner checkpoints", () => {
   it("saveCheckpoint records the current era/tick and listCheckpoints reflects it", () => {
     const runner = new GameRunner("sandbox", 1);
