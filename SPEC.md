@@ -2812,3 +2812,139 @@ rather than measurement and should be checked when the pane cooperates.
   effect only reads at population scale, over eras.
 - **Wings remain unbuilt**, since flight (mega-doc item 15) doesn't exist yet. `finProminence` is
   the pattern any future emergent feature should copy.
+
+## Addendum 26 — a performance pass, driven by measurement rather than suspicion
+
+Dan asked to beef up the quality of what exists — polish, run more efficiently. The first thing
+that needed doing was finding out what was actually slow, because the render path had never been
+measured at all. `scripts/benchmark.ts` covers the sim's `tick()` pipeline and reports it healthy
+(4,756 ticks/sec at founding 100, 44.7 MB heap after 20,000 ticks). Everything the World view does
+on top of that, every frame, for every creature, was unmeasured.
+
+New `scripts/benchmark-render.ts` fills that gap. It needs no WebGL context because everything it
+measures is scene-graph and math work; the GPU cost of actually drawing is handled by counting draw
+calls, which are exactly computable.
+
+### What the measurements said
+
+At a steady-state population of 681 (3,000 ticks of warmup — a shorter warmup measures the crash
+phase, not the world you actually watch):
+
+| | before |
+|---|---|
+| per-frame creature CPU | 2.98 ms |
+| terrain rebuild, per terraform tick | 0.83 ms |
+| **draw calls per frame** | **8,217** |
+
+The CPU numbers were survivable. The draw-call count was not: every body part of every creature was
+its own `THREE.Mesh`, and a draw call is issued per mesh. Ten to thirteen meshes per creature, four
+per tree (a trunk plus three canopy blobs — 1,400 for trees alone at the default cap of 350). That
+is the dominant cost of the render and it scales linearly with population, which is precisely the
+thing this app is built to grow.
+
+Worth recording that the *suspected* problem was different. `derivePhenotype` runs per creature per
+frame and allocates two objects each time, which looks alarming; measured, it is 0.099 ms/frame at
+681 creatures. It was never worth touching.
+
+### Instancing
+
+Creatures and trees are now drawn as one instanced mesh PER PART rather than per entity: every
+creature's body in one, every head in another, and so on. Parts that repeat within a creature (two
+ears, two fangs, four legs) push several instances into the same mesh rather than needing several
+meshes.
+
+`InstancedPart` (new) wraps the per-frame protocol — `begin()`, `push()` per instance, `commit()` —
+and grows its buffers by doubling when a frame needs more than they hold, since `InstancedMesh`
+sizes its buffers at construction and can only grow by being rebuilt.
+
+The look is deliberately unchanged: same procedural rig from `MorphologyProfile`, same emergent
+fin/fangs (Addendum 25), same tree silhouettes with the same deterministic per-tree jitter. What
+changed is only who owns the meshes.
+
+Two consequences worth noting beyond the draw calls:
+
+- **Entity lifecycle disappeared.** The old renderer kept a `Map` of models per entity id, created
+  on first sight and disposed when the entity stopped appearing. Now an entity that isn't queued
+  this frame simply isn't drawn — death, and the lineage filter, both need no teardown path at all.
+  A whole class of leak is gone rather than being handled.
+- **`frustumCulled = false` on each field.** Instances span the entire world, so the mesh's bounding
+  volume covers the whole map and per-object culling could never exclude it; the check only ever
+  costs a test that returns "visible". Off-screen instances are still clipped by the GPU.
+
+### Terrain updates in place
+
+`syncToTerrain` rebuilt the entire `BufferGeometry` on any terrain change: reallocating both vertex
+buffers, regenerating ~14,000 indices that were bit-for-bit identical, and re-uploading everything.
+That runs EVERY TICK for the whole duration of a barrier formation or crater recovery, since
+`intervention.ts` bumps `terrain.revision` each tick while either is in flight.
+
+An edit changes elevation and colour but never the grid's topology, so the buffers and the entire
+index list stay valid. The position/colour attributes are now rewritten in place and flagged for
+re-upload. `computeVertexNormals` genuinely can't be skipped — normals really do change when a hill
+is reshaped, and lighting depends on it — so it is now most of the remaining cost. A full rebuild
+is still there for the one case that needs it (a grid resize, which no current path performs), on
+the grounds that silently rendering the wrong topology is much worse than paying for a rebuild.
+
+### Results
+
+| | before | after |
+|---|---|---|
+| per-frame creature CPU (681 pop) | 2.98 ms | **1.59 ms** |
+| terrain update, per terraform tick | 0.83 ms | **0.44 ms** |
+| **draw calls per frame** | **8,217** | **11** |
+
+Eleven, and it stays eleven: it is a function of how many distinct PARTS exist, not how many
+creatures do. A population of ten thousand costs the same eleven calls.
+
+### Polish
+
+- **`sanitizeParams`'s repairs are now surfaced.** Addendum 22 added the repair of dangerous param
+  values at the import boundary but discarded the list of what it repaired. `RunConfig` now carries
+  `paramRepairs`, and loading a scenario that needed repairing says so. A replay quietly running on
+  different numbers than its author recorded is exactly the sort of thing that should never be
+  silent.
+- **The heatmap legend skips unchanged renders**, the same guard the Critterdex panel got in
+  Addendum 24 and for the same reason: it is driven from the 16ms loop, and rebuilding its nodes
+  sixty times a second destroys any text selection a player makes inside it. Keyed on the values as
+  DISPLAYED (rounded percentages), so a share drifting by a thousandth of a percent isn't a change.
+
+### Verification
+
+Typecheck clean, full suite green: **428 passed, 1 skipped, 45 files**. `creatureModel.test.ts`
+became `creatureField.test.ts` — instance counts turn out to be a more direct assertion than the
+old per-mesh `visible` flags, since "contributed one fin instance" IS the statement that a creature
+has a fin. It also gained coverage the per-model version couldn't have: that instances vanish when
+an entity stops being queued, and that a population past the initial buffer capacity grows the
+buffers rather than being silently dropped.
+
+One test was deliberately dropped rather than ported: the old "fin grows taller with adaptation"
+assertion. Re-asserting it against the field would mean decoding a transform out of an instance
+buffer by index — brittle, and testing Three.js's matrix composition rather than anything this
+codebase decides. The property itself is `deriveMorphology`'s and is tested there against the
+number directly.
+
+Live: clean console in a fresh tab, click-to-select still picks a real creature (proving creatures
+render where picking expects them), camera orbit redraws 48.7% of the frame, the heatmap still
+tints 23.6% with a correct legend, and Game Mode's independent field renders too.
+
+### Known gaps
+
+- **Frame rate still hasn't been measured in a real browser.** The preview pane wasn't compositing,
+  and `requestAnimationFrame` doesn't fire in that state, so the draw-call improvement is
+  arithmetic rather than an observed frame time. The arithmetic is not in doubt — 8,217 to 11 — but
+  the end-to-end number is still unconfirmed.
+- **The competition tint still rewrites every terrain vertex colour each frame while enabled.**
+  Measured at 0.18 ms, which is why it was left alone, but it is the same "recompute everything
+  every frame" shape that instancing just removed elsewhere.
+- **`trySeedSapling`'s linear scan** over all trees (flagged in Addendum 22) is still there. It is
+  bounded by `maxTreeCount` and did not show up as significant.
+
+**Follow-up caught while adding the benchmark:** `render/color.ts` imported `ColorOptions` from
+`app/simRunner.ts` — render/ depending on app/, which imports `ui/controls.ts`, which is full of DOM
+types. Any headless script touching colour therefore dragged the whole DOM in behind it and failed
+`tsc -p tsconfig.scripts.json`. The original reasoning (put it in app/ so SimRunner needn't import
+from render/) had the direction backwards: a type describing how to colour a genome is a rendering
+concern, and app/ importing it from render/ is the direction that doesn't cycle. Moved to
+`render/color.ts`, re-exported from simRunner for existing callers. Worth noting the boundary this
+crossed was only caught because a NEW headless entry point exercised it — the existing
+`architectureBoundary.test.ts` guards sim/ against game/, not render/ against app/.

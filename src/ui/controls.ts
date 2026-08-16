@@ -224,6 +224,7 @@ export function createControls(callbacks: ControlsCallbacks): ControlsHandle {
   const heatmapLegend = document.createElement("div");
   heatmapLegend.className = "heatmap-legend";
   heatmapLegend.hidden = true;
+  let lastHeatmapLegendSignature: string | null = null;
 
   const status = document.createElement("div");
   status.className = "status";
@@ -267,6 +268,14 @@ export function createControls(callbacks: ControlsCallbacks): ControlsHandle {
      * all recorded consumption, which is what makes the colours mean something quantitative
      * instead of just "this lineage exists somewhere". */
     setHeatmapLegend(entries: { speciesId: number; css: string; share: number }[] | null) {
+      // Called from the 16ms render loop, and shares decay continuously, so without a change check
+      // this rebuilds a handful of DOM nodes sixty times a second forever — and any text selection
+      // a player made inside it is destroyed on the next frame. Rounded to what's actually
+      // DISPLAYED, so a share drifting by a thousandth of a percent doesn't count as a change.
+      const signature = entries?.map((e) => `${e.speciesId}:${e.css}:${Math.round(e.share * 100)}`).join("|") ?? "";
+      if (signature === lastHeatmapLegendSignature) return;
+      lastHeatmapLegendSignature = signature;
+
       if (!entries || entries.length === 0) {
         heatmapLegend.hidden = true;
         heatmapLegend.replaceChildren();

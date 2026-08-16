@@ -267,6 +267,13 @@ function loadScenarioAndRefresh(parsed: unknown): void {
     window.alert("That file doesn't look like a Critterbranch scenario.");
     return;
   }
+  // Say so when the file wasn't runnable as written. The values are repaired either way (see
+  // params.ts's sanitizeParams for why each is dangerous rather than merely unusual), but a replay
+  // running on different numbers than its author recorded is exactly the kind of thing that should
+  // never happen silently.
+  if (config.paramRepairs.length > 0) {
+    window.alert(`This scenario had ${config.paramRepairs.length} unusable parameter value(s), which have been repaired so it can run:\n\n${config.paramRepairs.join("\n")}`);
+  }
   runner.loadScenario(config);
   controls.setInspected(null);
   godModePanel.setActiveTool(null);

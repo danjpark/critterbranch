@@ -6,6 +6,7 @@ import type { RNGSnapshot } from "../sim/rng.ts";
 import { createRunConfig, type RunConfig } from "../sim/runConfig.ts";
 import { applyInterventionNow, cloneSimState, createSimState, tick, type SimInstance, type SimState } from "../sim/sim.ts";
 import { collectDescendantIds, type SpeciationMechanism, type Species } from "../sim/taxonomy.ts";
+import type { ColorOptions } from "../render/color.ts";
 import type { GodTool, SpeedSetting } from "../ui/controls.ts";
 import { DEFAULT_RAMP_CONFIG, rampedTicksPerFrame } from "./pacing.ts";
 import { type BrushSettings, DEFAULT_BRUSH, resolveToolApplication } from "./toolMapping.ts";
@@ -16,17 +17,10 @@ const ALL_MECHANISMS: SpeciationMechanism[] = ["founder-population", "allopatric
 
 const MAX_SPEED_BUDGET_MS = 40;
 
-/** How a creature's genome maps to a fill color — see render/color.ts's genotypeColor(), which is
- * the only thing that actually interprets these. Defined here (app layer, alongside
- * BrushSettings, another piece of user-adjustable display state SimRunner owns) rather than in
- * render/, so SimRunner never needs to import from render/ just to hold this state — render/
- * modules import this type from here instead. */
-export interface ColorOptions {
-  /** Restricts hue to the blue<->orange arc instead of the full wheel (diet is otherwise a red/green split). */
-  deuteranopiaSafe: boolean;
-  /** Raw genetic distance (see sim/genome.ts) that maps to the maximum chroma (0.20). */
-  divergenceScale: number;
-}
+/** Re-exported for existing callers. The definition lives in render/color.ts — see its doc for why
+ * it moved: defining it here made render/ import from app/, which drags ui/controls.ts's DOM types
+ * into anything headless that touches colour. */
+export type { ColorOptions };
 
 const DEFAULT_COLOR_OPTIONS: ColorOptions = {
   deuteranopiaSafe: false,

@@ -27,13 +27,50 @@ import type { CompetitionTint } from "../render/overlays.ts";
 export const HEIGHT_SCALE = 20;
 
 export function buildTerrainGeometry(terrain: TerrainGrid, params: Params): THREE.BufferGeometry {
+  const { cols, rows } = terrain;
+
+  const positions = new Float32Array(cols * rows * 3);
+  const colors = new Float32Array(cols * rows * 3);
+  fillTerrainBuffers(positions, colors, terrain, params);
+
+  // Two triangles per cell, connecting this cell's vertex to its right and below neighbors — the
+  // last column/row has no "next" neighbor to form a quad with, so the loop stops one short in
+  // each direction (matches the torus's own seam: no wraparound face is drawn here, same seam
+  // policy the old 2D contour-line renderer already used).
+  const indices: number[] = [];
+  for (let y = 0; y < rows - 1; y++) {
+    for (let x = 0; x < cols - 1; x++) {
+      const i00 = y * cols + x;
+      const i10 = y * cols + (x + 1);
+      const i01 = (y + 1) * cols + x;
+      const i11 = (y + 1) * cols + (x + 1);
+      indices.push(i00, i01, i10, i10, i01, i11);
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+/**
+ * Writes vertex positions and colors for the current terrain into existing buffers.
+ *
+ * Split out from buildTerrainGeometry so an EDIT can reuse the geometry it already has. A terrain
+ * edit changes elevation and color but never the grid's topology, yet the original code rebuilt the
+ * whole BufferGeometry — reallocating both buffers, regenerating ~14,000 indices that were
+ * bit-for-bit identical, and re-uploading all of it. That ran once per tick for the entire duration
+ * of a barrier formation or crater recovery (intervention.ts bumps terrain.revision every tick
+ * while either is in flight), measured at 0.83 ms per rebuild.
+ */
+function fillTerrainBuffers(positions: Float32Array, colors: Float32Array, terrain: TerrainGrid, params: Params): void {
   const { cols, rows, elevation, fertility, passability, seaLevel } = terrain;
   const roughness = Math.max(params.terrainRoughness, 1e-6);
   const cellW = params.worldWidth / cols;
   const cellH = params.worldHeight / rows;
-
-  const positions = new Float32Array(cols * rows * 3);
-  const colors = new Float32Array(cols * rows * 3);
   // Reused across every cell — terrainCellColorRgb writes into it rather than returning a fresh
   // tuple, so this whole loop allocates nothing per cell.
   const rgb: [number, number, number] = [0, 0, 0];
@@ -53,28 +90,6 @@ export function buildTerrainGeometry(terrain: TerrainGrid, params: Params): THRE
       colors[idx * 3 + 2] = rgb[2];
     }
   }
-
-  // Two triangles per cell, connecting this cell's vertex to its right and below neighbors — the
-  // last column/row has no "next" neighbor to form a quad with, so the loop stops one short in
-  // each direction (matches the torus's own seam: no wraparound face is drawn here, same seam
-  // policy the old 2D contour-line renderer already used — see worldView.ts's paintElevationContours).
-  const indices: number[] = [];
-  for (let y = 0; y < rows - 1; y++) {
-    for (let x = 0; x < cols - 1; x++) {
-      const i00 = y * cols + x;
-      const i10 = y * cols + (x + 1);
-      const i01 = (y + 1) * cols + x;
-      const i11 = (y + 1) * cols + (x + 1);
-      indices.push(i00, i01, i10, i10, i01, i11);
-    }
-  }
-
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-  return geometry;
 }
 
 /** How far a fully-contested cell's color can pull the terrain toward the feeding species' hue.
@@ -149,10 +164,33 @@ export function createTerrainMesh(terrain: TerrainGrid, params: Params): Terrain
     setCompetitionTint,
     syncToTerrain: (nextTerrain, nextParams) => {
       if (nextTerrain === lastTerrain && nextTerrain.revision === lastRevision) return;
-      mesh.geometry.dispose();
-      mesh.geometry = buildTerrainGeometry(nextTerrain, nextParams);
-      // The rebuild produced a fresh, untinted color buffer — re-snapshot it as the new base, and
-      // drop the "already tinted" flag so the next tinted frame writes rather than short-circuits.
+
+      const positionAttribute = mesh.geometry.getAttribute("position") as THREE.BufferAttribute;
+      const colorAttribute = mesh.geometry.getAttribute("color") as THREE.BufferAttribute;
+      const sameGridSize = positionAttribute.count === nextTerrain.cols * nextTerrain.rows;
+
+      if (sameGridSize) {
+        // The common case by far — an edit changes elevation and colour but never the grid's
+        // topology, so the existing buffers and the entire index list stay valid. Rewriting the
+        // two attributes in place skips reallocating them and regenerating ~14,000 identical
+        // indices, which matters because this runs EVERY TICK for the whole duration of a barrier
+        // formation or crater recovery.
+        fillTerrainBuffers(positionAttribute.array as Float32Array, colorAttribute.array as Float32Array, nextTerrain, nextParams);
+        positionAttribute.needsUpdate = true;
+        colorAttribute.needsUpdate = true;
+        // Normals genuinely do change with elevation, so this one can't be skipped — it's the bulk
+        // of the remaining cost, and correctness (lighting on a reshaped hill) depends on it.
+        mesh.geometry.computeVertexNormals();
+      } else {
+        // Only reachable if the grid itself was resized (a different gridCellSize or world size),
+        // which no current code path does mid-run — but silently rendering the wrong topology would
+        // be far worse than paying for a rebuild here.
+        mesh.geometry.dispose();
+        mesh.geometry = buildTerrainGeometry(nextTerrain, nextParams);
+      }
+
+      // Re-snapshot the now-current untinted colours as the base, and drop the "already tinted"
+      // flag so the next tinted frame writes rather than short-circuiting.
       baseColors = (mesh.geometry.getAttribute("color") as THREE.BufferAttribute).array.slice() as Float32Array;
       tintApplied = false;
       lastTerrain = nextTerrain;

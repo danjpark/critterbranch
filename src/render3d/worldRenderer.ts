@@ -9,8 +9,8 @@ import { cellIndexAt } from "../sim/trees.ts";
 import { clamp01, lerp } from "../sim/util.ts";
 import { createWorldScene, type WorldScene } from "./scene.ts";
 import { createTerrainMesh, HEIGHT_SCALE, type TerrainMeshHandle } from "./terrainMesh.ts";
-import { createCreatureModel, type CreatureModel } from "./creatureModel.ts";
-import { createTreeModel, type TreeModel } from "./treeModel.ts";
+import { createCreatureField } from "./creatureField.ts";
+import { createTreeField } from "./treeField.ts";
 
 /**
  * Ties the Three.js scene/terrain/creature/tree pieces together into one World view (SPEC.md
@@ -68,8 +68,13 @@ export function createWorldRenderer(canvas: HTMLCanvasElement, params: Params, i
   const terrainHandle: TerrainMeshHandle = createTerrainMesh(initialState.evolution.terrain, params);
   scene.scene.add(terrainHandle.mesh);
 
-  const creatureModels = new Map<number, CreatureModel>();
-  const treeModels = new Map<number, TreeModel>();
+  // Instanced fields rather than a Map of per-entity models (SPEC.md Addendum 26): draw cost is now
+  // a fixed handful of calls regardless of population, and there is no per-entity lifecycle to
+  // track — an entity that isn't queued this frame simply isn't drawn, so death and the lineage
+  // filter both need no explicit teardown.
+  const creatureField = createCreatureField();
+  const treeField = createTreeField();
+  scene.scene.add(creatureField.root, treeField.root);
 
   const selectionRing = new THREE.Mesh(
     new THREE.RingGeometry(0.85, 1, 16),
@@ -94,16 +99,8 @@ export function createWorldRenderer(canvas: HTMLCanvasElement, params: Params, i
     const richnessSpan = Math.max(renderParams.treeFruitCapacity - poorCapacityFloor, 1e-6);
     const cellSize = Math.min(renderParams.worldWidth / terrain.cols, renderParams.worldHeight / terrain.rows);
 
-    const liveTreeIds = new Set<number>();
+    treeField.begin();
     for (const tree of trees.trees) {
-      liveTreeIds.add(tree.id);
-      let model = treeModels.get(tree.id);
-      if (!model) {
-        model = createTreeModel(tree.id);
-        treeModels.set(tree.id, model);
-        scene.scene.add(model.root);
-      }
-
       const idx = cellIndexAt(tree.x, tree.y, renderParams, world);
       const ceiling = tree.capacity * terrain.fertility[idx];
       const fruitFrac = ceiling > 1e-6 ? clamp01(world.fruit[idx] / ceiling) : 0;
@@ -113,48 +110,25 @@ export function createWorldRenderer(canvas: HTMLCanvasElement, params: Params, i
       const canopyRadius = lerp(cellSize * MIN_CANOPY_RADIUS_FRAC, grownRadius, growth);
       const trunkHeight = lerp(canopyRadius * 0.6, canopyRadius * 1.4, growth);
 
-      model.root.position.set(tree.x, terrainHeightAt(state, renderParams, tree.x, tree.y), tree.y);
-      model.update(tree.id, canopyRadius, trunkHeight, fruitFrac);
+      treeField.add(tree.id, tree.x, terrainHeightAt(state, renderParams, tree.x, tree.y), tree.y, canopyRadius, trunkHeight, fruitFrac);
     }
-    for (const [id, model] of treeModels) {
-      if (liveTreeIds.has(id)) continue;
-      scene.scene.remove(model.root);
-      treeModels.delete(id);
-    }
+    treeField.commit();
 
-    const liveCreatureIds = new Set<number>();
+    creatureField.begin();
     let selectedWorldPos: THREE.Vector3 | null = null;
     for (const creature of state.evolution.creatures) {
       if (options.lineageFilter && !options.lineageFilter.has(creature.lineageId)) continue;
-      liveCreatureIds.add(creature.id);
-
-      let model = creatureModels.get(creature.id);
-      if (!model) {
-        model = createCreatureModel();
-        creatureModels.set(creature.id, model);
-        scene.scene.add(model.root);
-      }
 
       const morphology = derivePhenotype(creature.genome, renderParams).morphology;
       const fill = cachedGenotypeColor(creature, state.evolution.foundingCentroid, options.colorOptions);
       const y = terrainHeightAt(state, renderParams, creature.x, creature.y);
-      model.root.position.set(creature.x, y, creature.y);
-      // Three.js rotation.y is measured from +Z toward +X; the sim's heading is measured from +X
-      // toward +Y (standard atan2(dy,dx)) — negating heading here is what makes "facing +X" agree
-      // between the two conventions instead of a creature visually facing backward.
-      model.root.rotation.y = -creature.heading;
-      model.update(morphology, fill);
+      creatureField.add(creature.x, y, creature.y, creature.heading, morphology, fill);
 
       if (options.selectedCreatureId === creature.id) {
         selectedWorldPos = new THREE.Vector3(creature.x, y, creature.y);
       }
     }
-    for (const [id, model] of creatureModels) {
-      if (liveCreatureIds.has(id)) continue;
-      scene.scene.remove(model.root);
-      model.dispose();
-      creatureModels.delete(id);
-    }
+    creatureField.commit();
 
     if (selectedWorldPos) {
       selectionRing.visible = true;

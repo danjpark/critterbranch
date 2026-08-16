@@ -37,6 +37,12 @@ export interface RunConfig {
   seed: number;
   params: RunParams;
   interventionLog: Intervention[];
+  /** Human-readable descriptions of any param values parseRunConfig had to repair on the way in
+   * (see params.ts's sanitizeParams). Empty for a well-formed file. Carried on the config so the
+   * loading UI can TELL the player their scenario isn't running quite as written — silently
+   * substituting values and saying nothing would make a replay diverge from its author's intent
+   * with no way to notice. */
+  paramRepairs: string[];
 }
 
 /**
@@ -54,6 +60,9 @@ export function createRunConfig(seed: number, params: Params, interventionLog: I
     seed,
     params: groupParams(params),
     interventionLog: [...interventionLog],
+    // A config built from a live run's own params never needs repairing — those came from the sim,
+    // not from a file.
+    paramRepairs: [],
   };
 }
 
@@ -105,6 +114,9 @@ export function parseRunConfig(value: unknown): RunConfig | null {
       seed: candidate.seed,
       params: DEFAULT_RUN_PARAMS,
       interventionLog: candidate.interventionLog,
+      // A legacy file carries no params at all, so there is nothing to repair — it's running on
+      // current defaults, which the LEGACY_SCHEMA_VERSION tag already communicates.
+      paramRepairs: [],
     };
   }
 
@@ -120,7 +132,7 @@ export function parseRunConfig(value: unknown): RunConfig | null {
   // still carry a string, a NaN, or a zero cadence in a field that silently disables or poisons a
   // whole subsystem downstream. See params.ts's sanitizeParams for which values those are and why
   // each one is dangerous rather than merely unusual.
-  const { params } = sanitizeParams(flattenParams(merged));
+  const { params, repairs } = sanitizeParams(flattenParams(merged));
 
   return {
     schemaVersion: typeof candidate.schemaVersion === "number" ? candidate.schemaVersion : RUN_CONFIG_SCHEMA_VERSION,
@@ -128,5 +140,6 @@ export function parseRunConfig(value: unknown): RunConfig | null {
     seed: candidate.seed,
     params: groupParams(params),
     interventionLog: candidate.interventionLog,
+    paramRepairs: repairs,
   };
 }

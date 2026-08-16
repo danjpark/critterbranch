@@ -1,9 +1,23 @@
-import type { ColorOptions } from "../app/simRunner.ts";
 import type { Creature } from "../sim/creature.ts";
 import { GENE_RANGES, type Genome, geneticDistance } from "../sim/genome.ts";
 import { clamp, clamp01, lerp } from "../sim/util.ts";
 
-export type { ColorOptions };
+/**
+ * How a creature's genome maps to a fill color — interpreted by genotypeColor() below.
+ *
+ * Defined here rather than in app/simRunner.ts (where it used to live, so SimRunner wouldn't have
+ * to import from render/). That had the dependency backwards: render/color.ts ended up importing
+ * from app/, which imports ui/controls.ts, which is full of DOM types — so a headless script that
+ * touched any colour code dragged the whole DOM in behind it and failed to typecheck against the
+ * scripts config. A type describing how to colour a genome is a rendering concern; the app layer
+ * importing it from here is the direction that doesn't cycle.
+ */
+export interface ColorOptions {
+  /** Restricts hue to the blue<->orange arc instead of the full wheel (diet is otherwise a red/green split). */
+  deuteranopiaSafe: boolean;
+  /** Raw genetic distance (see sim/genome.ts) that maps to the maximum chroma (0.20). */
+  divergenceScale: number;
+}
 
 function normalizeGene(gene: keyof Genome, value: number): number {
   const [min, max] = GENE_RANGES[gene];
