@@ -75,7 +75,17 @@ describe("stepTrees — maturity", () => {
   });
 
   it("does not regrow fruit for a still-immature sapling", () => {
-    const { params, terrain, world } = setup({ richTreeCount: 0, poorTreeCount: 0, treeMaturityTicks: 100 });
+    // Every tree source has to be off, not just the two named ones: the assertion is that THIS cell
+    // holds no fruit, so any other tree initTrees happens to drop in it invalidates the test rather
+    // than failing it honestly. (It did exactly that once the world grew — a shallow-water tree
+    // landed in the same cell and the test reported the sapling had grown fruit.)
+    const { params, terrain, world } = setup({
+      richTreeCount: 0,
+      poorTreeCount: 0,
+      poorClusterCount: 0,
+      shallowWaterTreeCount: 0,
+      treeMaturityTicks: 100,
+    });
     const rng = new RNG(2);
     const treeState: TreeState = { nextId: 1, trees: [{ id: 0, x: 10, y: 10, plantedTick: 0, maturedTick: null, capacity: params.treeFruitCapacity }] };
     stepTrees(treeState, world, terrain, rng, params, 1);

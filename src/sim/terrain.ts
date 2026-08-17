@@ -109,6 +109,67 @@ function seaLevelForTargetWaterFraction(elevation: Float64Array, targetFraction:
 }
 
 /**
+ * How much of the map's own land sits above sea level, over the INTERIOR only — the region the
+ * ocean border (below) doesn't touch. Sea level has to be chosen from these cells alone, or the
+ * border's own deep water dominates the percentile and drags the waterline so low that the interior
+ * ends up with no lakes or coastline at all.
+ */
+function interiorElevation(elevation: Float64Array, cols: number, rows: number, borderCells: number): Float64Array {
+  if (borderCells <= 0) return elevation;
+  const interior: number[] = [];
+  for (let y = borderCells; y < rows - borderCells; y++) {
+    for (let x = borderCells; x < cols - borderCells; x++) interior.push(elevation[y * cols + x]);
+  }
+  return interior.length > 0 ? Float64Array.from(interior) : elevation;
+}
+
+/** Smoothstep — a gentler blend than a straight ramp, so the coast reads as a shelving beach rather
+ * than a step down into the sea. */
+function smoothstep(t: number): number {
+  const c = clamp01(t);
+  return c * c * (3 - 2 * c);
+}
+
+/**
+ * Drowns the outer margin of the map in deep ocean, turning a toroidal world into an island
+ * continent (SPEC.md Addendum 31).
+ *
+ * The map wraps in both axes, which meant a barrier drawn across it separated nothing: creatures
+ * simply walked off one edge and back on the other. Measured directly — 120 creatures seeded west of
+ * a fully impassable wall, and 75 of them were east of it within 2,000 ticks, having gone around
+ * through the seam. Every "allopatric" split the player thought they had engineered was actually
+ * drift.
+ *
+ * Making the border unreachable fixes that without touching the sim's spatial mathematics at all:
+ * the wrap still exists, but no land creature can get to it, so a wall drawn coast to coast is a
+ * real division. Deliberately NOT a hard rectangle — the underlying terrain noise survives inside
+ * the blend, so the coastline comes out irregular, with bays and headlands, and the shallow band on
+ * the way down is real habitat (SPEC.md Addendum 10) rather than a wall.
+ *
+ * Not absolute, on purpose: a strongly water-adapted lineage can eventually cross deep water (that
+ * is exactly what Addendum 12's aquaticAdaptation is for), so isolation is strong but escapable —
+ * which is a more interesting rule than an impassable edge.
+ */
+function carveOceanBorder(elevation: Float64Array, cols: number, rows: number, borderCells: number, oceanFloor: number): void {
+  if (borderCells <= 0) return;
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      // Distance to the nearest edge, in cells; 0 at the very edge.
+      const edgeDistance = Math.min(x, y, cols - 1 - x, rows - 1 - y);
+      if (edgeDistance >= borderCells) continue;
+      // 0 at the outermost cell, 1 where the border ends and natural terrain resumes. Blending
+      // toward an absolute floor ELEVATION rather than subtracting a depth: sea level is itself a
+      // signed elevation that is usually negative, so subtracting a "depth" from the terrain left
+      // the rim above the waterline on exactly the maps where the waterline sat low — measured at
+      // 0.254 passability on the outer ring, which creatures simply walked around.
+      const landFraction = smoothstep(edgeDistance / borderCells);
+      const idx = y * cols + x;
+      elevation[idx] = elevation[idx] * landFraction + oceanFloor * (1 - landFraction);
+    }
+  }
+}
+
+/**
  * Generates elevation as a sum of random Gaussian hills and basins (signed amplitude — roughly
  * half raise the land, half carve troughs), normalized symmetrically around 0. seaLevel is then
  * chosen per-map via seaLevelForTargetWaterFraction so land/sea area is consistent across seeds
@@ -143,7 +204,13 @@ export function generateTerrain(rng: RNG, params: Params, cols: number, rows: nu
     }
   }
 
-  const seaLevel = seaLevelForTargetWaterFraction(elevation, params.seaLevelTargetWaterFraction);
+  // Sea level first, from the interior only, THEN the border is carved — so the waterline is set by
+  // the landmass the player actually lives on, and the ocean is unambiguously below it rather than
+  // competing to define it.
+  const borderCells = Math.round(Math.min(cols, rows) * params.oceanBorderFraction);
+  const seaLevel = seaLevelForTargetWaterFraction(interiorElevation(elevation, cols, rows, borderCells), params.seaLevelTargetWaterFraction);
+  carveOceanBorder(elevation, cols, rows, borderCells, seaLevel - params.oceanBorderDepth);
+
   const passability = new Float64Array(cols * rows);
   const fertility = new Float64Array(cols * rows);
   for (let i = 0; i < elevation.length; i++) {

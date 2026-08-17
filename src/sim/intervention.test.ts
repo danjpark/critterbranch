@@ -9,6 +9,15 @@ import { createSimState, tick, applyInterventionNow, runSimulation } from "./sim
 import { hashState } from "./testHash.ts";
 import { DEFAULT_PARAMS } from "../params.ts";
 
+/**
+ * A genuinely featureless world, for tests that measure a brush's own SHAPE and need a known
+ * baseline to subtract. `terrainHillCount: 0` alone stopped being enough once the ocean border
+ * landed (SPEC.md Addendum 31) — the border carves the rim whatever the hill count, so cell 0 (a
+ * corner) reads as ocean floor rather than flat ground, and every delta measured against it is
+ * wrong by the full ocean depth.
+ */
+const FLAT_WORLD = { ...DEFAULT_PARAMS, terrainHillCount: 0, oceanBorderFraction: 0 };
+
 describe("raiseTerrain / lowerTerrain", () => {
   it("raiseTerrain increases elevation and decreases passability/fertility at the target point", () => {
     const { state, rng } = createSimState(1, DEFAULT_PARAMS);
@@ -53,7 +62,7 @@ describe("raiseTerrain / lowerTerrain", () => {
   describe("brush profile", () => {
     /** Elevation rise at a given fraction of the brush radius from the centre, on flat terrain. */
     function riseProfile(tool: "raiseTerrain" | "raiseCliff", fractions: number[]): number[] {
-      const params = { ...DEFAULT_PARAMS, terrainHillCount: 0 };
+      const params = FLAT_WORLD;
       const { state, rng } = createSimState(1, params);
       const cx = params.worldWidth / 2;
       const cy = params.worldHeight / 2;
@@ -84,7 +93,7 @@ describe("raiseTerrain / lowerTerrain", () => {
     });
 
     it("keeps one full-strength click in proportion to the world's own terrain scale", () => {
-      const params = { ...DEFAULT_PARAMS, terrainHillCount: 0 };
+      const params = FLAT_WORLD;
       const { state, rng } = createSimState(1, params);
       const before = state.evolution.terrain.elevation[0];
       applyIntervention(state.evolution, rng, params, {
@@ -102,7 +111,7 @@ describe("raiseTerrain / lowerTerrain", () => {
     });
 
     it("carves a chasm downward, mirroring the cliff it raises", () => {
-      const params = { ...DEFAULT_PARAMS, terrainHillCount: 0 };
+      const params = FLAT_WORLD;
       const { state, rng } = createSimState(1, params);
       const gx = Math.floor(params.worldWidth / 2 / params.gridCellSize);
       const gy = Math.floor(params.worldHeight / 2 / params.gridCellSize);
@@ -121,16 +130,15 @@ describe("raiseTerrain / lowerTerrain", () => {
   // Regression: a radius wider than half the world let the wrapped cell scan reach the same cell
   // from both directions and list it twice, and the elevation delta is applied once PER LISTED
   // ENTRY — so one click compounded on those cells. Not reachable from the shipping brush slider
-  // (max 60 in a 200-wide world) but entirely reachable from an imported scenario, which nothing
-  // validates.
+  // but entirely reachable from an imported scenario, which nothing validates.
   it("applies a world-spanning brush radius exactly once per cell, not twice on the wrapped cells", () => {
-    const params = { ...DEFAULT_PARAMS, terrainHillCount: 0 };
+    const params = FLAT_WORLD;
     const { state, rng } = createSimState(1, params);
     const flat = state.evolution.terrain.elevation[0];
     expect(Array.from(state.evolution.terrain.elevation).every((e) => e === flat)).toBe(true);
 
-    // Radius covers the whole 200-unit world from its centre, so every cell is in range and the
-    // wrapped scan overlaps itself in both axes.
+    // Radius covers the whole world from its centre, so every cell is in range and the wrapped scan
+    // overlaps itself in both axes.
     applyIntervention(state.evolution, rng, params, {
       tick: 0,
       tool: "raiseTerrain",

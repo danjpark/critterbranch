@@ -193,17 +193,22 @@ describe("Phase 4 milestone: hand-raised barrier produces a detected, logged all
     // implementation-status note). Seed 10 splits fastest of those checked (tick 21).
     const { state, rng } = createSimState(10, params);
 
-    // Stamp a wall down the middle of the map, instantly.
+    // Stamp a wall down the middle of the map, instantly. Expressed relative to the world's own
+    // dimensions rather than hard-coded 100/200 so it stays a full-height, mid-map wall whatever
+    // size the world is — the hard-coded version silently became a half-height wall creatures could
+    // walk around when the world grew to 400x400 (SPEC.md Addendum 31).
+    const midX = params.worldWidth / 2;
     applyIntervention(state.evolution, rng, params, {
       tick: 0,
       tool: "barrierStamp",
-      params: { x1: 100, y1: 0, x2: 100, y2: 200, width: 10, targetPassability: 0, formationTicks: 0 },
+      params: { x1: midX, y1: 0, x2: midX, y2: params.worldHeight, width: params.worldWidth * 0.05, targetPassability: 0, formationTicks: 0 },
     });
 
     // Seed two clearly genetically-distinct founding groups, one on each side of the wall — close
-    // enough to it (x=100) that it's genuinely on their shortest path. worldWidth is 200, so
-    // x=30/x=170 would actually be *closer* via wraparound (60 apart) than through this wall (140
-    // apart), which would make the wall irrelevant to them on a true torus.
+    // enough to it that it's genuinely on their shortest path. Placed at 15% of the world's width
+    // either side of centre: any wider and the pair would be *closer* via wraparound than through
+    // the wall, which would make the wall irrelevant to them on a true torus.
+    const offset = params.worldWidth * 0.15;
     applyIntervention(state.evolution, rng, params, {
       tick: 0,
       tool: "seedFounders",
@@ -215,12 +220,12 @@ describe("Phase 4 milestone: hand-raised barrier produces a detected, logged all
       // collapse the founder population before a split could be confirmed. aquaticAdaptation: 0
       // pinned for the identical reason once that gene (SPEC.md Addendum 12) started giving an
       // incidental draw a real, previously-inert movement cost.
-      params: { x: 70, y: 100, spreadRadius: 15, count: 15, genome: makeGenome({ offspringInvestment: 0.05, speed: 0.4, carnivory: 0, aquaticAdaptation: 0 }) },
+      params: { x: midX - offset, y: params.worldHeight / 2, spreadRadius: 15, count: 15, genome: makeGenome({ offspringInvestment: 0.05, speed: 0.4, carnivory: 0, aquaticAdaptation: 0 }) },
     });
     applyIntervention(state.evolution, rng, params, {
       tick: 0,
       tool: "seedFounders",
-      params: { x: 130, y: 100, spreadRadius: 15, count: 15, genome: makeGenome({ offspringInvestment: 0.95, speed: 0.4, carnivory: 0, aquaticAdaptation: 0 }) },
+      params: { x: midX + offset, y: params.worldHeight / 2, spreadRadius: 15, count: 15, genome: makeGenome({ offspringInvestment: 0.95, speed: 0.4, carnivory: 0, aquaticAdaptation: 0 }) },
     });
 
     let foundAllopatricSplit = false;
@@ -248,8 +253,13 @@ describe("Phase 4 milestone: hand-raised barrier produces a detected, logged all
 });
 
 describe("classifyMechanism: torus-aware spatial geometry", () => {
-  // worldWidth=200, gridCellSize=4 -> 50 grid columns (gx 0..49), each covering 4 world units.
-  const params = DEFAULT_PARAMS;
+  // A self-contained 200x200 world so the hand-built 50x50 terrain grid below lines up with the
+  // params the classifier measures against (gridCellSize=4 -> 50 columns, each 4 world units).
+  // Deliberately NOT DEFAULT_PARAMS: these are unit tests of the torus math itself, and pinning the
+  // geometry here keeps them from silently going incoherent whenever the shipping world resizes —
+  // which is exactly what happened when it grew to 400x400 and the classifier started reading a
+  // 100-column world out of a 50-column grid.
+  const params = { ...DEFAULT_PARAMS, worldWidth: 200, worldHeight: 200 };
 
   it("does not mistake a mid-map barrier for one on the clusters' true (wrapped, short) path", () => {
     // A barrier sits in the middle of the map (world x ~88-112). Two clusters sit near opposite

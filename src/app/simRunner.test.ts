@@ -203,14 +203,21 @@ describe("SimRunner autoPace", () => {
   // isn't. The 3000-tick lower bound is well past DEFAULT_RAMP_CONFIG.rampTicks (300), so it tests
   // the equilibrium check itself, not the opening ramp.
   it("fast-forwards once the ecosystem has been stable for a while, and not before", () => {
-    const runner = new SimRunner(7);
+    // Re-swept from seed 7 to seed 3 after SPEC.md Addendum 31 quadrupled the world: a 400x400 map
+    // supports a far larger carrying capacity and takes correspondingly longer to reach it, so most
+    // seeds are still climbing well past the old 5,000-tick horizon. Measured directly over seeds
+    // 1/3/5/7 out to 16,000 ticks: only seed 3 settles at all (tick 6,501); 1, 5 and 7 never do,
+    // with seed 7 still growing at 3,314 creatures when the probe ended. See the summary in
+    // Addendum 31 — that the fast-forward now rarely fires is a balance consequence of the resize,
+    // not a defect in the detector, whose tolerances are all fractional and so scale-invariant.
+    const runner = new SimRunner(3);
     for (let i = 0; i < 3000; i++) runner.stepOnce();
 
     runner.setAutoPace(true);
     runner.setSpeed(10);
     expect(runner.isFastForwarding()).toBe(false); // still actively changing this early
 
-    for (let i = 0; i < 2000; i++) runner.stepOnce();
+    for (let i = 0; i < 4500; i++) runner.stepOnce();
     expect(runner.isFastForwarding()).toBe(true);
 
     // Fast-forwarding routes through the same time-boxed budget "max" speed uses (see advance()),

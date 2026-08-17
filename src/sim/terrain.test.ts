@@ -1,9 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { elevationBand, generateTerrain, passabilityFromSteepness, terrainDerivedFields } from "./terrain.ts";
+import { elevationBand, generateTerrain, passabilityFromSteepness, terrainDerivedFields, type TerrainGrid } from "./terrain.ts";
 import { RNG } from "./rng.ts";
-import { DEFAULT_PARAMS } from "../params.ts";
+import { DEFAULT_PARAMS, type Params } from "../params.ts";
 
 const ROUGHNESS = 0.3;
+
+/**
+ * The cells the ocean border (SPEC.md Addendum 31) doesn't touch — the landmass the player actually
+ * plays on. Yields [x, y, elevation]. Mirrors generateTerrain's own borderCells derivation, so if
+ * the border width changes these tests follow it instead of silently measuring the wrong region.
+ */
+function* interiorCells(terrain: TerrainGrid, params: Params): Generator<[number, number, number]> {
+  const border = Math.round(Math.min(terrain.cols, terrain.rows) * params.oceanBorderFraction);
+  for (let y = border; y < terrain.rows - border; y++) {
+    for (let x = border; x < terrain.cols - border; x++) yield [x, y, terrain.elevation[y * terrain.cols + x]];
+  }
+}
 
 // Moved from render/terrainPalette.test.ts — elevationBand's definition moved here too (SPEC.md
 // Addendum 15), since it's pure domain classification, not a rendering concern.
@@ -50,13 +62,43 @@ describe("generateTerrain", () => {
     expect(terrainA.seaLevel).toBe(terrainB.seaLevel);
   });
 
-  it("keeps elevation within [-terrainRoughness, terrainRoughness] (signed hills, symmetric normalization)", () => {
+  it("keeps INTERIOR elevation within [-terrainRoughness, terrainRoughness] (signed hills, symmetric normalization)", () => {
+    // The ocean border (SPEC.md Addendum 31) is deliberately outside this range — it blends toward
+    // an absolute floor below sea level so the rim is unambiguously deep water. Everything the
+    // player actually lives on still obeys the symmetric normalization.
     const params = { ...DEFAULT_PARAMS, terrainRoughness: 0.4 };
     const terrain = generateTerrain(new RNG(1), params, 20, 20);
-    for (const e of terrain.elevation) {
-      expect(e).toBeGreaterThanOrEqual(-0.4 - 1e-9);
-      expect(e).toBeLessThanOrEqual(0.4 + 1e-9);
+    for (const [x, y, e] of interiorCells(terrain, params)) {
+      expect(e, `cell ${x},${y}`).toBeGreaterThanOrEqual(-0.4 - 1e-9);
+      expect(e, `cell ${x},${y}`).toBeLessThanOrEqual(0.4 + 1e-9);
     }
+  });
+
+  // SPEC.md Addendum 31. The island border is what makes a hand-drawn barrier mean anything: the
+  // map still wraps, but no land creature can reach the seam to walk around a wall through it.
+  it("drowns the outer rim deep enough that it is impassable", () => {
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      const terrain = generateTerrain(new RNG(seed), DEFAULT_PARAMS, 40, 40);
+      let rimBest = 0;
+      for (let x = 0; x < terrain.cols; x++) {
+        rimBest = Math.max(rimBest, terrain.passability[x], terrain.passability[(terrain.rows - 1) * terrain.cols + x]);
+      }
+      for (let y = 0; y < terrain.rows; y++) {
+        rimBest = Math.max(rimBest, terrain.passability[y * terrain.cols], terrain.passability[y * terrain.cols + terrain.cols - 1]);
+      }
+      expect(rimBest, `seed ${seed}`).toBe(0);
+    }
+  });
+
+  it("leaves the interior coastline irregular rather than stamping a rectangular island", () => {
+    // The border blends toward the ocean floor, so the underlying hill noise survives inside it —
+    // a hard rectangle would read as a game board rather than a continent. Measured as: the depth
+    // at a fixed distance from the edge is not the same all the way around.
+    const terrain = generateTerrain(new RNG(3), DEFAULT_PARAMS, 60, 60);
+    const borderCells = Math.round(Math.min(terrain.cols, terrain.rows) * DEFAULT_PARAMS.oceanBorderFraction);
+    const ring: number[] = [];
+    for (let x = borderCells; x < terrain.cols - borderCells; x++) ring.push(terrain.elevation[borderCells * terrain.cols + x]);
+    expect(Math.max(...ring) - Math.min(...ring)).toBeGreaterThan(0.05);
   });
 
   it("keeps passability and fertility within [0, 1]", () => {
@@ -74,14 +116,15 @@ describe("generateTerrain", () => {
   // 100% water coverage across 5 seeds at a fixed seaLevel=0 before this fix. Percentile-based
   // seaLevel selection (seaLevelForTargetWaterFraction) is what actually keeps it stable.
   it("hits its target water fraction consistently across seeds, not just on average", () => {
-    const cols = 30;
-    const rows = 30;
+    // Measured over the INTERIOR since Addendum 31: the ocean border is water by construction, so
+    // counting it would just report the border's own size. seaLevel is likewise chosen from the
+    // interior alone — otherwise the border's deep water dominates the percentile and drags the
+    // waterline so low the landmass has no lakes or coast at all.
     for (const seed of [1, 2, 3, 4, 5, 6]) {
-      const terrain = generateTerrain(new RNG(seed), DEFAULT_PARAMS, cols, rows);
-      let underwater = 0;
-      for (const e of terrain.elevation) if (e < terrain.seaLevel) underwater++;
-      const fraction = underwater / terrain.elevation.length;
-      expect(fraction).toBeCloseTo(DEFAULT_PARAMS.seaLevelTargetWaterFraction, 1);
+      const terrain = generateTerrain(new RNG(seed), DEFAULT_PARAMS, 30, 30);
+      const interior = [...interiorCells(terrain, DEFAULT_PARAMS)];
+      const underwater = interior.filter(([, , e]) => e < terrain.seaLevel).length;
+      expect(underwater / interior.length, `seed ${seed}`).toBeCloseTo(DEFAULT_PARAMS.seaLevelTargetWaterFraction, 1);
     }
   });
 });

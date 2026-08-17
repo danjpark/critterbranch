@@ -146,6 +146,16 @@ export interface Params {
    * (found necessary empirically — see sim/terrain.ts's seaLevelForTargetWaterFraction and SPEC.md
    * Addendum 9). */
   seaLevelTargetWaterFraction: number;
+  /** Fraction of the map's shorter side drowned in deep ocean at each edge, turning the toroidal
+   * world into an island continent (SPEC.md Addendum 31). 0 restores the old wrap-around map, where
+   * a barrier drawn across the world separated nothing because creatures walked around through the
+   * seam. The blend is smooth and the underlying terrain noise survives inside it, so this produces
+   * an irregular coastline with bays and headlands rather than a rectangular frame. */
+  oceanBorderFraction: number;
+  /** How far below sea level the outermost ring sits. Deep enough that a land creature's
+   * passability there is effectively zero — see waterPassabilitySteepness — while still being
+   * crossable by a strongly water-adapted lineage, which is deliberate. */
+  oceanBorderDepth: number;
   /** Passability falloff per unit of depth below sea level — deliberately much steeper than
    * passabilitySteepness so water reads as near-impassable by default (no creature can swim well
    * until M5/M6 give some genotype a real advantage). See SPEC.md Addendum 9. */
@@ -215,9 +225,20 @@ export interface Params {
   consumptionDecayIntervalTicks: number;
 }
 
+/*
+ * The world is 400x400 — four times the land area of the original 200x200 (SPEC.md Addendum 31).
+ * Every count below that describes a DENSITY over that area was multiplied by four to match, so the
+ * world feels the same to be in, just larger: tree counts, cluster counts, the tree cap, and the
+ * founding population. Radii, rates, thresholds and per-creature costs are all scale-free and were
+ * left exactly as they were.
+ *
+ * Affordable now specifically because of Addendum 26: draw calls are a function of how many
+ * distinct body parts exist, not how many creatures do, so a four-times-larger world with four
+ * times the population costs the same eleven draw calls it did before.
+ */
 export const DEFAULT_PARAMS: Params = {
-  worldWidth: 200,
-  worldHeight: 200,
+  worldWidth: 400,
+  worldHeight: 400,
   gridCellSize: 4,
 
   baseCost: 0.01,
@@ -243,18 +264,18 @@ export const DEFAULT_PARAMS: Params = {
   // dozens of cells; a tree occupies one), so matching the old system's spatial food coverage
   // needs many more of them — found empirically when the foraging-axis golden scenario stopped
   // producing any disruptive pressure at the original lower counts.
-  richTreeCount: 4,
-  poorTreeCount: 200,
-  poorClusterCount: 25,
+  richTreeCount: 16,
+  poorTreeCount: 800,
+  poorClusterCount: 100,
   poorClusterRadius: 4,
   patchBimodality: 1.0,
-  shallowWaterTreeCount: 30,
+  shallowWaterTreeCount: 120,
   treeMaturityTicks: 300,
   treeFruitCapacity: 3.0,
   treeFruitRegrowthRate: 0.05,
   saplingChance: 0.02,
   saplingSpreadRadius: 12,
-  maxTreeCount: 350,
+  maxTreeCount: 1400,
   crowdingRadius: 20,
   baseDeathChancePerCheck: 0.01,
   crowdingDeathMultiplier: 0.15,
@@ -267,18 +288,20 @@ export const DEFAULT_PARAMS: Params = {
   maxOffspringCount: 4,
   nursingRatePerTick: 0.004,
 
-  terrainHillCount: 5,
+  terrainHillCount: 14,
   terrainRoughness: 0.3,
   passabilitySteepness: 1.5,
   fertilitySteepness: 0.6,
   seaLevelTargetWaterFraction: 0.18,
+  oceanBorderFraction: 0.14,
+  oceanBorderDepth: 0.5,
   waterPassabilitySteepness: 10.0,
   shallowWaterMaxDepth: 0.04,
   shallowWaterFertilityCeiling: 0.35,
   aquaticLandPassabilitySteepness: 5.0,
   aquaticWaterPassabilitySteepness: 0.8,
 
-  foundingPopulationSize: 100,
+  foundingPopulationSize: 400,
 
   genotypeColorDivergenceScale: 0.35,
 
@@ -358,6 +381,8 @@ export interface TerrainParams {
   passabilitySteepness: number;
   fertilitySteepness: number;
   seaLevelTargetWaterFraction: number;
+  oceanBorderFraction: number;
+  oceanBorderDepth: number;
   waterPassabilitySteepness: number;
   shallowWaterMaxDepth: number;
   shallowWaterFertilityCeiling: number;
@@ -448,6 +473,8 @@ export function groupParams(p: Params): RunParams {
       passabilitySteepness: p.passabilitySteepness,
       fertilitySteepness: p.fertilitySteepness,
       seaLevelTargetWaterFraction: p.seaLevelTargetWaterFraction,
+      oceanBorderFraction: p.oceanBorderFraction,
+      oceanBorderDepth: p.oceanBorderDepth,
       waterPassabilitySteepness: p.waterPassabilitySteepness,
       shallowWaterMaxDepth: p.shallowWaterMaxDepth,
       shallowWaterFertilityCeiling: p.shallowWaterFertilityCeiling,

@@ -3280,3 +3280,171 @@ cliff. Next 1,500 ticks: population 100 to 425 (+325%)"*. Zero console errors.
   happened anyway. Comparing against the pre-action trend would be a real improvement and is a
   genuinely harder statistical claim.
 - **Game Mode only**, like the Critterdex — Classic Sandbox has no era structure to hang it on.
+
+## Addendum 31 — the island continent, and the barrier that never blocked anything
+
+Dan: *"Is there an enclosure tool? What if we make the map a little bit larger and did not have it
+wrap around kinda like a Starcraft map?"* — after observing that building a barrier didn't seem to
+make the two sides of the map meaningfully different.
+
+He was right, for a reason neither of us expected going in. There were **two** independent defects,
+and the second one was the real story.
+
+### Defect 1: the world wrapped, so a wall enclosed nothing
+
+The map is a torus in both axes. A wall drawn across it separated nothing — creatures walked off one
+edge and back on the other, straight around the end of it. Measured directly: 120 creatures seeded
+west of a fully impassable wall, and 75 of them were east of it within 2,000 ticks.
+
+**Fixed by drowning the outer margin** (`carveOceanBorder` in sim/terrain.ts), turning the torus into
+an island continent. This touches none of the sim's spatial mathematics: `wrap`/`torDelta`/`torDist`
+and their 54 call sites are unchanged, the world still wraps, but no land creature can reach the seam
+to use it. That is deliberately a much smaller change than making the world genuinely bounded, which
+would have meant auditing every one of those call sites.
+
+Three properties the border was built to have:
+
+- **Not a hard rectangle.** The blend runs toward an absolute ocean-floor elevation with a smoothstep
+  ramp, so the underlying hill noise survives inside it and the coastline comes out irregular — bays
+  and headlands, not a game board. There's a test asserting the coast is uneven at fixed distance
+  from the edge.
+- **The shallow band on the way down is real habitat**, per Addendum 10, rather than a wall.
+- **Not absolute.** A strongly water-adapted lineage can still cross deep water — that's exactly what
+  Addendum 12's `aquaticAdaptation` is for. Isolation is strong but escapable, which is a more
+  interesting rule than an impassable edge.
+
+Sea level is chosen from the **interior only** (`interiorElevation`), then the border is carved.
+Ordering matters: if the border's own deep water competes to define the percentile, the waterline
+drops so low the landmass has no lakes or coast at all.
+
+One bug worth recording, because the sign convention is genuinely easy to get wrong: the first
+version subtracted a *depth* from the terrain, but `seaLevel` is itself a signed elevation that is
+usually negative, so on maps with a low waterline the rim came out **above** it — measured at 0.254
+passability on the outer ring, which creatures simply walked around. Blending toward an absolute
+floor elevation (`seaLevel - oceanBorderDepth`) fixes it. Rim now measures 0.000 across every seed
+tested.
+
+### Defect 2: `barrierStamp` had no effect on movement at all
+
+With the island in place, creatures **still** crossed a wall marked fully impassable. 1 / 114 / 187 /
+353 of them east of it at ticks 2,000 / 6,000 / 12,000 / 20,000, with max `aquaticAdaptation` of only
+0.40 at the point they started getting through — so not swimmers, either.
+
+A grep for readers of `terrain.passability` found exactly one, in `sim/taxonomy.ts`:
+`sampleMinPassabilityAlongLine`, which the taxonomy uses to decide whether a split was allopatric.
+**The movement step never read it.** Since Addendum 12 gave movement its own phenotype-aware
+passability, `sim/creature.ts` recomputed the value from `terrain.elevation` and never consulted the
+field. `barrierStamp` only ever writes `terrain.passability`, and never touches elevation.
+
+So the barrier tool has been inert on movement since Milestone 6 — while still driving the
+*classification*. A player drew a wall, creatures walked through it, and the sim then labelled the
+resulting drift "allopatric — caused by your barrier." The label was real; the barrier wasn't. The
+existing barrier golden scenario passed throughout, because the classification fires whether or not
+isolation actually occurred — the test asserted the label, which was exactly the thing that was
+lying.
+
+This is the more important of the two findings. The island alone would not have fixed it, and it
+would have kept silently mis-attributing outcomes in the new run chronicle (Addendum 30), which
+credits the player specifically for allopatric splits following a barrier.
+
+**The fix**, in `movementEfficiency`: an *artificial obstruction* term, defined as the ratio between
+the passability actually recorded for a cell and what its elevation alone implies.
+
+```
+naturalPassability = passabilityFromSteepness(relative, <flat defaults>)
+obstruction = naturalPassability > 0 ? clamp01(recorded / natural) : 1
+travel = speed * effectivePassability * obstruction
+```
+
+Expressed as a ratio rather than a floor, for a specific reason: a floor (`min(phenotype, recorded)`)
+would break Addendum 12 outright, since `terrain.passability` is genotype-blind and near zero in deep
+water — it would have collapsed a water specialist's hard-won mobility to nothing. The ratio isolates
+only the *built* component. Consequences that fall out of it correctly:
+
+- On untouched terrain the two values are the identical function of the identical inputs, so the
+  ratio is exactly 1 and movement is **bit-identical** to before.
+- A wall stops a strong swimmer exactly as it stops a land specialist. A wall is a wall.
+- Deep water is unaffected: natural and recorded agree, ratio 1, and `aquaticAdaptation` still pays.
+- A partly-formed barrier scales proportionally, so `formationTicks` ramps slow before they block.
+
+**After both fixes**, same probe: 0 / 4 / 0 / 0 east of the wall at those same ticks (the transient 4
+is gone by 12,000). Rim 0.000, wall 0.000, 45.1% underwater.
+
+### The world is now 400x400
+
+Four times the area, with tree counts, founder population and hill count scaled to match. Verified
+live in the browser against the shipped modules: 400x400 world, 100x100 grid, rim passability 0,
+45.1% water.
+
+### Test fallout, and a decision about what these tests are for
+
+Twenty tests failed. They sorted into two genuinely different categories, and conflating them would
+have been the easy mistake:
+
+**Tests encoding a contract that actually changed** — rewritten to the new contract:
+
+- `terrain.test.ts`: elevation range and water fraction are now **interior** properties; the ocean
+  floor sits below the symmetric normalization band on purpose. Two new tests added for the border
+  itself (rim impassable across 6 seeds; coastline irregular).
+- `intervention.test.ts`: four brush-profile tests measured deltas against `elevation[0]` — a corner
+  cell, now ocean floor. `terrainHillCount: 0` alone no longer means "flat"; they needed
+  `oceanBorderFraction: 0` too, now a named `FLAT_WORLD` constant explaining why.
+- `taxonomy.test.ts`: the torus-geometry tests hand-build a 50x50 grid and were reading it through a
+  100-column world. Pinned to their own 200x200 params — they test the torus math, not the map size.
+- `trees.test.ts`: a test zeroed two of four tree sources and asserted a specific cell was empty; a
+  shallow-water tree landed in it and the test reported the sapling had grown fruit. It was
+  *invalidated*, not failing honestly. Now zeroes every source.
+
+**Tests pinned to seeds whose dynamics shifted** — handled by asking what each test is actually for:
+
+The long-horizon dynamics tests (`axisIsolation`, `goldenScenarios`) ask whether a *mechanism* works.
+That is not a claim about the map's dimensions, and every threshold in them was swept by hand at
+200x200. They now run at a named `CALIBRATED_WORLD` (`sim/testWorld.ts`), which reproduces the old
+`DEFAULT_PARAMS` exactly — so every seed sweep already recorded in those files stays valid, and future
+resizes don't force a re-sweep. It also matters practically: at 400x400 the life-history scenario ran
+278s against a 120s budget and timed out on something it wasn't testing. Suite went from 555s to 177s.
+
+Only one test genuinely needed a new seed — the barrier golden scenario, and that failure was
+**caused by the fix working**. Its re-sweep is the clearest evidence available: of seeds 1-12, seven
+now produce a genuine allopatric split, where the mechanism previously had to be hunted for. Seed 1 —
+the original choice before Addendum 12's churn displaced it — splits allopatrically again.
+
+The two equilibrium/fast-forward tests are about game pacing on the *shipping* world, so those were
+re-swept at 400x400 rather than shrunk. Their companion determinism test now asserts its own premise
+(that the run still fast-forwards) instead of trusting a comment — without that guard it would keep
+passing while covering nothing.
+
+### A balance finding Dan should decide on
+
+Measured across seeds 1/3/5/7 out to 16,000 ticks at 400x400: **only seed 3 ever reaches
+equilibrium** (tick 6,501). Seeds 1, 5 and 7 never do — seed 7 was still growing, at 3,314 creatures,
+when the probe ended.
+
+The equilibrium detector is not at fault; its tolerances are all fractional (range/mean, range over
+gene span) and therefore scale-invariant. The bigger map simply supports a far larger carrying
+capacity and takes much longer to reach it. Consequences: the auto-pace fast-forward now rarely
+fires, and the era pacing tuned in Addendum 29 was calibrated against a population that settled much
+sooner.
+
+**Dan's call: leave it.** Offered a larger founding population, faster tree regrowth, longer eras, or
+no change, he chose no change — a continent *should* feel slow to fill. So the slow settle is the
+intended feel, not a defect, and the rarely-firing fast-forward is an accepted consequence rather
+than something to tune around. Revisit only if it actually reads as dead time in play. Recorded here
+because the numbers above would otherwise look like an unresolved regression to the next reader.
+
+### Verification
+
+Typecheck clean on both configs. **470 tests, 469 passing and 1 skipped** (up from 463), 6 new. Live
+in the browser against the shipped modules: island confirmed, zero app console errors.
+
+### Known gaps
+
+- **Balance at 400x400 is unverified by play.** The params were scaled proportionally, which is a
+  starting point, not a tuning pass.
+- **`terrain.passability` is now load-bearing for movement**, having previously been read by one
+  classifier. Anything that writes it (meteor craters, sea-level changes, terrain brushes) now moves
+  creatures too. That is the intended semantics, but it is a wider blast radius than the field had.
+- **The obstruction ratio can't distinguish a built wall from a natural one** on cells where the two
+  computations legitimately diverge — there are none today, since only `barrierStamp` writes
+  passability without elevation, but a future tool that did both would read as partly artificial.
+

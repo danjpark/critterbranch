@@ -3,6 +3,7 @@ import { isBimodal } from "./bimodality.ts";
 import { GENE_KEYS } from "./genome.ts";
 import { createSimState, tick } from "./sim.ts";
 import { DEFAULT_PARAMS, type Params } from "../params.ts";
+import { calibratedParams } from "./testWorld.ts";
 
 // nursingRatePerTick: 0 flattens the nursing mechanic too, alongside the two remaining trade-off
 // axes (diet/Axis 1 was removed by SPEC.md Addendum 6 — one food type, fruit trees, no
@@ -44,7 +45,7 @@ const NEUTRAL: Partial<Params> = {
 };
 
 function runFor(seed: number, overrides: Partial<Params>, ticks: number) {
-  const params = { ...DEFAULT_PARAMS, ...overrides };
+  const params = calibratedParams(overrides);
   const { state, rng } = createSimState(seed, params);
   for (let i = 0; i < ticks; i++) tick(state, rng, params);
   return state;
@@ -74,7 +75,7 @@ describe("neutral control", () => {
       // this reason; holding this cruder raw-gene check to a lower bar than the system it's meant
       // to sanity-check was the actual bug, not the terrain.
       for (const seed of [1, 2, 3]) {
-        const params = { ...DEFAULT_PARAMS, ...NEUTRAL };
+        const params = calibratedParams(NEUTRAL);
         const { state, rng } = createSimState(seed, params);
         const consecutiveBimodalCount: Partial<Record<(typeof GENE_KEYS)[number], number>> = {};
 
@@ -129,7 +130,7 @@ describe("foraging axis in isolation", () => {
       // separation has fully resolved — confirmed by inspecting this exact run's actual events.
       // isBimodal on the raw gene values is the direct evidence that the axis has bite, the same
       // standard the neutral-control test above already holds every axis to.
-      const params = { ...DEFAULT_PARAMS, ...NEUTRAL, patchBimodality: 1.0 };
+      const params = calibratedParams({ ...NEUTRAL, patchBimodality: 1.0 });
       const { state, rng } = createSimState(2, params);
       const foragingGenes = ["speed", "senseRadius", "wanderPersistence"] as const;
       let sawForagingBimodality = false;

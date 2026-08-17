@@ -1,7 +1,7 @@
 import type { Params } from "../params.ts";
 import type { Genome } from "./genome.ts";
 import { deriveMorphology, type MorphologyProfile } from "./morphology.ts";
-import { lerp } from "./util.ts";
+import { clamp01, lerp } from "./util.ts";
 import { passabilityFromSteepness } from "./terrain.ts";
 
 /**
@@ -63,6 +63,10 @@ export function derivePhenotype(genome: Genome, params: Params): Phenotype {
 export interface MovementEnvironment {
   elevation: number;
   seaLevel: number;
+  /** The cell's RECORDED passability (terrain.passability). Normally exactly what elevation alone
+   * implies, but a built barrier drives it to near zero without touching elevation — see
+   * movementEfficiency for why that difference is the whole point. */
+  recordedPassability: number;
 }
 
 /**
@@ -80,7 +84,23 @@ export function movementEfficiency(phenotype: Phenotype, environment: MovementEn
   const landSteepness = lerp(params.passabilitySteepness, params.aquaticLandPassabilitySteepness, phenotype.aquaticAdaptation);
   const waterSteepness = lerp(params.waterPassabilitySteepness, params.aquaticWaterPassabilitySteepness, phenotype.aquaticAdaptation);
   const effectivePassability = passabilityFromSteepness(relative, landSteepness, waterSteepness);
-  return phenotype.speed * effectivePassability;
+
+  // An ARTIFICIAL obstruction is whatever gap exists between the passability actually recorded for
+  // this cell and what its elevation alone implies. A built barrier (sim/intervention.ts's
+  // barrierStamp) writes terrain.passability directly and never touches elevation, so before this
+  // ratio existed the barrier was invisible to movement — measured directly: creatures seeded west
+  // of a fully "impassable" wall were on both sides of it within a few thousand ticks, because the
+  // move step recomputed passability from elevation and never consulted the field the wall wrote.
+  // The wall still shaped the taxonomy's allopatric CLASSIFICATION, which reads that field, so a
+  // player got splits labelled "caused by your barrier" from a barrier that stopped nobody.
+  //
+  // Expressed as a ratio rather than a floor so it stays genotype-aware (Addendum 12): a wall
+  // blocks a strong swimmer exactly as much as it blocks a land specialist, but deep water still
+  // doesn't, because there the two values agree and the ratio is 1.
+  const naturalPassability = passabilityFromSteepness(relative, params.passabilitySteepness, params.waterPassabilitySteepness);
+  const obstruction = naturalPassability > 1e-6 ? clamp01(environment.recordedPassability / naturalPassability) : 1;
+
+  return phenotype.speed * effectivePassability * obstruction;
 }
 
 /**

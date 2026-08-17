@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_PARAMS } from "../params.ts";
 import { GENE_RANGES, type Genome } from "./genome.ts";
 import { combatSuccessProbability, derivePhenotype, movementEfficiency, type Phenotype } from "./phenotype.ts";
+import { terrainDerivedFields } from "./terrain.ts";
 
 function genome(overrides: Partial<Genome> = {}): Genome {
   return {
@@ -112,16 +113,26 @@ describe("derivePhenotype", () => {
   });
 });
 
+/**
+ * Terrain nobody has built on: recordedPassability is exactly what this elevation implies, so
+ * movementEfficiency's artificial-obstruction ratio is 1 and the case reads exactly as it did before
+ * Addendum 31 added that term. Every pre-existing case below uses this, which is the point — the
+ * barrier fix must not have moved natural terrain at all.
+ */
+function naturalEnv(elevation: number, seaLevel = 0) {
+  return { elevation, seaLevel, recordedPassability: terrainDerivedFields(elevation, seaLevel, DEFAULT_PARAMS).passability };
+}
+
 describe("movementEfficiency", () => {
   it("scales linearly with phenotype speed on flat land at sea level", () => {
-    const env = { elevation: 0, seaLevel: 0 };
+    const env = naturalEnv(0);
     expect(movementEfficiency(phenotype({ speed: 2 }), env, DEFAULT_PARAMS)).toBeCloseTo(2);
     expect(movementEfficiency(phenotype({ speed: 1 }), env, DEFAULT_PARAMS)).toBeCloseTo(1);
   });
 
   it("a land specialist (aquaticAdaptation=0) is unaffected — byte-identical to the pre-M6 flat passabilitySteepness formula", () => {
     const p = phenotype({ speed: 1, aquaticAdaptation: 0 });
-    const env = { elevation: 0.1, seaLevel: 0 };
+    const env = naturalEnv(0.1);
     const expected = 1 * Math.max(0, 1 - DEFAULT_PARAMS.passabilitySteepness * 0.1);
     expect(movementEfficiency(p, env, DEFAULT_PARAMS)).toBeCloseTo(expected);
   });
@@ -130,26 +141,26 @@ describe("movementEfficiency", () => {
     const p = phenotype({ speed: 5, aquaticAdaptation: 0 });
     // passability = 1 - passabilitySteepness * relative; needs relative >= 1/passabilitySteepness to floor at 0.
     const blockingElevation = 2 / DEFAULT_PARAMS.passabilitySteepness;
-    expect(movementEfficiency(p, { elevation: blockingElevation, seaLevel: 0 }, DEFAULT_PARAMS)).toBe(0);
+    expect(movementEfficiency(p, naturalEnv(blockingElevation), DEFAULT_PARAMS)).toBe(0);
   });
 
   // SPEC.md Addendum 12 (Milestone 6) — the actual trade-off this milestone exists to create.
   it("a water specialist moves meaningfully worse on land than a land specialist does", () => {
-    const env = { elevation: 0.15, seaLevel: 0 };
+    const env = naturalEnv(0.15);
     const landSpecialist = movementEfficiency(phenotype({ aquaticAdaptation: 0 }), env, DEFAULT_PARAMS);
     const waterSpecialist = movementEfficiency(phenotype({ aquaticAdaptation: 1 }), env, DEFAULT_PARAMS);
     expect(waterSpecialist).toBeLessThan(landSpecialist);
   });
 
   it("a water specialist moves meaningfully better in deep water than a land specialist does", () => {
-    const env = { elevation: -0.15, seaLevel: 0 }; // depth 0.15
+    const env = naturalEnv(-0.15); // depth 0.15
     const landSpecialist = movementEfficiency(phenotype({ aquaticAdaptation: 0 }), env, DEFAULT_PARAMS);
     const waterSpecialist = movementEfficiency(phenotype({ aquaticAdaptation: 1 }), env, DEFAULT_PARAMS);
     expect(waterSpecialist).toBeGreaterThan(landSpecialist);
   });
 
   it("a full water specialist retains real mobility even at depth that fully blocks a land specialist", () => {
-    const env = { elevation: -0.2, seaLevel: 0 }; // depth 0.2, well past where land specialists hit 0
+    const env = naturalEnv(-0.2); // depth 0.2, well past where land specialists hit 0
     const landSpecialist = movementEfficiency(phenotype({ aquaticAdaptation: 0 }), env, DEFAULT_PARAMS);
     const waterSpecialist = movementEfficiency(phenotype({ aquaticAdaptation: 1 }), env, DEFAULT_PARAMS);
     expect(landSpecialist).toBe(0);
@@ -157,12 +168,47 @@ describe("movementEfficiency", () => {
   });
 
   it("interpolates smoothly for a partial specialist, not a hard gate", () => {
-    const env = { elevation: -0.1, seaLevel: 0 };
+    const env = naturalEnv(-0.1);
     const none = movementEfficiency(phenotype({ aquaticAdaptation: 0 }), env, DEFAULT_PARAMS);
     const half = movementEfficiency(phenotype({ aquaticAdaptation: 0.5 }), env, DEFAULT_PARAMS);
     const full = movementEfficiency(phenotype({ aquaticAdaptation: 1 }), env, DEFAULT_PARAMS);
     expect(half).toBeGreaterThan(none);
     expect(full).toBeGreaterThan(half);
+  });
+
+  // SPEC.md Addendum 31. A built barrier writes terrain.passability and never touches elevation, so
+  // before the artificial-obstruction term movement recomputed passability from elevation and never
+  // saw the wall at all — the barrier tool had no effect on anyone, while still driving the
+  // taxonomy's allopatric classification.
+  describe("built barriers (artificial obstruction)", () => {
+    it("stops a creature on ground its elevation alone would let it cross", () => {
+      const p = phenotype({ speed: 2, aquaticAdaptation: 0 });
+      const walkable = naturalEnv(0);
+      expect(movementEfficiency(p, walkable, DEFAULT_PARAMS)).toBeGreaterThan(0);
+      expect(movementEfficiency(p, { ...walkable, recordedPassability: 0 }, DEFAULT_PARAMS)).toBe(0);
+    });
+
+    it("stops a water specialist exactly as it stops a land specialist — a wall is a wall", () => {
+      const walled = { ...naturalEnv(0), recordedPassability: 0 };
+      expect(movementEfficiency(phenotype({ aquaticAdaptation: 0 }), walled, DEFAULT_PARAMS)).toBe(0);
+      expect(movementEfficiency(phenotype({ aquaticAdaptation: 1 }), walled, DEFAULT_PARAMS)).toBe(0);
+    });
+
+    it("scales with a partly-formed barrier, so a formation ramp slows before it blocks", () => {
+      const p = phenotype({ speed: 1, aquaticAdaptation: 0 });
+      const open = naturalEnv(0);
+      const full = movementEfficiency(p, open, DEFAULT_PARAMS);
+      const half = movementEfficiency(p, { ...open, recordedPassability: open.recordedPassability * 0.5 }, DEFAULT_PARAMS);
+      expect(half).toBeCloseTo(full * 0.5);
+    });
+
+    it("leaves deep water alone, where elevation already blocks and there is no artificial component to read", () => {
+      // naturalPassability is 0 here, so the ratio is undefined; it must not collapse a water
+      // specialist's hard-won mobility (Addendum 12) to zero as a side effect.
+      const deep = naturalEnv(-0.2);
+      expect(deep.recordedPassability).toBe(0);
+      expect(movementEfficiency(phenotype({ aquaticAdaptation: 1 }), deep, DEFAULT_PARAMS)).toBeGreaterThan(0.5);
+    });
   });
 });
 

@@ -7,6 +7,7 @@ import { generateTerrain } from "./terrain.ts";
 import { createRunConfig } from "./runConfig.ts";
 import { runSimulationFromConfig } from "./sim.ts";
 import { DEFAULT_PARAMS, type Params } from "../params.ts";
+import { calibratedParams } from "./testWorld.ts";
 
 /**
  * These are the scientific behavioral contract this simulator makes -- not exact-every-tick
@@ -45,7 +46,7 @@ describe("golden scenario: neutral control", () => {
     "produces no false-positive speciation over a long horizon with every disruptive axis flattened",
     () => {
       for (const seed of [1, 2, 3]) {
-        const config = createRunConfig(seed, { ...DEFAULT_PARAMS, ...NEUTRAL }, []);
+        const config = createRunConfig(seed, calibratedParams(NEUTRAL), []);
         const state = runSimulationFromConfig(config, 4000);
         expect(speciationEvents(state)).toHaveLength(0);
         expect(state.observations.taxonomy.species.size).toBe(1);
@@ -67,7 +68,7 @@ describe("golden scenario: foraging-axis disruption", () => {
   it(
     "produces a persistent foraging-driven split when patchBimodality is maxed and the other axes are flat",
     () => {
-      const config = createRunConfig(2, { ...DEFAULT_PARAMS, ...NEUTRAL, patchBimodality: 1.0 }, []);
+      const config = createRunConfig(2, calibratedParams({ ...NEUTRAL, patchBimodality: 1.0 }), []);
       const state = runSimulationFromConfig(config, 10_000);
 
       expect(speciationEvents(state).length).toBeGreaterThan(0);
@@ -95,7 +96,7 @@ describe("golden scenario: carnivory-axis disruption", () => {
   it(
     "produces a persistent herbivore/carnivore split under ordinary (non-isolated) DEFAULT_PARAMS gameplay",
     () => {
-      const config = createRunConfig(5, DEFAULT_PARAMS, []);
+      const config = createRunConfig(5, calibratedParams(), []);
       const state = runSimulationFromConfig(config, 10_000);
 
       const carnivorySplit = speciationEvents(state).find((e) => e.event.dominantDivergentGene === "carnivory");
@@ -110,7 +111,7 @@ describe("golden scenario: barrier / allopatric split", () => {
   it(
     "a scripted barrier produces a split classified allopatric, with evidence showing the low passability that drove it",
     () => {
-      const params = { ...DEFAULT_PARAMS, foundingPopulationSize: 1, taxonomyIntervalTicks: 20 };
+      const params = calibratedParams({ foundingPopulationSize: 1, taxonomyIntervalTicks: 20 });
       // Same base genome for both (only offspringInvestment/speed overridden) -- using two
       // independently random base genomes let every OTHER gene (metabolism, reproThreshold, ...)
       // differ too, and one combination happened to be economically unviable enough to crash the
@@ -124,10 +125,16 @@ describe("golden scenario: barrier / allopatric split", () => {
       const baseGenome = { ...randomGenome(new RNG(1)), carnivory: 0, aquaticAdaptation: 0 };
       const genomeLeft: Genome = { ...baseGenome, offspringInvestment: 0.05, speed: 0.4 };
       const genomeRight: Genome = { ...baseGenome, offspringInvestment: 0.95, speed: 0.4 };
-      // Re-swept to seed 2 (was 1) after SPEC.md Addendum 12's new aquaticAdaptation gene shifted
-      // the RNG sequence enough that seed 1 no longer splits allopatrically within 5,000 ticks —
-      // same category of churn every major-gene addition this session has caused.
-      const config = createRunConfig(2, params, [
+      // Re-swept BACK to seed 1 (from 2) after SPEC.md Addendum 31 made barriers actually block
+      // movement — the wall used to be invisible to the move step, so this scenario was measuring a
+      // split that happened to have a wall between its centroids rather than one the wall caused,
+      // and seed 2's trajectory depended on creatures walking through it.
+      //
+      // The re-sweep is also the clearest evidence the fix works. Seeds 1-12, same scenario: 7 now
+      // produce a genuine allopatric split (1, 3, 4, 5, 7, 10, 12) where the mechanism previously
+      // had to be hunted for across sweeps. Seed 1 — the original choice before Addendum 12's gene
+      // churn displaced it — splits allopatrically again.
+      const config = createRunConfig(1, params, [
         { tick: 0, tool: "barrierStamp", params: { x1: 100, y1: 0, x2: 100, y2: 200, width: 10, targetPassability: 0, formationTicks: 0 } },
         // Close enough to the wall (x=100) that it's genuinely on their shortest path -- see
         // taxonomy.test.ts's torus-aware geometry tests for why x=70/x=130 and not further out.
@@ -173,13 +180,16 @@ describe("golden scenario: founder effect", () => {
     };
     const founders = Array.from({ length: 6 }, (_, i) => makeCreature(i + 100, smallDrifted, 52, 50));
 
-    const terrain = generateTerrain(new RNG(1), { ...DEFAULT_PARAMS, terrainHillCount: 0 }, 50, 50);
-    const { mechanism, evidence } = classifyMechanism(founders, majority, baseline, smallDrifted, terrain, DEFAULT_PARAMS);
+    // The calibrated 200x200 world, so this hand-built 50x50 grid matches the geometry the
+    // classifier measures against (gridCellSize=4) — creature coordinates here are literal.
+    const geometryParams = calibratedParams({ terrainHillCount: 0 });
+    const terrain = generateTerrain(new RNG(1), geometryParams, 50, 50);
+    const { mechanism, evidence } = classifyMechanism(founders, majority, baseline, smallDrifted, terrain, geometryParams);
 
     expect(mechanism).toBe("founder");
-    expect(evidence.founderCount).toBeLessThan(DEFAULT_PARAMS.founderCountThreshold);
+    expect(evidence.founderCount).toBeLessThan(geometryParams.founderCountThreshold);
     expect(evidence.divergenceDominanceRatio).toBeLessThan(0.5);
-    expect(evidence.minimumBarrierPassability).toBeGreaterThanOrEqual(DEFAULT_PARAMS.allopatricPassabilityThreshold);
+    expect(evidence.minimumBarrierPassability).toBeGreaterThanOrEqual(geometryParams.allopatricPassabilityThreshold);
   });
 });
 
@@ -196,7 +206,7 @@ describe("golden scenario: extinction and radiation", () => {
       // confirmed directly); meteor at tick 7,600 (x=76, y=92 — the minority sub-lineage's actual
       // centroid at that tick) gives the split time to establish and lands squarely on the smaller
       // regional population.
-      const config = createRunConfig(6, DEFAULT_PARAMS, [
+      const config = createRunConfig(6, calibratedParams(), [
         { tick: 7600, tool: "meteor", params: { x: 76, y: 92, radius: 35, craterRecoveryTicks: 800 } },
       ]);
       const state = runSimulationFromConfig(config, 27_000);
