@@ -878,3 +878,85 @@ label {
   margin-bottom: 0.15rem;
   align-items: center;
 }
+
+/* ---- Run history card (SPEC.md Addendum 30) ------------------------------------------------ */
+
+.history-headline {
+  font-size: 0.85rem;
+  color: var(--ink);
+  margin-bottom: 0.5rem;
+}
+
+.history-stats {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.1rem 0.6rem;
+  margin: 0 0 0.6rem;
+  font-size: 0.76rem;
+}
+
+.history-stats dt {
+  color: var(--ink-faint);
+}
+
+.history-stats dd {
+  margin: 0;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.history-entry {
+  padding: 0.4rem 0.45rem;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--line-strong);
+  background: var(--surface-sunken);
+  font-size: 0.76rem;
+}
+
+/* The whole point of the panel is telling these two apart at a glance. */
+.history-entry--yours {
+  border-left-color: var(--accent);
+}
+
+.history-entry-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.15rem;
+}
+
+.history-entry-marker {
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: var(--ink-faint);
+}
+
+.history-entry--yours .history-entry-marker {
+  color: var(--accent);
+}
+
+.history-entry-tick {
+  font-size: 0.68rem;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.history-entry-summary {
+  color: var(--ink);
+  line-height: 1.35;
+}
+
+.history-entry-evidence {
+  margin-top: 0.15rem;
+  color: var(--ink-muted);
+  line-height: 1.35;
+}

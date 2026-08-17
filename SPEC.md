@@ -3179,3 +3179,104 @@ undoing everything returns the world to exactly where the era began. Zero consol
 - **The UI pass was palette, type and states, not layout.** Panel ORDER and grouping are still
   whatever they accumulated as; a genuine information-architecture pass (what belongs together, what
   should be hidden by default) is a separate job.
+
+## Addendum 30 — the run history: which of this did I cause?
+
+Dan, asked why he stopped playing: *"I couldn't tell if I was doing well."* Given four options he
+picked that one, and separately chose soft scoring over failure states, open-ended scenarios over
+goal-based challenges, and "not knowing what happens next" plus "something to collect" as what would
+make him press Advance Era again.
+
+That reordered the plan. The next item was going to be twenty handcrafted challenges with win
+conditions — which he explicitly did not pick, and which would not have addressed the stated reason
+he put it down. A checklist of objectives still wouldn't tell him whether his terraforming mattered.
+
+**The diagnosis.** The era summary reported what happened — population moved, a species split, a
+trait shifted — but never whether the player was implicated. So every era read as weather: something
+occurred, you weren't clearly involved, and there was no reason to believe the next one depended on
+you. It was a simulation you watched rather than a world you were acting on.
+
+**Explicitly no language model.** Dan raised this unprompted and he was right to. Every claim here
+is a fixed rule over data the sim already records: `interventionLog` (every action with its exact
+tick) joined against `taxonomyEvents` (every speciation and extinction, each carrying the mechanism
+it was classified as and the measurements behind that classification). The same run always produces
+the same history, every claim can be checked against the numbers that produced it, and there is no
+dependency, no cost, and no non-determinism.
+
+### Attribution, and refusing to over-claim
+
+An engine that credits the player for everything is worse than none, because "did what I do matter"
+then always answers yes. So the rules are narrow and most of the tests are about when it must
+DECLINE:
+
+- **Only allopatric splits can be credited**, and only when a barrier-capable action preceded them.
+  The sim has already determined whether a low-passability region separated the two groups; the
+  open question is only whether the player made that region. A sympatric or founder-effect split is
+  never attributed however well the timing lines up — the sim already said it wasn't geographic.
+- **Extinctions get a much tighter window than speciations** (600 ticks against 25,000), because the
+  lags genuinely differ: a meteor kills on impact, whereas a barrier separates populations
+  immediately but they need thousands of ticks to drift far enough apart to be detected, and
+  detection itself lags by `speciationConfirmationPasses`.
+- **The most recent qualifying action wins.** If you raised three barriers, the one just before a
+  split explains it better than one from twenty eras ago.
+- **Unattributed outcomes say so plainly.** "Natural geography did this — you hadn't reshaped that
+  ground" is exactly as informative as crediting you, when the question is whether you're having an
+  effect.
+
+Each entry carries the measurement behind its verdict — the passability that made a split
+allopatric, the gap between a meteor and an extinction — following the principle
+`SpeciationEvidence` established: keep the evidence next to the interpretation so "why does it say
+that" always has an answer beyond "the code decided".
+
+### The problem attribution alone couldn't fix
+
+First live run: a barrier drawn, eight events over eight eras, **zero attributed**. All correct —
+every split was sympatric or drift, none allopatric. But a run that reports "none of this was you"
+answers Dan's question with a flat *no*, which is worse than not asking.
+
+Named outcomes are simply too sparse to carry this. So the player's own ACTIONS are entries too,
+each with what followed it measured from `populationHistory` — always available, always says
+something.
+
+Phrased as a reading rather than a verdict: *"Next 1,500 ticks: population 100 to 425 (+325%)"*, not
+*"your cliff grew the population 325%"*. That distinction is load-bearing. A young population climbs
+steeply on its own, so a causal phrasing would have an early action taking credit for growth that
+was always going to happen. The module has no way to substantiate a counterfactual and doesn't
+pretend to.
+
+Actions and outcomes share one timeline sorted by tick, so a barrier sitting just before a split
+reads as a story rather than two unrelated lists, and each entry is marked **You** or **World**.
+
+### The scorecard
+
+Soft, per Dan's choice — no failure state. Eras, population and its peak, species alive and lost,
+discoveries, terraforms, and the headline: *"2 of 5 splits and extinctions trace back to your
+terraforming."* Deliberately a fact rather than a score, because a score needs a scale nobody has
+designed, whereas "two of the five things that happened were yours" is meaningful immediately.
+
+Actions are excluded from that ratio — they're the player's by definition, so counting them would
+report a perfect attribution rate however little influence the player actually had.
+
+### Verification
+
+Typecheck clean on both configs, build succeeds, **463 tests passing** (up from 443) — 20 new, most
+of them about declining to claim. Two real bugs were caught by them: the scorecard initially counted
+action entries in its attribution ratio (reporting 100% always), and `populationNear` matched a
+sample up to a full window away, so an action the run hadn't yet moved past reported "no change" by
+comparing a value against itself.
+
+Live: the panel renders, marks You against World correctly, and reads sensibly — *"You raised a
+cliff. Next 1,500 ticks: population 100 to 425 (+325%)"*. Zero console errors.
+
+### Known gaps
+
+- **Allopatric splits are rare in ordinary play**, so the attributed-outcome count will often be
+  zero. The action entries carry the panel in that case, but if barriers essentially never produce
+  classified allopatric splits under default params, that's worth investigating on its own terms —
+  it may be a balance finding rather than a reporting one.
+- **Two actions at the same tick report the same population window**, since it is the same window.
+  Honest, but reads as though both did the same thing.
+- **No counterfactual.** "Population rose 30%" can't distinguish your doing from what would have
+  happened anyway. Comparing against the pre-action trend would be a real improvement and is a
+  genuinely harder statistical claim.
+- **Game Mode only**, like the Critterdex — Classic Sandbox has no era structure to hang it on.

@@ -8,6 +8,7 @@ import type { ChallengeStatus } from "../game/challengeRuntime.ts";
 import { DISCOVERY_REGISTRY, type DiscoveryCategory } from "../game/discovery/discoveryDefinition.ts";
 import type { CritterdexEntry, CritterdexSummary } from "../game/discovery/critterdexSummary.ts";
 import type { DiscoveryMatch } from "../game/discovery/discoveryJournal.ts";
+import type { RunChronicle } from "../game/history/runChronicle.ts";
 import type { EraSummary } from "../game/eraSummary.ts";
 import type { GameMode, GamePhase } from "../game/gameState.ts";
 import type { GameObjective } from "../game/objectives/objective.ts";
@@ -1273,6 +1274,105 @@ export function createCritterdexPanel(callbacks: { onInspect: (match: DiscoveryM
 
           section.append(heading, ...group.entries.map(entryRow));
           return section;
+        }),
+      );
+    },
+  };
+}
+
+export interface RunHistoryHandle {
+  root: HTMLElement;
+  setChronicle: (chronicle: RunChronicle) => void;
+}
+
+/** Newest first, and capped — the interesting question is "what just happened and did I cause it",
+ * not a full archive. The whole run is still in the data if a fuller view is ever wanted. */
+const MAX_HISTORY_ENTRIES = 12;
+
+/**
+ * The run's history card (SPEC.md Addendum 30) — the scorecard, then what happened and which of it
+ * you caused. Built to answer the question that made Dan stop playing: "I couldn't tell if I was
+ * doing well."
+ *
+ * The headline number is deliberately "X of Y traced to your terraforming" rather than a score.
+ * A score would need a scale nobody has designed; "two of the five things that happened were
+ * yours" is meaningful immediately and is a fact rather than a judgement.
+ */
+export function createRunHistoryPanel(): RunHistoryHandle {
+  const root = document.createElement("div");
+  root.className = "panel";
+  root.append(sectionTitle("Run history"));
+
+  const headline = document.createElement("div");
+  headline.className = "history-headline";
+  const stats = document.createElement("dl");
+  stats.className = "history-stats";
+  const list = document.createElement("div");
+  list.className = "history-list";
+  root.append(headline, stats, list);
+
+  let lastSignature: string | null = null;
+
+  function stat(label: string, value: string): void {
+    const dt = document.createElement("dt");
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    dd.textContent = value;
+    stats.append(dt, dd);
+  }
+
+  return {
+    root,
+    setChronicle(chronicle) {
+      const { scorecard, entries } = chronicle;
+      // Driven from the 16ms render loop, so it must idle when nothing changed — otherwise it
+      // rebuilds sixty times a second and can't be read or selected from. Same guard the Critterdex
+      // panel and the species card use.
+      const signature = `${scorecard.erasCompleted}|${scorecard.ticksElapsed}|${entries.length}|${scorecard.attributedOutcomes}|${scorecard.notableOutcomes}|${scorecard.discoveries}|${scorecard.peakPopulation}|${scorecard.livingSpecies}`;
+      if (signature === lastSignature) return;
+      lastSignature = signature;
+
+      headline.textContent =
+        entries.length === 0
+          ? "Nothing has happened yet — terraform something and advance an era."
+          : scorecard.notableOutcomes === 0
+            ? `${scorecard.terraformActions} terraform${scorecard.terraformActions === 1 ? "" : "s"} so far, and the world hasn't split or lost a species yet.`
+            : `${scorecard.attributedOutcomes} of ${scorecard.notableOutcomes} splits and extinctions trace back to your terraforming.`;
+
+      stats.replaceChildren();
+      stat("eras", String(scorecard.erasCompleted));
+      stat("population", `${scorecard.currentPopulation.toLocaleString()} (peak ${scorecard.peakPopulation.toLocaleString()})`);
+      stat("species", `${scorecard.livingSpecies} alive, ${scorecard.extinctions} lost`);
+      stat("discoveries", String(scorecard.discoveries));
+      stat("terraforms", String(scorecard.terraformActions));
+
+      const recent = entries.slice(-MAX_HISTORY_ENTRIES).reverse();
+      list.replaceChildren(
+        ...recent.map((entry) => {
+          const row = document.createElement("div");
+          row.className = `history-entry history-entry--${entry.cause ? "yours" : "natural"}`;
+
+          const head = document.createElement("div");
+          head.className = "history-entry-head";
+          const marker = document.createElement("span");
+          marker.className = "history-entry-marker";
+          // "You" vs "World" is the entire point of the panel, so it leads each row.
+          marker.textContent = entry.cause ? "You" : "World";
+          const when = document.createElement("span");
+          when.className = "history-entry-tick";
+          when.textContent = `tick ${entry.tick.toLocaleString()}`;
+          head.append(marker, when);
+
+          const summary = document.createElement("div");
+          summary.className = "history-entry-summary";
+          summary.textContent = entry.summary;
+
+          const why = document.createElement("div");
+          why.className = "history-entry-evidence";
+          why.textContent = entry.evidence;
+
+          row.append(head, summary, why);
+          return row;
         }),
       );
     },

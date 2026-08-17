@@ -16,6 +16,7 @@ import {
   createCheckpointsPanel,
   createControls,
   createCritterdexPanel,
+  createRunHistoryPanel,
   createEraSummaryPanel,
   createEventFeed,
   createGameControlsPanel,
@@ -32,6 +33,7 @@ import { enablePanelWorkspace } from "./ui/panelWorkspace.ts";
 import { createDiscoveryDetailCard, createDiscoveryToastLayer } from "./ui/discoveryToasts.ts";
 import { DISCOVERY_CONFIRMATION_ERAS, type DiscoveryMatch } from "./game/discovery/discoveryJournal.ts";
 import { summarizeCritterdex } from "./game/discovery/critterdexSummary.ts";
+import { buildRunChronicle } from "./game/history/runChronicle.ts";
 import type { EraSummary } from "./game/eraSummary.ts";
 import { circularMean, torDist } from "./sim/util.ts";
 
@@ -576,6 +578,7 @@ const critterdexPanel = createCritterdexPanel({
   },
 });
 
+const runHistoryPanel = createRunHistoryPanel();
 const eraSummaryPanel = createEraSummaryPanel();
 const objectivesPanel = createObjectivesPanel();
 const checkpointsPanel = createCheckpointsPanel({
@@ -599,7 +602,7 @@ const checkpointsPanel = createCheckpointsPanel({
   },
 });
 
-gameSidebar.append(gameControls.root, gameGodModePanel.root, objectivesPanel.root, critterdexPanel.root, eraSummaryPanel.root, checkpointsPanel.root);
+gameSidebar.append(gameControls.root, gameGodModePanel.root, eraSummaryPanel.root, runHistoryPanel.root, critterdexPanel.root, objectivesPanel.root, checkpointsPanel.root);
 enablePanelWorkspace(gameSidebar, "game");
 
 const gameClickGuard = attachClickGuard(gameCanvas);
@@ -644,6 +647,7 @@ function renderGame(): void {
   gameControls.setTerraformError(gameRunner.lastTerraformError);
   discoveryToasts.syncPlayState();
   critterdexPanel.setSummary(summarizeCritterdex(game.discoveryJournal));
+  runHistoryPanel.setChronicle(buildRunChronicle(game.sim, game.gameState.era, game.discoveryJournal));
   eraSummaryPanel.setSummary(gameRunner.lastEraSummary);
   objectivesPanel.setChallenge(gameRunner.objectives(), gameRunner.challengeStatus());
   checkpointsPanel.setCheckpoints(gameRunner.listCheckpoints());
