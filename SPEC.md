@@ -3448,3 +3448,103 @@ in the browser against the shipped modules: island confirmed, zero app console e
   computations legitimately diverge — there are none today, since only `barrierStamp` writes
   passability without elevation, but a future tool that did both would read as partly artificial.
 
+
+## Addendum 32 — the run timeline: three panels that were really one
+
+Dan, after playing the 400x400 island: *"i want some of the windows to be more hortizontal under the
+gameplay... the gene flow and trait over time could be a window that expands the whole of the window
+under everything. and then the event feed could be like a timeline that shows events and also cover
+the entire width of the page."*
+
+Taken literally that's a layout change. Taken as a design brief it's a better idea than it first
+looks, because all three of those panels are measurements of the **same run against the same clock**.
+
+### Why one component and not three wide ones
+
+The question a player actually has is a cross-lane one: *did migration collapse at the moment that
+trait diverged, and is that the tick the log recorded a split?* Three independently-scaled charts
+can't answer it however wide they are. So gene flow, trait drift and the event log became three lanes
+of one chart sharing one tick axis, drawn on a single canvas — alignment as a structural property
+rather than something three separate resize paths have to keep agreeing about.
+
+That turned out to be immediately legible in testing: two sympatric splits 200 ticks apart resolve to
+distinct positions (x=1066 and x=1085) with the trait lane's divergence visible directly above them.
+
+### What the sharp look found
+
+Dan asked for a UI/UX pass on each. The resize was the smaller half of the work; going wide exposed
+defects that had been there all along.
+
+**The charts plotted array INDEX, not tick.** `tickToX = i / recent.length`. But `compactHistory`
+deliberately thins older samples, so evenly-spaced indices represent unevenly-spaced ticks — sparse
+old data was stretched to the same width as dense recent data. The x-axis said one thing and the
+pixels said another, silently, on every run past the first compaction. Everything now plots against
+tick, which is also what makes the shared axis meaningful at all.
+
+**Fixed 272px buffers stretched by CSS.** Same upscaling-blur class as the pre-Addendum-21 world
+view: soft even in the sidebar, far worse across 1200px. Buffers are now sized to the real layout box
+times `devicePixelRatio`, driven by a `ResizeObserver`.
+
+**The trait chart was squashed and nothing admitted it.** It declared an 80px buffer; the shared
+`.gene-flow-canvas` rule pinned it to 60px. Its aspect ratio had been wrong the whole time. Height is
+now derived in script from the lane geometry so the two can't drift.
+
+**No scale, no units, no readout.** A line with no axis is decoration. Each lane now carries its own
+value scale, the shared axis labels round ticks (`niceStep`, so labels land on 2k/5k/10k rather than
+arbitrary fractions), and a hover crosshair reads *every* lane at one tick at once.
+
+**Redrawing every frame regardless.** This is the fourth component in this codebase to have the
+"panel driven from the 16ms render loop repaints unconditionally" defect. Guarded by a cheap
+signature.
+
+**The event feed had no sense of time.** A reverse-chronological list renders two events 50 ticks
+apart identically to two 20,000 ticks apart. As a timeline, position carries timing — which is what
+Dan asked for, and the reason the change is worth more than a resize.
+
+### Two bugs the live pass caught that reasoning alone did not
+
+**`align-self: start` collapsed the panel.** That declaration is correct in the sidebar's *grid*
+(cross axis vertical: a panel hugs its content height). In the deck's *column flex* container the
+cross axis is horizontal, so it collapsed the panel to fit-content — 466px inside a 1233px deck. The
+deck was full width the entire time and the panel inside it was not. Measured, not guessed.
+
+**Markers were unclickable while the sim ran.** The domain's right edge tracked `currentTick`
+exactly, so every marker slid left on every frame. Clicking three measured marker positions pinned
+nothing. Fixed by quantizing the right edge to a round tick above the current one: between
+boundaries the mapping is fixed and markers hold still, and the axis jumps occasionally instead of
+drifting continuously. Verified by sampling the tick under a fixed x while running at max speed —
+it now holds steady (963, 963, then 1,204, 1,204) instead of changing every frame.
+
+That fix paid for itself twice: the redraw guard keys off the quantized end, so a full-width repaint
+happens when a new sample lands rather than 60 times a second.
+
+### Scope
+
+Classic Sandbox only — that's where these three panels lived. Dan said the rest could be left alone,
+so Game Mode's sidebar is untouched. `createEventFeed`, `createGeneFlowChart` and `createTraitChart`
+were deleted rather than left as dead code; `geneSelectRow` and the `.event-feed-*` styles stayed,
+because the scatter and checkpoint panels still use them.
+
+Stored panel layouts from before this change reference three panel ids that no longer exist.
+`enablePanelWorkspace` already guards every lookup with `if (panel)`, so they're skipped — verified
+by writing a pre-change layout into localStorage and reloading: no errors, all seven Classic panels
+present, timeline still full width.
+
+### Verification
+
+Typecheck clean on both configs, 470 tests (469 passing, 1 skipped) — unchanged, since this is a
+UI-layer change with no sim surface. Live: full width at 1233px with a buffer matching layout,
+hover reads all three lanes at one tick, click pins an event's full text, markers clickable while the
+sim runs at max speed, and at 375px there's no horizontal overflow (lane titles drop their
+explanatory half rather than clipping).
+
+### Known gaps
+
+- **No zoom or pan.** A 100,000-tick run compresses early history hard. The quantized domain makes a
+  future brush-to-zoom straightforward, but nothing implements it.
+- **Events at the same tick overlap.** They're drawn at identical x; only the topmost is clickable,
+  though the hover tooltip lists all within the hit radius.
+- **The lanes are canvas-drawn**, so lane titles and axis labels aren't selectable or screen-reader
+  visible. The one piece of content that matters for reading — the pinned event's full text — is
+  deliberately DOM, not canvas, for exactly that reason.
+

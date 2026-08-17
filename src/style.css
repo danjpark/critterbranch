@@ -68,6 +68,36 @@ body {
   align-items: start;
 }
 
+/*
+ * The full-width band under the world and the sidebar (SPEC.md Addendum 32). Spanning both grid
+ * columns rather than living in a third region of its own keeps the world/sidebar row's sticky
+ * scrolling behaviour exactly as it was — the deck simply becomes the next row, so you scroll past
+ * the world to reach it.
+ *
+ * This is for content whose natural shape is WIDE: a run's whole history against one time axis.
+ * Putting it in the ~21-32rem sidebar meant a 272px-wide chart of a 20,000-tick run, which is about
+ * 70 ticks per pixel — the reason the trait line read as noise.
+ */
+.deck {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+/*
+ * `.panel` carries `align-self: start`, which is right in the sidebar's GRID (cross axis vertical:
+ * a panel hugs its own content height instead of stretching to the tallest in its row) and wrong in
+ * this COLUMN FLEX container, where the cross axis is horizontal — there it collapsed the panel to
+ * fit-content, 466px inside a 1233px deck. Measured, not guessed: the deck was full width the whole
+ * time and the panel inside it was not.
+ */
+.deck > .panel {
+  align-self: stretch;
+  width: 100%;
+}
+
 .canvas-area {
   display: flex;
   flex-direction: column;
@@ -612,12 +642,68 @@ label {
   flex: 1 1 auto;
 }
 
-.gene-flow-canvas {
+/* ---- Run timeline (SPEC.md Addendum 32) ---------------------------------------------------- */
+
+.timeline-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.timeline-gene {
+  font-size: 0.78rem;
+  color: var(--ink-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+/* Positioning context for the hover tooltip, which is absolutely placed against the plot. */
+.timeline-plot {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+.timeline-canvas {
   display: block;
   width: 100%;
-  height: 60px;
-  background: var(--bg);
-  border-radius: 4px;
+  /* Height is set in script from the lane geometry, so the two can't drift apart. The old charts
+     declared an 80px buffer and were then pinned to 60px by a shared CSS rule, which squashed the
+     trait chart's aspect without anything in either file admitting it. */
+  background: transparent;
+  border-radius: var(--radius-sm);
+}
+
+.timeline-tooltip {
+  position: absolute;
+  top: 0.4rem;
+  z-index: 3;
+  max-width: 22rem;
+  padding: 0.4rem 0.55rem;
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--ink);
+  /* The pointer must reach the canvas underneath, or moving toward the tooltip kills the hover
+     that produced it. */
+  pointer-events: none;
+}
+
+.timeline-detail {
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.55rem;
+  min-height: 2.2rem;
+  background: var(--surface-sunken);
+  border-radius: var(--radius-sm);
+  border-left: 2px solid var(--accent);
+  font-size: 0.76rem;
+  color: var(--ink-muted);
 }
 
 /* ---- Critterdex notifications (SPEC.md Addendum 23) ---------------------------------------- */

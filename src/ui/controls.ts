@@ -1,8 +1,7 @@
-import { type ColorOptions, FRUIT_COLOR, genotypeColor } from "../render/color.ts";
+﻿import { type ColorOptions, FRUIT_COLOR, genotypeColor } from "../render/color.ts";
 import type { Creature } from "../sim/creature.ts";
-import type { GeneFlowSample } from "../sim/geneFlow.ts";
-import { GENE_KEYS, type Genome, type TraitSample } from "../sim/genome.ts";
-import type { Species, SpeciationMechanism, TaxonomyEvent } from "../sim/taxonomy.ts";
+import { GENE_KEYS, type Genome } from "../sim/genome.ts";
+import type { Species, SpeciationMechanism } from "../sim/taxonomy.ts";
 import type { ChallengeDefinition } from "../game/challenges/challenge.ts";
 import type { ChallengeStatus } from "../game/challengeRuntime.ts";
 import { DISCOVERY_REGISTRY, type DiscoveryCategory } from "../game/discovery/discoveryDefinition.ts";
@@ -48,18 +47,18 @@ const GOD_TOOL_LABELS: Record<GodTool, string> = {
 };
 
 const GOD_TOOL_HINTS: Record<GodTool, string> = {
-  raiseTerrain: "Click to swell the ground into a soft hill — the surrounding land rises with it.",
-  lowerTerrain: "Click to press the ground into a soft hollow — the surrounding land dips with it.",
-  raiseCliff: "Click to push up a flat-topped plateau with steep sides — a real barrier, not a slope.",
-  lowerCliff: "Click to cut a steep-sided pit — drop it below the waterline to flood it.",
-  barrierStamp: "Click one point, then another — draws a barrier between them.",
+  raiseTerrain: "Click to swell the ground into a soft hill â€” the surrounding land rises with it.",
+  lowerTerrain: "Click to press the ground into a soft hollow â€” the surrounding land dips with it.",
+  raiseCliff: "Click to push up a flat-topped plateau with steep sides â€” a real barrier, not a slope.",
+  lowerCliff: "Click to cut a steep-sided pit â€” drop it below the waterline to flood it.",
+  barrierStamp: "Click one point, then another â€” draws a barrier between them.",
   plantTree: "Click the map to plant new fruit trees there.",
   drought: "Click a region to suppress its regrowth for a while.",
   bloom: "Click a region to boost its regrowth for a while.",
-  meteor: "Click to strike — kills everything in range and craters the ground. Undo below if you regret it.",
+  meteor: "Click to strike â€” kills everything in range and craters the ground. Undo below if you regret it.",
   seedFounders: "Click to drop new creatures with random genomes there.",
-  raiseSeaLevel: "Click anywhere on the map to raise the global waterline — floods low-lying land everywhere, not just near the click.",
-  lowerSeaLevel: "Click anywhere on the map to lower the global waterline — drains shallow water everywhere, not just near the click.",
+  raiseSeaLevel: "Click anywhere on the map to raise the global waterline â€” floods low-lying land everywhere, not just near the click.",
+  lowerSeaLevel: "Click anywhere on the map to lower the global waterline â€” drains shallow water everywhere, not just near the click.",
 };
 
 const GOD_TOOLS: GodTool[] = [
@@ -94,7 +93,7 @@ export function createScenarioPanel(callbacks: ScenarioCallbacks): ScenarioHandl
 
   const hint = document.createElement("div");
   hint.className = "godmode-hint";
-  hint.textContent = "A scenario is a seed plus every god-mode action, replayed at the exact ticks they happened — export one to save or share a run, load one to watch it play out.";
+  hint.textContent = "A scenario is a seed plus every god-mode action, replayed at the exact ticks they happened â€” export one to save or share a run, load one to watch it play out.";
 
   const exportButton = document.createElement("button");
   exportButton.textContent = "Export scenario (.json)";
@@ -116,7 +115,7 @@ export function createScenarioPanel(callbacks: ScenarioCallbacks): ScenarioHandl
   const loadLabel = document.createElement("label");
   loadLabel.setAttribute("for", "scenario-load-input");
   loadLabel.className = "scenario-file-label";
-  loadLabel.textContent = "Load scenario…";
+  loadLabel.textContent = "Load scenarioâ€¦";
   const loadRow = document.createElement("div");
   loadRow.className = "row";
   loadRow.append(loadInput, loadLabel);
@@ -218,7 +217,7 @@ export function createControls(callbacks: ControlsCallbacks): ControlsHandle {
   heatmapCheckbox.addEventListener("change", () => callbacks.onCompetitionHeatmapToggle(heatmapCheckbox.checked));
   heatmapLabel.append(heatmapCheckbox, document.createTextNode("Competition heatmap (World view)"));
 
-  // Off by default (see SimRunner.autoPace's doc) — ramps the opening of any eventful moment so
+  // Off by default (see SimRunner.autoPace's doc) â€” ramps the opening of any eventful moment so
   // it's watchable, then fast-forwards once things go quiet, instead of a flat speed the whole time.
   const autoPaceLabel = document.createElement("label");
   autoPaceLabel.className = "row";
@@ -227,7 +226,7 @@ export function createControls(callbacks: ControlsCallbacks): ControlsHandle {
   autoPaceCheckbox.addEventListener("change", () => callbacks.onAutoPaceToggle(autoPaceCheckbox.checked));
   autoPaceLabel.append(autoPaceCheckbox, document.createTextNode("Auto-pace (slow openings, skip quiet stretches)"));
 
-  // Sits directly under the toggle that produces it, and only while that toggle is on — without it
+  // Sits directly under the toggle that produces it, and only while that toggle is on â€” without it
   // the heatmap's colours are only readable by someone who already memorised species colours from
   // the Tree view.
   const heatmapLegend = document.createElement("div");
@@ -267,18 +266,18 @@ export function createControls(callbacks: ControlsCallbacks): ControlsHandle {
       playPauseButton.textContent = playing ? "Pause" : "Play";
     },
     setStatus(tickCount: number, population: number, livingSpeciesCount: number, fastForwarding: boolean) {
-      status.textContent = `tick ${tickCount.toLocaleString()} — population ${population.toLocaleString()} — ${livingSpeciesCount.toLocaleString()} species${fastForwarding ? " — auto-pacing (fast-forwarding through a quiet stretch)" : ""}`;
+      status.textContent = `tick ${tickCount.toLocaleString()} â€” population ${population.toLocaleString()} â€” ${livingSpeciesCount.toLocaleString()} species${fastForwarding ? " â€” auto-pacing (fast-forwarding through a quiet stretch)" : ""}`;
     },
     setInspected(creature: Creature | null) {
       inspectorBody.replaceChildren(...renderInspector(creature));
     },
-    /** Pass null (or an empty list) when the heatmap is off or nothing has been eaten yet — the
+    /** Pass null (or an empty list) when the heatmap is off or nothing has been eaten yet â€” the
      * legend hides itself rather than showing an empty box. `share` is that species' fraction of
      * all recorded consumption, which is what makes the colours mean something quantitative
      * instead of just "this lineage exists somewhere". */
     setHeatmapLegend(entries: { speciesId: number; css: string; share: number }[] | null) {
       // Called from the 16ms render loop, and shares decay continuously, so without a change check
-      // this rebuilds a handful of DOM nodes sixty times a second forever — and any text selection
+      // this rebuilds a handful of DOM nodes sixty times a second forever â€” and any text selection
       // a player made inside it is destroyed on the next frame. Rounded to what's actually
       // DISPLAYED, so a share drifting by a thousandth of a percent doesn't count as a change.
       const signature = entries?.map((e) => `${e.speciesId}:${e.css}:${Math.round(e.share * 100)}`).join("|") ?? "";
@@ -303,7 +302,7 @@ export function createControls(callbacks: ControlsCallbacks): ControlsHandle {
           const percent = entry.share * 100;
           // A freshly-split lineage genuinely on the map but eating very little rounds to 0%,
           // which reads as "not present at all" next to a swatch that IS on screen.
-          label.textContent = `Species ${entry.speciesId} — ${percent > 0 && percent < 1 ? "<1" : Math.round(percent)}%`;
+          label.textContent = `Species ${entry.speciesId} â€” ${percent > 0 && percent < 1 ? "<1" : Math.round(percent)}%`;
           row.append(squareSwatch(entry.css), label);
           return row;
         }),
@@ -412,7 +411,7 @@ export interface ScatterPanelHandle {
 }
 
 /**
- * Axis pickers for the gene-space scatter. No color key here — per SPEC.md, the scatter plot
+ * Axis pickers for the gene-space scatter. No color key here â€” per SPEC.md, the scatter plot
  * itself *is* the legend, since every point already sits at its own genome position wearing its
  * own color. This panel only needs to pick which two genes become x/y.
  */
@@ -492,9 +491,9 @@ export function createLegend(): HTMLElement {
   const entries: [HTMLElement, string][] = [
     [
       circleSwatch(FRUIT_COLOR),
-      "A fruit tree — canopy size shows how grown up it is (a bare sprout starts small and fills out by the time it starts bearing fruit), and canopy color fades toward pale/olive as its own fruit gets eaten down, then back to vivid green as it regrows. Richer trees grow bigger canopies. Trees spread and die on their own.",
+      "A fruit tree â€” canopy size shows how grown up it is (a bare sprout starts small and fills out by the time it starts bearing fruit), and canopy color fades toward pale/olive as its own fruit gets eaten down, then back to vivid green as it regrows. Richer trees grow bigger canopies. Trees spread and die on their own.",
     ],
-    [dotSwatch(), "A creature — dot color encodes its genome (diet, foraging style, life history). Carnivores hunt nearby creatures for meat instead of eating fruit. Click one to inspect it."],
+    [dotSwatch(), "A creature â€” dot color encodes its genome (diet, foraging style, life history). Carnivores hunt nearby creatures for meat instead of eating fruit. Click one to inspect it."],
   ];
   for (const [swatch, text] of entries) {
     const row = document.createElement("div");
@@ -546,7 +545,7 @@ function renderInspector(creature: Creature | null): HTMLElement[] {
   const rows: [string, string][] = [
     ["id", String(creature.id)],
     ["species", String(creature.lineageId)],
-    ["parentId", creature.parentId === null ? "—" : String(creature.parentId)],
+    ["parentId", creature.parentId === null ? "â€”" : String(creature.parentId)],
     ["birthTick", String(creature.birthTick)],
     ["age", String(creature.age)],
     ["energy", creature.energy.toFixed(2)],
@@ -563,167 +562,6 @@ function renderInspector(creature: Creature | null): HTMLElement[] {
   }
 
   return [table];
-}
-
-export interface EventFeedHandle {
-  root: HTMLElement;
-  setEvents: (events: TaxonomyEvent[]) => void;
-}
-
-const MAX_FEED_ENTRIES = 100;
-
-export function createEventFeed(): EventFeedHandle {
-  const root = document.createElement("div");
-  root.className = "panel";
-  root.append(sectionTitle("Event feed"));
-
-  const list = document.createElement("div");
-  list.className = "event-feed-list";
-  list.textContent = "Nothing has happened yet.";
-  root.appendChild(list);
-
-  let lastRenderedCount = 0;
-
-  return {
-    root,
-    setEvents(events) {
-      if (events.length === lastRenderedCount) return;
-      lastRenderedCount = events.length;
-      if (events.length === 0) {
-        // A restart or freshly-loaded scenario resets the log to empty — without this the old
-        // entries from the previous run would linger on screen since replaceChildren below never runs.
-        list.textContent = "Nothing has happened yet.";
-        return;
-      }
-      // Newest first, capped so the DOM doesn't grow without bound over a very long run.
-      const recent = events.slice(-MAX_FEED_ENTRIES).reverse();
-      list.replaceChildren(...recent.map(describeTaxonomyEvent));
-    },
-  };
-}
-
-function describeTaxonomyEvent(taxonomyEvent: TaxonomyEvent): HTMLElement {
-  const el = document.createElement("div");
-  el.className = "event-feed-entry";
-  if (taxonomyEvent.type === "speciation") {
-    const { tick: eventTick, mechanism, dominantDivergentGene, founderCount, speciesId, parentId } = taxonomyEvent.event;
-    el.textContent = `Tick ${eventTick.toLocaleString()} — ${mechanism} split: species ${speciesId} branched from species ${parentId} (${founderCount} founders; ${dominantDivergentGene} diverged most)`;
-  } else {
-    const { tick: eventTick, speciesId, lifespanTicks, peakMemberCount } = taxonomyEvent.event;
-    el.textContent = `Tick ${eventTick.toLocaleString()} — species ${speciesId} went extinct after ${lifespanTicks.toLocaleString()} ticks (peak population ${peakMemberCount.toLocaleString()})`;
-  }
-  return el;
-}
-
-export interface GeneFlowChartHandle {
-  root: HTMLElement;
-  render: (history: GeneFlowSample[]) => void;
-}
-
-export function createGeneFlowChart(): GeneFlowChartHandle {
-  const root = document.createElement("div");
-  root.className = "panel";
-  root.append(sectionTitle("Gene flow"));
-
-  const hint = document.createElement("div");
-  hint.className = "godmode-hint";
-  hint.textContent = "Migrations between the west and east halves of the map, per window. This dropping to zero is speciation happening in real time.";
-
-  const canvas = document.createElement("canvas");
-  canvas.width = 272;
-  canvas.height = 60;
-  canvas.className = "gene-flow-canvas";
-
-  root.append(hint, canvas);
-  const ctx = canvas.getContext("2d")!;
-
-  return {
-    root,
-    render(history) {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      if (history.length === 0) return;
-
-      const recent = history.slice(-60);
-      const maxValue = Math.max(1, ...recent.map((sample) => sample.migrations));
-      const barWidth = canvas.width / recent.length;
-
-      ctx.fillStyle = "#4a7dd9";
-      recent.forEach((sample, i) => {
-        const barHeight = (sample.migrations / maxValue) * (canvas.height - 4);
-        ctx.fillRect(i * barWidth, canvas.height - barHeight, Math.max(barWidth - 1, 1), barHeight);
-      });
-    },
-  };
-}
-
-export interface TraitChartHandle {
-  root: HTMLElement;
-  render: (history: TraitSample[], gene: keyof Genome) => void;
-}
-
-/** Population mean (line) +/- std (shaded band) for one selectable gene over time. */
-export function createTraitChart(defaultGene: keyof Genome, onGeneChange: (gene: keyof Genome) => void): TraitChartHandle {
-  const root = document.createElement("div");
-  root.className = "panel";
-  root.append(sectionTitle("Trait over time"));
-  root.append(geneSelectRow("Gene", defaultGene, onGeneChange));
-
-  const canvas = document.createElement("canvas");
-  canvas.width = 272;
-  canvas.height = 80;
-  canvas.className = "gene-flow-canvas";
-  root.appendChild(canvas);
-  const ctx = canvas.getContext("2d")!;
-
-  return {
-    root,
-    render(history, gene) {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      if (history.length === 0) return;
-
-      const recent = history.slice(-150);
-      let yMin = Infinity;
-      let yMax = -Infinity;
-      for (const sample of recent) {
-        yMin = Math.min(yMin, sample.mean[gene] - sample.std[gene]);
-        yMax = Math.max(yMax, sample.mean[gene] + sample.std[gene]);
-      }
-      if (yMax <= yMin) {
-        yMin -= 0.5;
-        yMax += 0.5;
-      }
-
-      const w = canvas.width;
-      const h = canvas.height;
-      const tickToX = (i: number) => (i / Math.max(1, recent.length - 1)) * w;
-      const valueToY = (v: number) => h - ((v - yMin) / (yMax - yMin)) * h;
-
-      ctx.fillStyle = "rgba(74, 125, 217, 0.25)";
-      ctx.beginPath();
-      recent.forEach((sample, i) => {
-        const x = tickToX(i);
-        const y = valueToY(sample.mean[gene] + sample.std[gene]);
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      });
-      for (let i = recent.length - 1; i >= 0; i--) {
-        ctx.lineTo(tickToX(i), valueToY(recent[i].mean[gene] - recent[i].std[gene]));
-      }
-      ctx.closePath();
-      ctx.fill();
-
-      ctx.strokeStyle = "#4a7dd9";
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      recent.forEach((sample, i) => {
-        const x = tickToX(i);
-        const y = valueToY(sample.mean[gene]);
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      });
-      ctx.stroke();
-    },
-  };
 }
 
 const ALL_MECHANISMS: SpeciationMechanism[] = ["founder-population", "allopatric", "sympatric", "founder"];
@@ -780,7 +618,7 @@ export function createTreePanel(callbacks: TreePanelCallbacks): TreePanelHandle 
   cardRoot.append(sectionTitle("Selected species"));
   const cardBody = document.createElement("div");
   /** The card's structural identity, and the value cells that get patched rather than rebuilt when
-   * only the numbers move — see setSelectedSpecies. */
+   * only the numbers move â€” see setSelectedSpecies. */
   let lastCardSignature: string | null = null;
   const valueCells = new Map<string, HTMLTableCellElement>();
   const capabilityChips = new Map<string, HTMLElement>();
@@ -827,12 +665,12 @@ export function createTreePanel(callbacks: TreePanelCallbacks): TreePanelHandle 
         "current population": species.extinctTick === null ? species.memberCount.toLocaleString() : "0",
       };
 
-      // Only a change to the card's STRUCTURE forces a rebuild — a different species, a recoloured
+      // Only a change to the card's STRUCTURE forces a rebuild â€” a different species, a recoloured
       // swatch, a different set of capability chips. Previously the whole card was rebuilt on every
       // frame, which beyond the wasted work made it impossible to select text from: every node a
       // selection anchors to was replaced 16ms later.
       // Genuinely structural only: a different species, or a different SET of capability chips.
-      // The swatch colours and every numeric value drift continuously as the sim runs — they're
+      // The swatch colours and every numeric value drift continuously as the sim runs â€” they're
       // patched in place below rather than triggering a rebuild, which is what keeps the card
       // stable enough to read and select text from while the world keeps moving.
       const signature = [
@@ -869,21 +707,21 @@ export function createTreePanel(callbacks: TreePanelCallbacks): TreePanelHandle 
       swatchRow.append(
         document.createTextNode("founding "),
         founderSwatch,
-        document.createTextNode(" → current "),
+        document.createTextNode(" â†’ current "),
         currentSwatch,
       );
 
       const table = document.createElement("table");
       const rows: [string, string][] = [
         ["species", String(species.id)],
-        ["parent", species.parentId === null ? "— (founding population)" : String(species.parentId)],
+        ["parent", species.parentId === null ? "â€” (founding population)" : String(species.parentId)],
         ["origin tick", species.originTick.toLocaleString()],
         ["status", volatileValues.status],
         ["lifespan so far", volatileValues["lifespan so far"]],
         ["peak population", volatileValues["peak population"]],
         ["current population", volatileValues["current population"]],
         ["mechanism", MECHANISM_LABELS[species.mechanism]],
-        ["dominant divergent gene", species.dominantDivergentGene ?? "—"],
+        ["dominant divergent gene", species.dominantDivergentGene ?? "â€”"],
       ];
       for (const [label, value] of rows) {
         const tr = document.createElement("tr");
@@ -902,7 +740,7 @@ export function createTreePanel(callbacks: TreePanelCallbacks): TreePanelHandle 
       if (capabilities.length === 0) {
         const empty = document.createElement("div");
         empty.className = "capability-empty";
-        empty.textContent = "No demonstrated capabilities detected yet — needs more observed behavior.";
+        empty.textContent = "No demonstrated capabilities detected yet â€” needs more observed behavior.";
         capabilitiesSection.appendChild(empty);
       } else {
         for (const capability of capabilities) {
@@ -924,9 +762,9 @@ export function createTreePanel(callbacks: TreePanelCallbacks): TreePanelHandle 
 }
 
 const GAME_PHASE_LABELS: Record<GamePhase, string> = {
-  terraform: "Terraform — act now",
-  evolution: "Evolution running…",
-  discovery: "Discovery — review the era",
+  terraform: "Terraform â€” act now",
+  evolution: "Evolution runningâ€¦",
+  discovery: "Discovery â€” review the era",
 };
 
 export interface GameControlsCallbacks {
@@ -954,7 +792,7 @@ export interface GameControlsHandle {
   setProgress: (fraction: number | null) => void;
 }
 
-/** Mode/seed/era-advancement controls for Game Mode — the terraform -> evolution -> discovery
+/** Mode/seed/era-advancement controls for Game Mode â€” the terraform -> evolution -> discovery
  * loop (see src/game/), distinct from the classic sandbox's continuous play/pause/speed controls. */
 export function createGameControlsPanel(challenges: ChallengeDefinition[], callbacks: GameControlsCallbacks): GameControlsHandle {
   const root = document.createElement("div");
@@ -999,7 +837,7 @@ export function createGameControlsPanel(challenges: ChallengeDefinition[], callb
   continueButton.disabled = true;
   continueButton.addEventListener("click", callbacks.onContinue);
   // Halts an in-progress era where it stands (see app/gameRunner.ts's `paused`) rather than
-  // slowing it — the "let me actually look at what just happened" control. Hidden outside an era
+  // slowing it â€” the "let me actually look at what just happened" control. Hidden outside an era
   // advance, since there's nothing running to pause then.
   const pauseButton = document.createElement("button");
   pauseButton.textContent = "Pause";
@@ -1007,7 +845,7 @@ export function createGameControlsPanel(challenges: ChallengeDefinition[], callb
   pauseButton.addEventListener("click", callbacks.onTogglePause);
 
   // Terraform drafts (mega-doc item 8): everything you shape this era stays undoable until you
-  // advance. Sits next to Advance Era because those two buttons are the whole decision — take it
+  // advance. Sits next to Advance Era because those two buttons are the whole decision â€” take it
   // back, or make it permanent.
   const undoDraftButton = document.createElement("button");
   undoDraftButton.textContent = "Undo terraform";
@@ -1027,7 +865,7 @@ export function createGameControlsPanel(challenges: ChallengeDefinition[], callb
   progressFill.className = "progress-bar-fill";
   progressBar.appendChild(progressFill);
 
-  // Same speed vocabulary as the classic sandbox's playback controls — how fast an era's ticks
+  // Same speed vocabulary as the classic sandbox's playback controls â€” how fast an era's ticks
   // fly by while advancing, so you can actually watch terrain/creatures change instead of only
   // seeing the before/after result (see app/gameRunner.ts's stepEraAdvance).
   const speedRow = document.createElement("div");
@@ -1058,7 +896,7 @@ export function createGameControlsPanel(challenges: ChallengeDefinition[], callb
   return {
     root,
     setStatus(era, phase, tick, population, livingSpeciesCount) {
-      status.textContent = `Era ${era} — ${GAME_PHASE_LABELS[phase]} — tick ${tick.toLocaleString()} — population ${population.toLocaleString()} — ${livingSpeciesCount} species`;
+      status.textContent = `Era ${era} â€” ${GAME_PHASE_LABELS[phase]} â€” tick ${tick.toLocaleString()} â€” population ${population.toLocaleString()} â€” ${livingSpeciesCount} species`;
     },
     setBudget(remaining) {
       budgetStatus.textContent = remaining === null ? "Terraform points: unlimited (sandbox)" : `Terraform points: ${remaining}`;
@@ -1082,7 +920,7 @@ export function createGameControlsPanel(challenges: ChallengeDefinition[], callb
       draftStatus.textContent =
         draftCount === 0
           ? ""
-          : `${draftCount} terraform${draftCount === 1 ? "" : "s"} sketched this era — undo freely, they commit when you advance.`;
+          : `${draftCount} terraform${draftCount === 1 ? "" : "s"} sketched this era â€” undo freely, they commit when you advance.`;
     },
     setTerraformError(message) {
       errorLine.textContent = message ?? "";
@@ -1115,12 +953,12 @@ export function createEraSummaryPanel(): EraSummaryHandle {
 
       const { before, after, delta, notableTraitShifts, fastForwardedFromTick, newDiscoveries } = summary;
       const lines: string[] = [
-        `Era ${after.era} complete (tick ${before.tick.toLocaleString()} → ${after.tick.toLocaleString()})`,
-        `Population: ${before.totalPopulation.toLocaleString()} → ${after.totalPopulation.toLocaleString()} (${delta.populationChange >= 0 ? "+" : ""}${delta.populationChange.toLocaleString()})`,
-        `Species: ${delta.livingSpeciesCountBefore} → ${delta.livingSpeciesCountAfter}`,
+        `Era ${after.era} complete (tick ${before.tick.toLocaleString()} â†’ ${after.tick.toLocaleString()})`,
+        `Population: ${before.totalPopulation.toLocaleString()} â†’ ${after.totalPopulation.toLocaleString()} (${delta.populationChange >= 0 ? "+" : ""}${delta.populationChange.toLocaleString()})`,
+        `Species: ${delta.livingSpeciesCountBefore} â†’ ${delta.livingSpeciesCountAfter}`,
       ];
       if (fastForwardedFromTick !== null) {
-        lines.push(`The ecosystem settled into equilibrium at tick ${fastForwardedFromTick.toLocaleString()} — the rest of the era was fast-forwarded (every tick still simulated, just watched fast).`);
+        lines.push(`The ecosystem settled into equilibrium at tick ${fastForwardedFromTick.toLocaleString()} â€” the rest of the era was fast-forwarded (every tick still simulated, just watched fast).`);
       }
       if (delta.newSpeciesIds.length > 0) lines.push(`New species: ${delta.newSpeciesIds.join(", ")}`);
       if (delta.extinctSpeciesIds.length > 0) lines.push(`Extinct: ${delta.extinctSpeciesIds.join(", ")}`);
@@ -1132,10 +970,10 @@ export function createEraSummaryPanel(): EraSummaryHandle {
         }
       }
       if (newDiscoveries.length > 0) {
-        lines.push("Critterdex — newly discovered:");
+        lines.push("Critterdex â€” newly discovered:");
         for (const match of newDiscoveries) {
           const definition = DISCOVERY_REGISTRY.find((d) => d.id === match.definitionId);
-          lines.push(`  ${definition?.displayName ?? match.definitionId} (species ${match.speciesId}) — ${match.evidence}`);
+          lines.push(`  ${definition?.displayName ?? match.definitionId} (species ${match.speciesId}) â€” ${match.evidence}`);
         }
       }
 
@@ -1159,7 +997,7 @@ const CATEGORY_LABELS: Record<DiscoveryCategory, string> = {
 };
 
 /** Falls back to the raw category rather than throwing or showing nothing, so a category added to
- * the registry without a label here still renders — the registry is allowed to lead. */
+ * the registry without a label here still renders â€” the registry is allowed to lead. */
 function categoryLabel(category: DiscoveryCategory): string {
   return CATEGORY_LABELS[category] ?? category;
 }
@@ -1172,15 +1010,15 @@ export interface CritterdexHandle {
 /**
  * The browsable Critterdex (SPEC.md Addendum 24): everything discoverable this run, what's been
  * earned, and what's close. The discovery toasts announce a single moment; this is the collection
- * you play toward — the half that made discoveries feel like a notification rather than a goal.
+ * you play toward â€” the half that made discoveries feel like a notification rather than a goal.
  *
- * Rebuilt wholesale when its content changes rather than diffed — a dozen rows, so
+ * Rebuilt wholesale when its content changes rather than diffed â€” a dozen rows, so
  * correctness-by-construction beats saving a few DOM writes; if the registry ever grows enough for
  * that to stop being true, this is the place to reach for keyed reuse, not before.
  *
  * It does have to skip UNCHANGED renders though, and not merely as an optimization: setSummary is
  * called from the 16ms render loop, and rebuilding would reset each category's <details> open
- * state every frame, so a player could never collapse a group — it would spring back open
+ * state every frame, so a player could never collapse a group â€” it would spring back open
  * instantly. The signature below is what makes the panel idle.
  */
 export function createCritterdexPanel(callbacks: { onInspect: (match: DiscoveryMatch) => void }): CritterdexHandle {
@@ -1210,14 +1048,14 @@ export function createCritterdexPanel(callbacks: { onInspect: (match: DiscoveryM
     // A locked entry withholds its name: the hint is the lead, so finding it is a discovery rather
     // than ticking off a list you were already handed. Addendum 16's "don't leak hidden numbers"
     // applied to the collection view.
-    name.textContent = entry.status === "locked" ? "— undiscovered —" : entry.definition.displayName;
+    name.textContent = entry.status === "locked" ? "â€” undiscovered â€”" : entry.definition.displayName;
 
     const detail = document.createElement("span");
     detail.className = "critterdex-entry-detail";
     if (entry.status === "unlocked" && entry.match) {
-      detail.textContent = `Species ${entry.match.speciesId} · era ${entry.match.confirmedEra} — ${entry.match.evidence}`;
+      detail.textContent = `Species ${entry.match.speciesId} Â· era ${entry.match.confirmedEra} â€” ${entry.match.evidence}`;
     } else if (entry.status === "in-progress") {
-      detail.textContent = `Species ${entry.streakSpeciesId} is ${entry.streak}/${entry.requiredStreak} eras in — ${entry.definition.hint}`;
+      detail.textContent = `Species ${entry.streakSpeciesId} is ${entry.streak}/${entry.requiredStreak} eras in â€” ${entry.definition.hint}`;
     } else {
       detail.textContent = entry.definition.hint;
     }
@@ -1264,13 +1102,13 @@ export function createCritterdexPanel(callbacks: { onInspect: (match: DiscoveryM
           const section = document.createElement("details");
           section.className = "critterdex-group";
           // Open a category as soon as it holds anything worth looking at, closed while it's still
-          // entirely undiscovered — the panel opens itself up as the run progresses instead of
+          // entirely undiscovered â€” the panel opens itself up as the run progresses instead of
           // presenting twelve rows of nothing on turn one.
           section.open = group.entries.some((entry) => entry.status !== "locked");
 
           const heading = document.createElement("summary");
           heading.className = "critterdex-group-heading";
-          heading.textContent = `${categoryLabel(group.category)} — ${group.unlockedCount}/${group.entries.length}`;
+          heading.textContent = `${categoryLabel(group.category)} â€” ${group.unlockedCount}/${group.entries.length}`;
 
           section.append(heading, ...group.entries.map(entryRow));
           return section;
@@ -1285,12 +1123,12 @@ export interface RunHistoryHandle {
   setChronicle: (chronicle: RunChronicle) => void;
 }
 
-/** Newest first, and capped — the interesting question is "what just happened and did I cause it",
+/** Newest first, and capped â€” the interesting question is "what just happened and did I cause it",
  * not a full archive. The whole run is still in the data if a fuller view is ever wanted. */
 const MAX_HISTORY_ENTRIES = 12;
 
 /**
- * The run's history card (SPEC.md Addendum 30) — the scorecard, then what happened and which of it
+ * The run's history card (SPEC.md Addendum 30) â€” the scorecard, then what happened and which of it
  * you caused. Built to answer the question that made Dan stop playing: "I couldn't tell if I was
  * doing well."
  *
@@ -1325,7 +1163,7 @@ export function createRunHistoryPanel(): RunHistoryHandle {
     root,
     setChronicle(chronicle) {
       const { scorecard, entries } = chronicle;
-      // Driven from the 16ms render loop, so it must idle when nothing changed — otherwise it
+      // Driven from the 16ms render loop, so it must idle when nothing changed â€” otherwise it
       // rebuilds sixty times a second and can't be read or selected from. Same guard the Critterdex
       // panel and the species card use.
       const signature = `${scorecard.erasCompleted}|${scorecard.ticksElapsed}|${entries.length}|${scorecard.attributedOutcomes}|${scorecard.notableOutcomes}|${scorecard.discoveries}|${scorecard.peakPopulation}|${scorecard.livingSpecies}`;
@@ -1334,7 +1172,7 @@ export function createRunHistoryPanel(): RunHistoryHandle {
 
       headline.textContent =
         entries.length === 0
-          ? "Nothing has happened yet — terraform something and advance an era."
+          ? "Nothing has happened yet â€” terraform something and advance an era."
           : scorecard.notableOutcomes === 0
             ? `${scorecard.terraformActions} terraform${scorecard.terraformActions === 1 ? "" : "s"} so far, and the world hasn't split or lost a species yet.`
             : `${scorecard.attributedOutcomes} of ${scorecard.notableOutcomes} splits and extinctions trace back to your terraforming.`;
@@ -1391,14 +1229,14 @@ export function createObjectivesPanel(): ObjectivesHandle {
 
   const body = document.createElement("div");
   body.className = "inspector-body";
-  body.textContent = "Sandbox mode has no objectives — free play.";
+  body.textContent = "Sandbox mode has no objectives â€” free play.";
   root.appendChild(body);
 
   return {
     root,
     setChallenge(objectives, status) {
       if (objectives.length === 0 || !status) {
-        body.textContent = "Sandbox mode has no objectives — free play.";
+        body.textContent = "Sandbox mode has no objectives â€” free play.";
         return;
       }
 
@@ -1418,7 +1256,7 @@ export function createObjectivesPanel(): ObjectivesHandle {
       } else if (status.eraLimitReached) {
         const banner = document.createElement("div");
         banner.className = "godmode-hint";
-        banner.textContent = "Era limit reached — challenge over.";
+        banner.textContent = "Era limit reached â€” challenge over.";
         list.appendChild(banner);
       }
       body.replaceChildren(list);
@@ -1426,7 +1264,7 @@ export function createObjectivesPanel(): ObjectivesHandle {
   };
 }
 
-/** Structurally matches app/gameRunner.ts's GameCheckpoint — duplicated rather than imported so
+/** Structurally matches app/gameRunner.ts's GameCheckpoint â€” duplicated rather than imported so
  * ui/ never depends on app/ (app already depends on ui/; the reverse would be a cycle). */
 export interface CheckpointSummary {
   id: string;
@@ -1447,7 +1285,7 @@ export interface CheckpointsHandle {
   setCheckpoints: (checkpoints: CheckpointSummary[]) => void;
 }
 
-/** Named, session-only save points the player can jump back to — restoring one never deletes any
+/** Named, session-only save points the player can jump back to â€” restoring one never deletes any
  * other, so they behave like git branches: explicit save points, explicit "Delete" to collapse
  * one you're done with. */
 export function createCheckpointsPanel(callbacks: CheckpointsCallbacks): CheckpointsHandle {
@@ -1457,7 +1295,7 @@ export function createCheckpointsPanel(callbacks: CheckpointsCallbacks): Checkpo
 
   const hint = document.createElement("div");
   hint.className = "godmode-hint";
-  hint.textContent = "Save a named point in time, then jump back to it later — restoring one doesn't delete the others.";
+  hint.textContent = "Save a named point in time, then jump back to it later â€” restoring one doesn't delete the others.";
 
   const nameInput = document.createElement("input");
   nameInput.type = "text";
@@ -1493,7 +1331,7 @@ export function createCheckpointsPanel(callbacks: CheckpointsCallbacks): Checkpo
           row.className = "event-feed-entry checkpoint-entry";
 
           const label = document.createElement("span");
-          label.textContent = `${checkpoint.name} — era ${checkpoint.era}, tick ${checkpoint.tick.toLocaleString()}`;
+          label.textContent = `${checkpoint.name} â€” era ${checkpoint.era}, tick ${checkpoint.tick.toLocaleString()}`;
 
           const restoreButton = document.createElement("button");
           restoreButton.textContent = "Restore";

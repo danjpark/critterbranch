@@ -18,17 +18,15 @@ import {
   createCritterdexPanel,
   createRunHistoryPanel,
   createEraSummaryPanel,
-  createEventFeed,
   createGameControlsPanel,
-  createGeneFlowChart,
   createGodModePanel,
   createLegend,
   createObjectivesPanel,
   createScatterPanel,
   createScenarioPanel,
-  createTraitChart,
   createTreePanel,
 } from "./ui/controls.ts";
+import { createRunTimeline } from "./ui/runTimeline.ts";
 import { enablePanelWorkspace } from "./ui/panelWorkspace.ts";
 import { createDiscoveryDetailCard, createDiscoveryToastLayer } from "./ui/discoveryToasts.ts";
 import { DISCOVERY_CONFIRMATION_ERAS, type DiscoveryMatch } from "./game/discovery/discoveryJournal.ts";
@@ -331,9 +329,10 @@ const scatterPanel = createScatterPanel(scatterXGene, scatterYGene, {
   },
 });
 
-const eventFeed = createEventFeed();
-const geneFlowChart = createGeneFlowChart();
-const traitChart = createTraitChart(traitChartGene, (gene) => {
+// SPEC.md Addendum 32 — gene flow, trait drift and the event log are all measurements of the same
+// run against the same clock, so they live in one full-width band beneath the world rather than as
+// three ~272px sidebar panels. See ui/runTimeline.ts for why they share a single canvas.
+const runTimeline = createRunTimeline(traitChartGene, (gene) => {
   traitChartGene = gene;
   render();
 });
@@ -345,12 +344,14 @@ sidebar.append(
   treePanel.root,
   scatterPanel.root,
   scenarioPanel.root,
-  geneFlowChart.root,
-  traitChart.root,
-  eventFeed.root,
   controls.inspectorRoot,
 );
 enablePanelWorkspace(sidebar, "classic");
+
+const classicDeck = document.createElement("div");
+classicDeck.className = "deck";
+classicDeck.appendChild(runTimeline.root);
+classicRoot.appendChild(classicDeck);
 
 const worldClickGuard = attachClickGuard(worldCanvas);
 
@@ -449,9 +450,13 @@ function render(): void {
     if (species.extinctTick === null) livingSpeciesCount++;
   }
   controls.setStatus(runner.sim.state.evolution.tick, runner.sim.state.evolution.creatures.length, livingSpeciesCount, runner.isFastForwarding());
-  eventFeed.setEvents(runner.sim.state.observations.taxonomyEvents);
-  geneFlowChart.render(runner.sim.state.observations.geneFlow.history);
-  traitChart.render(runner.sim.state.observations.traitHistory, traitChartGene);
+  runTimeline.render({
+    geneFlow: runner.sim.state.observations.geneFlow.history,
+    traitHistory: runner.sim.state.observations.traitHistory,
+    events: runner.sim.state.observations.taxonomyEvents,
+    currentTick: runner.sim.state.evolution.tick,
+    gene: traitChartGene,
+  });
   const selectedSpecies = runner.selectedSpecies();
   const selectedCapabilities = selectedSpecies
     ? (() => {
